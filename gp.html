@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>GuitarTrainer - Master Any Song</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <style>
+    :root {
+      --bg-color: #121212;
+      --surface: #1e1e1e;
+      --surface-light: #2c2c2c;
+      --primary: #bb86fc;
+      --active: #03dac6;
+      --danger: #cf6679;
+    }
+    body { background-color: var(--bg-color); color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
+    
+    .view { display: none; flex-direction: column; height: 100%; width: 100%; }
+    .view.active { display: flex; }
+
+    .scroll-area::-webkit-scrollbar { width: 6px; }
+    .scroll-area::-webkit-scrollbar-track { background: transparent; }
+    .scroll-area::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
+
+    .timeline-block { transition: all 0.2s ease; border-left: 4px solid transparent; }
+    .timeline-block.active { background: rgba(3, 218, 198, 0.1); border-left-color: var(--active); transform: scale(1.02); }
+    .timeline-block.active .chord { color: var(--active); }
+    
+    .strum { transition: all 0.1s; color: #555; }
+    .strum.active { color: var(--active); text-shadow: 0 0 10px rgba(3,218,198,0.5); transform: scale(1.2); }
+    
+    .metro-dot { width: 10px; height: 10px; border-radius: 50%; background: #333; transition: all 0.1s; }
+    .metro-dot.active { background: var(--active); transform: scale(1.3); box-shadow: 0 0 8px var(--active); }
+
+    .btn-press:active { transform: scale(0.95); }
+    .text-primary { color: var(--primary); }
+    .bg-surface { background-color: var(--surface); }
+  </style>
+</head>
+<body>
+
+  <!-- Login/Username Overlay -->
+  <div id="view-auth" class="view active items-center justify-center p-6 bg-[#121212] z-50">
+    <div class="w-full max-w-sm bg-surface p-8 rounded-2xl border border-gray-800 shadow-2xl">
+      <div class="text-center mb-8">
+        <i class="fas fa-guitar text-5xl text-primary mb-4"></i>
+        <h1 class="text-2xl font-bold">GuitarTrainer</h1>
+        <p class="text-gray-400 mt-2">Enter your username to begin</p>
+      </div>
+      <input type="text" id="username-input" placeholder="GuitarHero99" class="w-full bg-black/50 border border-gray-700 rounded-xl px-4 py-3 mb-4 text-white focus:outline-none focus:border-primary">
+      <button onclick="handleLogin()" class="w-full bg-primary text-black font-bold py-3 rounded-xl btn-press">
+        Start Practicing
+      </button>
+    </div>
+  </div>
+
+  <!-- Loading Overlay -->
+  <div id="loading-overlay" class="absolute inset-0 bg-[#121212] z-50 hidden flex-col items-center justify-center">
+    <i class="fas fa-circle-notch fa-spin text-4xl text-primary mb-4"></i>
+    <p id="loading-text" class="text-gray-400">Syncing with Cloud...</p>
+  </div>
+
+  <!-- VIEW 1: Home (Song List) -->
+  <div id="view-home" class="view">
+    <header class="bg-surface p-4 border-b border-gray-800 flex justify-between items-center shadow-md">
+      <h1 class="text-xl font-bold text-primary">GuitarTrainer</h1>
+      <span id="display-username" class="text-xs text-gray-500 font-mono"></span>
+    </header>
+    <main class="flex-1 overflow-y-auto p-4 scroll-area">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-lg text-gray-400 font-semibold uppercase tracking-wider">My Songs</h2>
+      </div>
+      <div id="song-list" class="space-y-4"></div>
+    </main>
+    <!-- Add Song Button -->
+    <button onclick="navigate('add-song')" class="fixed bottom-6 right-6 w-14 h-14 bg-primary text-black rounded-full shadow-lg flex items-center justify-center text-2xl btn-press z-10">
+      <i class="fas fa-plus"></i>
+    </button>
+  </div>
+
+  <!-- VIEW: Add Song -->
+  <div id="view-add-song" class="view">
+    <header class="bg-surface p-4 border-b border-gray-800 flex items-center shadow-md">
+      <button onclick="navigate('home')" class="mr-4 text-gray-400 btn-press"><i class="fas fa-times text-xl"></i></button>
+      <h1 class="text-xl font-bold">New Song</h1>
+    </header>
+    <main class="flex-1 overflow-y-auto p-6 scroll-area bg-black/20">
+      <div class="space-y-4 max-w-lg mx-auto">
+        <input type="text" id="add-title" placeholder="Song Title" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3">
+        <input type="text" id="add-artist" placeholder="Artist" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3">
+        <input type="number" id="add-bpm" placeholder="Default BPM" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3">
+        
+        <label class="block text-xs font-bold text-gray-500 uppercase">Chords & Lyrics (JSON Format)</label>
+        <textarea id="add-chords-json" rows="5" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-2 text-xs font-mono" placeholder='[{"time":0,"chord":"Am","lyric":"Hello"}]'></textarea>
+        
+        <label class="block text-xs font-bold text-gray-500 uppercase">Strumming Pattern (JSON Format)</label>
+        <textarea id="add-strum-json" rows="4" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-2 text-xs font-mono" placeholder='[{"time":0,"type":"↓"},{"time":1.5,"type":"↑"}]'></textarea>
+
+        <button onclick="saveNewSong()" class="w-full bg-active text-black font-bold py-4 rounded-xl mt-4 btn-press">
+          <i class="fas fa-save mr-2"></i> Save Song
+        </button>
+      </div>
+    </main>
+  </div>
+
+  <!-- VIEW 2: Song Details -->
+  <div id="view-details" class="view">
+    <header class="bg-surface p-4 border-b border-gray-800 flex items-center">
+      <button onclick="navigate('home')" class="mr-4 text-gray-400 btn-press"><i class="fas fa-arrow-left text-xl"></i></button>
+      <div><h1 id="detail-title" class="text-xl font-bold"></h1><p id="detail-artist" class="text-sm text-gray-400"></p></div>
+    </header>
+    <main class="flex-1 overflow-y-auto p-4 scroll-area">
+      <div class="bg-surface rounded-xl p-5 mb-6 border border-gray-800 shadow-xl">
+        <div class="flex justify-between mb-4">
+          <div><p class="text-[10px] text-gray-500 uppercase">Origin</p><p id="detail-posted" class="text-sm"></p></div>
+          <div><p class="text-[10px] text-gray-500 uppercase">Target BPM</p><p id="detail-bpm" class="text-sm"></p></div>
+        </div>
+        <div class="mb-4">
+          <p class="text-[10px] text-gray-500 uppercase mb-2">Strumming Pattern</p>
+          <div id="detail-strum-viz" class="flex gap-4 text-xl font-bold text-primary bg-black/30 p-2 rounded"></div>
+        </div>
+        <div>
+          <p class="text-[10px] text-gray-500 uppercase mb-2">Chords</p>
+          <div id="detail-chords" class="flex flex-wrap gap-2"></div>
+        </div>
+      </div>
+      <div class="space-y-3" id="practice-steps-container"></div>
+    </main>
+  </div>
+
+  <!-- VIEW 3: Practice -->
+  <div id="view-practice" class="view">
+    <header class="bg-surface p-4 border-b border-gray-800 flex justify-between items-center z-20">
+      <button onclick="stopAndExitPractice()" class="text-gray-400 btn-press"><i class="fas fa-times text-xl"></i></button>
+      <div class="text-center">
+        <p id="practice-step-label" class="text-[10px] text-primary font-bold uppercase"></p>
+        <p id="practice-title" class="text-sm font-medium"></p>
+      </div>
+      <input type="number" id="practice-bpm" class="w-14 bg-black/50 text-white rounded text-center border border-gray-700">
+    </header>
+
+    <div class="h-1 bg-gray-800 w-full"><div id="practice-progress-bar" class="h-full bg-active w-0 transition-all"></div></div>
+
+    <main id="practice-timeline" class="flex-1 overflow-y-auto p-4 scroll-area relative flex flex-col gap-6 pb-40"></main>
+    <div id="step2-focus" class="hidden flex-1 flex-col items-center justify-center p-8 text-center">
+      <i class="fas fa-drum text-6xl text-gray-700 mb-4"></i>
+      <h2 class="text-2xl font-bold">Rhythm Training</h2>
+      <p class="text-gray-400">Ignore the lyrics. Master the timing.</p>
+    </div>
+
+    <footer class="bg-surface border-t border-gray-800 p-4 pb-8 absolute bottom-0 w-full z-20 shadow-2xl">
+      <!-- Metronome Visualizer -->
+      <div class="flex justify-center gap-4 mb-4" id="metronome-dots">
+        <div class="metro-dot" id="dot-0"></div>
+        <div class="metro-dot" id="dot-1"></div>
+        <div class="metro-dot" id="dot-2"></div>
+        <div class="metro-dot" id="dot-3"></div>
+      </div>
+      <div id="practice-strumming" class="flex justify-around text-3xl font-bold bg-black/40 p-4 rounded-xl mb-4 border border-gray-800"></div>
+      <div class="flex justify-center">
+        <button id="btn-play" onclick="togglePlay()" class="bg-primary text-black font-bold py-4 px-14 rounded-full text-lg btn-press">
+          <i class="fas fa-play mr-2"></i> Start
+        </button>
+      </div>
+    </footer>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, collection, getDocs, doc, setDoc, getDoc, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    const appId = "1:282086325190:web:b3ec1bca510460e87a50c7";
+    const firebaseConfig = {
+      apiKey: "AIzaSyD-J0dAS2C7_KCpupKpvB_lLhi55TkbWTQ",
+      authDomain: "guitarpractice-dfa4b.firebaseapp.com",
+      projectId: "guitarpractice-dfa4b",
+      storageBucket: "guitarpractice-dfa4b.firebasestorage.app",
+      messagingSenderId: "282086325190",
+      appId: "1:282086325190:web:b3ec1bca510460e87a50c7"
+    };
+    let app, auth, db, user;
+    let songs = [];
+    let currentSong = null;
+    let userProgress = {};
+    let username = "";
+    
+    let audioCtx = null;
+    let isPlaying = false;
+    let startTime = 0;
+    let currentBpm = 70;
+    let nextNoteTime = 0;
+    let currentBeatInBar = 0;
+    let animationId;
+    let currentStepMode = 1;
+    let activeStrumPattern = [];
+    let lastSavedPercent = -1;
+
+    const MOCK_SONG = {
+      title: "Ya Rayah", artist: "Cheb Khaled", postedBy: "System", bpm: 80, totalBeats: 32,
+      chords: [
+        { time: 0, chord: "Am", lyric: "Ya rayah..." }, { time: 4, chord: "G", lyric: "win msafar..." },
+        { time: 8, chord: "F", lyric: "trouh taaya..." }, { time: 12, chord: "E", lyric: "wa twali..." },
+        { time: 16, chord: "Am", lyric: "Chhal nadmou..." }, { time: 20, chord: "G", lyric: "laabad lghafline..." },
+        { time: 24, chord: "F", lyric: "qablak ou..." }, { time: 28, chord: "E", lyric: "qabli..." }
+      ],
+      strumming: [
+        { time: 0, type: "↓" }, { time: 0.5, type: "↓" }, { time: 1, type: "↑" }, { time: 1.5, type: "↑" },
+        { time: 2.5, type: "↓" }, { time: 3, type: "↑" }, { time: 3.5, type: "↓" }
+      ]
+    };
+
+    window.handleLogin = function() {
+      const input = document.getElementById('username-input').value.trim();
+      if (!input) return;
+      username = input;
+      localStorage.setItem('guitar_trainer_username', username);
+      initApp();
+    };
+
+    async function initApp() {
+      document.getElementById('loading-overlay').classList.remove('hidden');
+      try {
+        app = initializeApp(firebaseConfig);
+        auth = getAuth(app);
+        db = getFirestore(app);
+
+        const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        if (token) await signInWithCustomToken(auth, token);
+        else await signInAnonymously(auth);
+
+        onAuthStateChanged(auth, async (u) => {
+          if (u) {
+            user = u;
+            document.getElementById('display-username').innerText = username;
+            await loadSongs();
+            navigate('home');
+            document.getElementById('loading-overlay').classList.add('hidden');
+          }
+        });
+      } catch (err) {
+        console.error(err);
+        songs = [MOCK_SONG];
+        renderHomeList();
+        navigate('home');
+        document.getElementById('loading-overlay').classList.add('hidden');
+      }
+    }
+
+    async function loadSongs() {
+      const songsRef = collection(db, 'artifacts', appId, 'public', 'data', 'songs');
+      const snap = await getDocs(songsRef);
+      if (snap.empty) {
+        await setDoc(doc(songsRef, 'default_song'), MOCK_SONG);
+        songs = [{ id: 'default_song', ...MOCK_SONG }];
+      } else {
+        songs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      }
+      renderHomeList();
+    }
+
+    window.saveNewSong = async function() {
+      const title = document.getElementById('add-title').value;
+      const artist = document.getElementById('add-artist').value;
+      const bpm = parseInt(document.getElementById('add-bpm').value);
+      const chords = JSON.parse(document.getElementById('add-chords-json').value);
+      const strum = JSON.parse(document.getElementById('add-strum-json').value);
+
+      const newSong = {
+        title, artist, bpm, chords, strumming: strum,
+        postedBy: username, totalBeats: chords[chords.length-1].time + 4
+      };
+
+      document.getElementById('loading-overlay').classList.remove('hidden');
+      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'songs'), newSong);
+      await loadSongs();
+      navigate('home');
+    };
+
+    window.navigate = function(id) {
+      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      document.getElementById(`view-${id}`).classList.add('active');
+    };
+
+    function renderHomeList() {
+      const list = document.getElementById('song-list');
+      list.innerHTML = songs.map(s => `
+        <div onclick="openSongDetails('${s.id}')" class="bg-surface rounded-xl p-4 flex justify-between items-center border border-gray-800 btn-press">
+          <div><h3 class="font-bold">${s.title}</h3><p class="text-xs text-gray-500">${s.artist}</p></div>
+          <i class="fas fa-chevron-right text-gray-700"></i>
+        </div>
+      `).join('');
+    }
+
+    window.openSongDetails = async function(id) {
+      currentSong = songs.find(s => s.id === id);
+      document.getElementById('detail-title').innerText = currentSong.title;
+      document.getElementById('detail-artist').innerText = currentSong.artist;
+      document.getElementById('detail-posted').innerText = currentSong.postedBy;
+      document.getElementById('detail-bpm').innerText = currentSong.bpm;
+      
+      document.getElementById('detail-strum-viz').innerHTML = currentSong.strumming.map(s => `<span>${s.type}</span>`).join('');
+      const unique = [...new Set(currentSong.chords.map(c => c.chord))];
+      document.getElementById('detail-chords').innerHTML = unique.map(c => `<span class="bg-gray-800 text-active px-2 py-1 rounded text-[10px] font-bold border border-gray-700">${c}</span>`).join('');
+
+      await loadProgress();
+      renderSteps();
+      navigate('details');
+    };
+
+    async function loadProgress() {
+      // Logic uses username subcollection to keep it unique per local "user"
+      const progRef = doc(db, 'artifacts', appId, 'users', username, 'progress', currentSong.id);
+      const snap = await getDoc(progRef);
+      userProgress = snap.exists() ? snap.data() : { step1: {p:0}, step2: {p:0}, step3: {p:0} };
+    }
+
+    function renderSteps() {
+      const steps = [
+        { id: 1, name: "Chords Mastery", desc: "1 Downstroke per measure" },
+        { id: 2, name: "Rhythm Pattern", desc: "Focus on the strumming visual" },
+        { id: 3, name: "Full Song", desc: "The ultimate performance" }
+      ];
+      document.getElementById('practice-steps-container').innerHTML = steps.map(s => {
+        const p = userProgress[`step${s.id}`]?.p || 0;
+        return `
+          <div onclick="startPractice(${s.id})" class="bg-surface-light rounded-xl p-4 flex justify-between items-center cursor-pointer border border-gray-800 btn-press">
+            <div class="flex gap-4 items-center">
+              <div class="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold">${s.id}</div>
+              <div><h4 class="font-bold text-sm">${s.name}</h4><p class="text-[10px] text-gray-500">${s.desc}</p></div>
+            </div>
+            <span class="text-xs font-bold ${p >= 100 ? 'text-active' : 'text-gray-400'}">${Math.floor(p)}%</span>
+          </div>
+        `;
+      }).join('');
+    }
+
+    window.startPractice = function(step) {
+      currentStepMode = step;
+      currentBpm = currentSong.bpm;
+      document.getElementById('practice-bpm').value = currentBpm;
+      document.getElementById('practice-title').innerText = currentSong.title;
+      document.getElementById('practice-step-label').innerText = `Step ${step}`;
+      
+      const timeline = document.getElementById('practice-timeline');
+      const focus = document.getElementById('step2-focus');
+      const strumming = document.getElementById('practice-strumming');
+      
+      timeline.innerHTML = '';
+      strumming.innerHTML = '';
+
+      if(step === 2) {
+        timeline.classList.add('hidden');
+        focus.classList.remove('hidden');
+        activeStrumPattern = currentSong.strumming;
+      } else {
+        timeline.classList.remove('hidden');
+        focus.classList.add('hidden');
+        timeline.innerHTML = currentSong.chords.map((c, i) => `
+          <div id="block-${i}" class="timeline-block p-4 bg-black/20 rounded-xl border border-gray-800">
+            <div class="chord font-bold text-xl">${c.chord}</div>
+            <div class="lyric text-sm text-gray-400">${c.lyric}</div>
+          </div>
+        `).join('');
+        activeStrumPattern = step === 1 ? [{ time: 0, type: "↓" }] : currentSong.strumming;
+      }
+
+      strumming.innerHTML = activeStrumPattern.map((s, i) => `<span id="strum-${i}">${s.type}</span>`).join('');
+      if(step === 1) strumming.innerHTML += `<span class="opacity-20">. . .</span>`;
+
+      navigate('practice');
+    };
+
+    window.togglePlay = function() {
+      if(!isPlaying) {
+        if(!audioCtx) audioCtx = new AudioContext();
+        isPlaying = true;
+        startTime = audioCtx.currentTime;
+        nextNoteTime = audioCtx.currentTime + 0.05;
+        currentBeatInBar = 0;
+        lastSavedPercent = -1;
+        document.getElementById('btn-play').innerHTML = `<i class="fas fa-stop"></i> Stop`;
+        scheduler();
+      } else { stopPlayback(); }
+    };
+
+    function scheduler() {
+      while (nextNoteTime < audioCtx.currentTime + 0.1) {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.frequency.value = currentBeatInBar === 0 ? 1200 : 800;
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.start(nextNoteTime); osc.stop(nextNoteTime + 0.05);
+        gain.gain.setValueAtTime(0.3, nextNoteTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, nextNoteTime + 0.05);
+        
+        nextNoteTime += 60.0 / currentBpm;
+        currentBeatInBar = (currentBeatInBar + 1) % 4;
+      }
+      if(isPlaying) {
+        animationId = requestAnimationFrame(updateUI);
+        setTimeout(scheduler, 25);
+      }
+    }
+
+    function updateUI() {
+      if(!isPlaying) return;
+      const beat = (audioCtx.currentTime - startTime) / (60 / currentBpm);
+      const percent = Math.min(100, (beat / currentSong.totalBeats) * 100);
+      document.getElementById('practice-progress-bar').style.width = `${percent}%`;
+
+      // Save progress every 10%
+      const decile = Math.floor(percent / 10) * 10;
+      if(decile > lastSavedPercent) {
+        lastSavedPercent = decile;
+        saveProg(decile);
+      }
+
+      // Metronome Dots
+      const activeDot = Math.floor(beat % 4);
+      document.querySelectorAll('.metro-dot').forEach((d, i) => {
+        i === activeDot ? d.classList.add('active') : d.classList.remove('active');
+      });
+
+      // Strum Highlighting
+      const subBeat = beat % 4;
+      activeStrumPattern.forEach((s, i) => {
+        const el = document.getElementById(`strum-${i}`);
+        if(!el) return;
+        Math.abs(subBeat - s.time) < 0.2 ? el.classList.add('active') : el.classList.remove('active');
+      });
+
+      // Timeline Highlighting
+      if(currentStepMode !== 2) {
+        currentSong.chords.forEach((c, i) => {
+          const el = document.getElementById(`block-${i}`);
+          const next = currentSong.chords[i+1]?.time || Infinity;
+          if(beat >= c.time && beat < next) {
+            if(!el.classList.contains('active')) {
+              document.querySelectorAll('.timeline-block').forEach(b => b.classList.remove('active'));
+              el.classList.add('active');
+              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          }
+        });
+      }
+
+      if(beat >= currentSong.totalBeats) stopPlayback();
+    }
+
+    async function saveProg(p) {
+      const key = `step${currentStepMode}`;
+      if(p > (userProgress[key]?.p || 0)) {
+        userProgress[key] = { p };
+        await setDoc(doc(db, 'artifacts', appId, 'users', username, 'progress', currentSong.id), userProgress, { merge: true });
+      }
+    }
+
+    function stopPlayback() {
+      isPlaying = false;
+      cancelAnimationFrame(animationId);
+      document.getElementById('btn-play').innerHTML = `<i class="fas fa-play"></i> Start`;
+      document.querySelectorAll('.active').forEach(a => a.classList.remove('active'));
+    }
+
+    window.stopAndExitPractice = () => { stopPlayback(); openSongDetails(currentSong.id); };
+
+    window.onload = () => {
+      const saved = localStorage.getItem('guitar_trainer_username');
+      if(saved) {
+        username = saved;
+        document.getElementById('username-input').value = username;
+      }
+    };
+  </script>
+</body>
+</html>
