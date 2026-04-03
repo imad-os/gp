@@ -20,13 +20,12 @@
     .view { display: none; flex-direction: column; height: 100%; width: 100%; }
     .view.active { display: flex; }
 
-    .scroll-area::-webkit-scrollbar { width: 6px; }
+    .scroll-area::-webkit-scrollbar { width: 6px; height: 6px; }
     .scroll-area::-webkit-scrollbar-track { background: transparent; }
     .scroll-area::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
 
     .timeline-block { transition: all 0.2s ease; border-left: 4px solid transparent; }
     .timeline-block.active { background: rgba(3, 218, 198, 0.1); border-left-color: var(--active); transform: scale(1.02); }
-    .timeline-block.active .chord { color: var(--active); }
     
     .rhythm-step { transition: transform 0.1s ease; }
     .strum-char { transition: all 0.1s; color: #555; }
@@ -101,16 +100,16 @@
       </div>
       <div id="song-list" class="space-y-4"></div>
     </main>
-    <button id="btn-add-song" onclick="navigate('add-song')" class="fixed bottom-6 right-6 w-14 h-14 bg-primary text-black rounded-full shadow-[0_0_15px_rgba(187,134,252,0.3)] flex items-center justify-center text-2xl btn-press z-10 transition-transform hidden">
+    <button id="btn-add-song" onclick="openAddSong()" class="fixed bottom-6 right-6 w-14 h-14 bg-primary text-black rounded-full shadow-[0_0_15px_rgba(187,134,252,0.3)] flex items-center justify-center text-2xl btn-press z-10 transition-transform hidden">
       <i class="fas fa-plus"></i>
     </button>
   </div>
 
-  <!-- VIEW: Add Song -->
+  <!-- VIEW: Add / Edit Song -->
   <div id="view-add-song" class="view">
     <header class="bg-surface p-4 border-b border-gray-800 flex items-center shadow-md">
-      <button onclick="navigate('home')" class="mr-4 text-gray-400 btn-press"><i class="fas fa-arrow-left text-xl"></i></button>
-      <h1 class="text-xl font-bold">New Song</h1>
+      <button onclick="closeAddEdit()" class="mr-4 text-gray-400 btn-press"><i class="fas fa-arrow-left text-xl"></i></button>
+      <h1 id="add-view-title" class="text-xl font-bold">New Song</h1>
     </header>
     <main class="flex-1 overflow-y-auto p-6 scroll-area bg-black/20">
       <div class="space-y-5 max-w-lg mx-auto pb-10">
@@ -120,8 +119,8 @@
         
         <div>
           <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Chords & Lyrics</label>
-          <p class="text-[10px] text-gray-500 mb-2">Format per line: <b>Beat, Chord, Lyric</b></p>
-          <textarea id="add-chords-text" rows="6" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 text-sm font-mono leading-relaxed focus:border-primary focus:outline-none" placeholder="0, Am, Ya rayah...&#10;4, G, win msafar...&#10;8, F, trouh taaya...&#10;12, E, wa twali..."></textarea>
+          <p class="text-[10px] text-gray-500 mb-2">Write chords above the lyrics using spaces to align them.</p>
+          <textarea id="add-chords-text" rows="8" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 text-sm font-mono whitespace-pre overflow-x-auto leading-relaxed focus:border-primary focus:outline-none" placeholder="C                                            G&#10;halit 3ayniii , fwest mdina kbiraaaa&#10;&#10;Am                                           E&#10;trouh taaya , wa twali..."></textarea>
         </div>
         
         <div>
@@ -130,7 +129,7 @@
           <input type="text" id="add-strum-text" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 text-lg tracking-widest font-mono uppercase focus:border-primary focus:outline-none" placeholder="D . D U . U D U">
         </div>
 
-        <button onclick="saveNewSong()" class="w-full bg-active text-black font-bold py-4 rounded-xl mt-4 btn-press shadow-[0_0_15px_rgba(3,218,198,0.2)]">
+        <button id="btn-save-song" onclick="saveSong()" class="w-full bg-active text-black font-bold py-4 rounded-xl mt-4 btn-press shadow-[0_0_15px_rgba(3,218,198,0.2)]">
           <i class="fas fa-save mr-2"></i> Save to Library
         </button>
       </div>
@@ -139,9 +138,12 @@
 
   <!-- VIEW 2: Song Details -->
   <div id="view-details" class="view">
-    <header class="bg-surface p-4 border-b border-gray-800 flex items-center">
-      <button onclick="navigate('home')" class="mr-4 text-gray-400 btn-press"><i class="fas fa-arrow-left text-xl"></i></button>
-      <div><h1 id="detail-title" class="text-xl font-bold"></h1><p id="detail-artist" class="text-sm text-gray-400"></p></div>
+    <header class="bg-surface p-4 border-b border-gray-800 flex items-center justify-between">
+      <div class="flex items-center">
+        <button onclick="navigate('home')" class="mr-4 text-gray-400 btn-press"><i class="fas fa-arrow-left text-xl"></i></button>
+        <div><h1 id="detail-title" class="text-xl font-bold"></h1><p id="detail-artist" class="text-sm text-gray-400"></p></div>
+      </div>
+      <button id="btn-edit-song" onclick="editCurrentSong()" class="text-gray-400 hover:text-white hidden transition-colors p-2" title="Edit Song"><i class="fas fa-edit text-xl"></i></button>
     </header>
     <main class="flex-1 overflow-y-auto p-4 scroll-area">
       <div class="bg-surface rounded-xl p-5 mb-6 border border-gray-800 shadow-xl">
@@ -154,7 +156,7 @@
           <div id="detail-strum-viz" class="flex gap-4 text-xl font-bold text-primary bg-black/30 p-2 rounded"></div>
         </div>
         <div>
-          <p class="text-[10px] text-gray-500 uppercase mb-2">Chords</p>
+          <p class="text-[10px] text-gray-500 uppercase mb-2">Chords Found</p>
           <div id="detail-chords" class="flex flex-wrap gap-2"></div>
         </div>
       </div>
@@ -213,6 +215,7 @@
     let songs = [];
     let currentSong = null;
     let userProgress = {};
+    let editingSongId = null; 
     
     let audioCtx = null;
     let isPlaying = false;
@@ -226,13 +229,8 @@
     let lastSavedPercent = -1;
 
     const MOCK_SONG = {
-      title: "Ya Rayah", artist: "Cheb Khaled", postedBy: "System", bpm: 80, totalBeats: 32,
-      chords: [
-        { time: 0, chord: "Am", lyric: "Ya rayah..." }, { time: 4, chord: "G", lyric: "win msafar..." },
-        { time: 8, chord: "F", lyric: "trouh taaya..." }, { time: 12, chord: "E", lyric: "wa twali..." },
-        { time: 16, chord: "Am", lyric: "Chhal nadmou..." }, { time: 20, chord: "G", lyric: "laabad lghafline..." },
-        { time: 24, chord: "F", lyric: "qablak ou..." }, { time: 28, chord: "E", lyric: "qabli..." }
-      ],
+      title: "Ya Rayah", artist: "Cheb Khaled", postedBy: "System", bpm: 80, ownerId: "system",
+      rawText: "Am                                G\nYa rayah win msafar trouh taaya wa twali\nF                                 E\nChhal nadmou laabad lghafline qablak ou qabli\nAm                                G\nYa rayah win msafar trouh taaya wa twali",
       strumming: [
         { time: 0, type: "↓", raw: "D" }, { time: 0.5, type: ".", raw: "." },
         { time: 1, type: "↓", raw: "D" }, { time: 1.5, type: "↑", raw: "U" },
@@ -247,7 +245,6 @@
       t.innerText = msg;
       t.className = `fixed top-4 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-xl shadow-lg z-[100] transition-all duration-300 font-bold text-center w-11/12 max-w-sm pointer-events-none ${isSuccess ? 'bg-active text-black shadow-[0_5px_15px_rgba(3,218,198,0.4)]' : 'bg-danger text-white shadow-[0_5px_15px_rgba(207,102,121,0.4)]'}`;
       
-      // Force reflow and show
       void t.offsetWidth; 
       t.classList.remove('translate-y-[-150%]', 'opacity-0');
       
@@ -256,7 +253,7 @@
       }, 3000);
     };
 
-    // Authentication Handlers
+    // Authentication
     window.handleLogin = async function() {
       const email = document.getElementById('email-input').value.trim();
       const pass = document.getElementById('password-input').value.trim();
@@ -314,6 +311,96 @@
       if (show) l.classList.add('flex');
     }
 
+    // --- Smart Text Parsing Engine ---
+    function isChordLine(line) {
+      const words = line.trim().split(/\s+/).filter(w => w.length > 0);
+      if (words.length === 0) return false;
+      // Regex for valid musical chords (e.g. C, Am, Cmaj7, D/F#)
+      const chordRegex = /^([A-G][#b]?(m|maj|min|aug|dim|sus|add)?\d*(\/[A-G][#b]?)?)$/i;
+      return words.every(w => chordRegex.test(w));
+    }
+
+    function parseRawText(text) {
+      const lines = text.split('\n');
+      let parsedLines = [];
+      let flatChords = [];
+      let currentTime = 0;
+      let globalChordIdx = 0;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        
+        if (isChordLine(line)) {
+          // It's a chord line, check if the next line is lyrics
+          let nextLine = (i + 1 < lines.length && !isChordLine(lines[i + 1])) ? lines[i + 1] : "";
+          if (nextLine !== "") i++; // Consume the lyric line
+
+          const chordRegex = /[^\s]+/g;
+          let match;
+          let chordHtml = "";
+          let lastIdx = 0;
+          let lineChords = [];
+
+          // Find each chord in the line to wrap it in a highlightable span
+          while ((match = chordRegex.exec(line)) !== null) {
+            const chordStr = match[0];
+            // Preserve the exact spacing before the chord
+            chordHtml += line.substring(lastIdx, match.index);
+            chordHtml += `<span id="chord-hl-${globalChordIdx}" class="transition-all duration-200">${chordStr}</span>`;
+            lastIdx = match.index + chordStr.length;
+
+            const chordObj = {
+              chord: chordStr,
+              time: currentTime,
+              lineIdx: parsedLines.length,
+              globalIdx: globalChordIdx
+            };
+            flatChords.push(chordObj);
+            lineChords.push(chordObj);
+
+            currentTime += 4; // Assign 4 beats to every chord detected
+            globalChordIdx++;
+          }
+          // Add remaining spaces at end of line
+          chordHtml += line.substring(lastIdx);
+
+          parsedLines.push({
+            chordHtml: chordHtml,
+            lyricLine: nextLine,
+            chords: lineChords
+          });
+        } else if (line.trim() !== "") {
+          // Just a lyric line with no chords above it
+          parsedLines.push({
+            chordHtml: "",
+            lyricLine: line,
+            chords: []
+          });
+        }
+      }
+
+      // Fallback if empty
+      if (flatChords.length === 0) {
+         flatChords = [{ chord: "C", time: 0, lineIdx: 0, globalIdx: 0 }];
+         parsedLines = [{ chordHtml: `<span id="chord-hl-0">C</span>`, lyricLine: "Empty", chords: flatChords }];
+         currentTime = 4;
+      }
+
+      return { parsedLines, flatChords, totalBeats: currentTime };
+    }
+
+    function ensureSongFormat(song) {
+       // Convert legacy CSV data to raw text if needed
+       if (!song.rawText && song.chords) {
+           song.rawText = song.chords.map(c => `${c.chord}\n${c.lyric}`).join('\n\n');
+       }
+       const parsed = parseRawText(song.rawText || "C\nNew Song");
+       song.parsedLines = parsed.parsedLines;
+       song.chords = parsed.flatChords;
+       song.totalBeats = parsed.totalBeats;
+       return song;
+    }
+
     async function initApp() {
       showLoading(true, "Initializing...");
       try {
@@ -321,7 +408,6 @@
         auth = getAuth(app);
         db = getFirestore(app);
 
-        // Environment token bypass if provided
         const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
         if (token) {
           try { await signInWithCustomToken(auth, token); } catch(e) { console.error("Token fail:", e); }
@@ -332,11 +418,9 @@
             user = u;
             const isGuest = user.isAnonymous;
             
-            // Set UI based on auth level
             document.getElementById('display-username').innerText = isGuest ? "Guest Player" : user.email.split('@')[0];
             document.getElementById('display-username').title = isGuest ? "Guest" : user.email;
             
-            // Guests cannot add songs
             const addBtn = document.getElementById('btn-add-song');
             if(isGuest) addBtn.classList.add('hidden');
             else addBtn.classList.remove('hidden');
@@ -365,14 +449,14 @@
         const snap = await getDocs(songsRef);
         if (snap.empty) {
           await setDoc(doc(songsRef, 'default_song'), MOCK_SONG);
-          songs = [{ id: 'default_song', ...MOCK_SONG }];
+          songs = [ensureSongFormat({ id: 'default_song', ...MOCK_SONG })];
         } else {
-          songs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          songs = snap.docs.map(d => ensureSongFormat({ id: d.id, ...d.data() }));
         }
         renderHomeList();
       } catch(e) {
         console.error("Failed to load songs", e);
-        songs = [MOCK_SONG]; // Fallback purely for presentation
+        songs = [ensureSongFormat(MOCK_SONG)]; 
         renderHomeList();
       }
     }
@@ -390,54 +474,87 @@
       return pattern;
     }
 
-    window.saveNewSong = async function() {
+    window.openAddSong = function() {
+      editingSongId = null;
+      document.getElementById('add-view-title').innerText = "New Song";
+      document.getElementById('btn-save-song').innerHTML = '<i class="fas fa-save mr-2"></i> Save to Library';
+      
+      document.getElementById('add-title').value = '';
+      document.getElementById('add-artist').value = '';
+      document.getElementById('add-bpm').value = '';
+      document.getElementById('add-chords-text').value = '';
+      document.getElementById('add-strum-text').value = '';
+      
+      navigate('add-song');
+    };
+
+    window.editCurrentSong = function() {
+      if (!currentSong) return;
+      editingSongId = currentSong.id;
+      
+      document.getElementById('add-view-title').innerText = "Edit Song";
+      document.getElementById('btn-save-song').innerHTML = '<i class="fas fa-save mr-2"></i> Update Song';
+      
+      document.getElementById('add-title').value = currentSong.title;
+      document.getElementById('add-artist').value = currentSong.artist;
+      document.getElementById('add-bpm').value = currentSong.bpm;
+      document.getElementById('add-chords-text').value = currentSong.rawText;
+      
+      const strumText = currentSong.strumming.map(s => s.raw).join('');
+      document.getElementById('add-strum-text').value = strumText;
+      
+      navigate('add-song');
+    };
+
+    window.closeAddEdit = function() {
+      if (editingSongId) {
+        navigate('details');
+      } else {
+        navigate('home');
+      }
+    };
+
+    window.saveSong = async function() {
       if (!user) return navigate('auth');
-      if (user.isAnonymous) return showToast("Please create an account to add songs.");
+      if (user.isAnonymous) return showToast("Please create an account to edit songs.");
 
       try {
         const title = document.getElementById('add-title').value || "Untitled";
         const artist = document.getElementById('add-artist').value || "Unknown Artist";
         const bpm = parseInt(document.getElementById('add-bpm').value) || 80;
-
-        const chordsText = document.getElementById('add-chords-text').value;
-        let chords = [];
-        chordsText.split('\n').forEach(line => {
-          const parts = line.split(',');
-          if (parts.length >= 2) {
-            chords.push({
-              time: parseFloat(parts[0].trim()) || 0,
-              chord: parts[1].trim(),
-              lyric: parts.slice(2).join(',').trim() || ""
-            });
-          }
-        });
-        if(chords.length === 0) chords = [{time: 0, chord: "C", lyric: "Empty"}];
-
+        const rawText = document.getElementById('add-chords-text').value || "C\nEmpty";
+        
         const strumText = document.getElementById('add-strum-text').value || "D.DU.UDU";
         const strumming = parseStrumPattern(strumText);
 
-        const newSong = {
-          title, artist, bpm, chords, strumming,
+        const newSongData = {
+          title, artist, bpm, rawText, strumming,
           postedBy: user.email.split('@')[0],
-          ownerId: user.uid,
-          totalBeats: chords[chords.length-1].time + 4
+          ownerId: user.uid
         };
 
-        showLoading(true, "Saving song...");
-        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'songs'), newSong);
+        showLoading(true, "Syncing with Cloud...");
+        
+        if (editingSongId) {
+            const songRef = doc(db, 'artifacts', appId, 'public', 'data', 'songs', editingSongId);
+            await setDoc(songRef, newSongData, { merge: true });
+            showToast("Song updated successfully!", true);
+        } else {
+            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'songs'), newSongData);
+            showToast("Song added successfully!", true);
+        }
+        
         await loadSongs();
         
-        document.getElementById('add-title').value = '';
-        document.getElementById('add-artist').value = '';
-        document.getElementById('add-bpm').value = '';
-        document.getElementById('add-chords-text').value = '';
-        document.getElementById('add-strum-text').value = '';
+        if (editingSongId) {
+            openSongDetails(editingSongId);
+        } else {
+            navigate('home');
+        }
         
-        showToast("Song added successfully!", true);
-        navigate('home');
       } catch (e) {
         console.error("Error saving song:", e);
-        showToast("Failed to save song.");
+        showToast("Save failed. Ensure you have network and permissions.");
       } finally {
         showLoading(false);
       }
@@ -464,6 +581,13 @@
       document.getElementById('detail-artist').innerText = currentSong.artist;
       document.getElementById('detail-posted').innerText = currentSong.postedBy || "Anonymous";
       document.getElementById('detail-bpm').innerText = currentSong.bpm;
+      
+      const btnEdit = document.getElementById('btn-edit-song');
+      if (user && user.uid === currentSong.ownerId) {
+          btnEdit.classList.remove('hidden');
+      } else {
+          btnEdit.classList.add('hidden');
+      }
       
       document.getElementById('detail-strum-viz').innerHTML = currentSong.strumming.map(s => {
         const raw = s.raw || (s.type === '↓' ? 'D' : (s.type === '↑' ? 'U' : '.'));
@@ -540,10 +664,12 @@
       } else {
         timeline.classList.remove('hidden');
         focus.classList.add('hidden');
-        timeline.innerHTML = currentSong.chords.map((c, i) => `
-          <div id="block-${i}" class="timeline-block p-4 bg-surface-light rounded-xl border border-gray-800 shadow-md">
-            <div class="chord font-bold text-xl">${c.chord}</div>
-            <div class="lyric text-sm text-gray-400">${c.lyric}</div>
+        
+        // Render parsed timeline blocks maintaining raw spacing (whitespace-pre)
+        timeline.innerHTML = currentSong.parsedLines.map((lineData, i) => `
+          <div id="block-${i}" class="timeline-block scroll-area overflow-x-auto p-4 bg-surface-light rounded-xl border border-gray-800 shadow-md font-mono text-sm whitespace-pre">
+            ${lineData.chordHtml ? `<div class="text-primary font-bold mb-2">${lineData.chordHtml}</div>` : ''}
+            ${lineData.lyricLine ? `<div class="text-gray-300">${lineData.lyricLine}</div>` : ''}
           </div>
         `).join('');
         
@@ -589,7 +715,6 @@
         gain.gain.setValueAtTime(0.3, nextNoteTime);
         gain.gain.exponentialRampToValueAtTime(0.001, nextNoteTime + 0.05);
         
-        // Handle dynamic BPM change
         const uiBpm = parseInt(document.getElementById('practice-bpm').value) || currentBpm;
         if(uiBpm >= 40 && uiBpm <= 300) currentBpm = uiBpm;
 
@@ -614,6 +739,7 @@
         saveProg(decile);
       }
 
+      // Rhythm Visualization
       const subBeat = beat % 4;
       const stepDuration = 4 / activeStrumPattern.length;
       const activeIndex = Math.floor(subBeat / stepDuration);
@@ -632,28 +758,48 @@
         }
       });
 
-      if(currentStepMode !== 2) {
-        currentSong.chords.forEach((c, i) => {
-          const el = document.getElementById(`block-${i}`);
-          const next = currentSong.chords[i+1]?.time || Infinity;
-          if(beat >= c.time && beat < next) {
-            if(!el.classList.contains('active')) {
-              document.querySelectorAll('.timeline-block').forEach(b => b.classList.remove('active'));
-              el.classList.add('active');
-              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
+      // Dual Chord/Line Highlighting Logic
+      if(currentStepMode !== 2 && currentSong.chords && currentSong.chords.length > 0) {
+        
+        // Find which chord is currently active based on elapsed beats
+        let activeChord = null;
+        for(let i=0; i < currentSong.chords.length; i++) {
+           if(beat >= currentSong.chords[i].time) activeChord = currentSong.chords[i];
+           else break;
+        }
+
+        if (activeChord) {
+          // Highlight the parent block/line
+          const blockEl = document.getElementById(`block-${activeChord.lineIdx}`);
+          if(blockEl && !blockEl.classList.contains('active')) {
+            document.querySelectorAll('.timeline-block').forEach(b => b.classList.remove('active'));
+            blockEl.classList.add('active');
+            blockEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
           }
-        });
+
+          // Highlight the specific chord text
+          const chordEl = document.getElementById(`chord-hl-${activeChord.globalIdx}`);
+          if (chordEl && !chordEl.classList.contains('text-active')) {
+             // Reset all chords
+             document.querySelectorAll('[id^="chord-hl-"]').forEach(c => {
+                 c.classList.remove('text-active', 'drop-shadow-[0_0_8px_rgba(3,218,198,0.8)]', 'scale-110', 'inline-block');
+                 c.classList.add('text-primary');
+             });
+             // Activate target chord
+             chordEl.classList.remove('text-primary');
+             chordEl.classList.add('text-active', 'drop-shadow-[0_0_8px_rgba(3,218,198,0.8)]', 'scale-110', 'inline-block');
+          }
+        }
       }
 
       if(beat >= currentSong.totalBeats) {
-        saveProg(100); // 100% finished
+        saveProg(100); 
         stopPlayback();
       }
     }
 
     async function saveProg(p) {
-      if (!user) return; // Silent return if anonymous/no user
+      if (!user) return; 
       const key = `step${currentStepMode}`;
       if(p > (userProgress[key]?.p || 0)) {
         userProgress[key] = { p };
@@ -676,8 +822,13 @@
       btn.classList.replace('text-white', 'text-black');
       btn.classList.replace('shadow-[0_0_20px_rgba(207,102,121,0.4)]', 'shadow-[0_0_20px_rgba(187,134,252,0.4)]');
       
+      // Remove visual active states
       document.querySelectorAll('.active').forEach(a => {
         if(a.id !== 'view-practice' && !a.classList.contains('view')) a.classList.remove('active');
+      });
+      document.querySelectorAll('[id^="chord-hl-"]').forEach(c => {
+         c.classList.remove('text-active', 'drop-shadow-[0_0_8px_rgba(3,218,198,0.8)]', 'scale-110', 'inline-block');
+         c.classList.add('text-primary');
       });
     }
 
