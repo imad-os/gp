@@ -24,15 +24,16 @@
     .scroll-area::-webkit-scrollbar-track { background: transparent; }
     .scroll-area::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
 
-    .timeline-block { transition: all 0.2s ease; border-left: 4px solid transparent; }
-    .timeline-block.active { background: rgba(3, 218, 198, 0.1); border-left-color: var(--active); transform: scale(1.02); }
+    .timeline-block { transition: background 0.2s ease, border-color 0.2s ease; border-left: 4px solid transparent; }
+    .timeline-block.active { background: rgba(3, 218, 198, 0.1); border-left-color: var(--active); }
     
     .rhythm-step { transition: transform 0.1s ease; }
     .strum-char { transition: all 0.1s; color: #555; }
     .strum-char.active { color: var(--active); text-shadow: 0 0 10px rgba(3,218,198,0.5); transform: scale(1.2); }
     
-    .metro-dot { width: 10px; height: 10px; border-radius: 50%; background: #333; transition: all 0.1s; margin-bottom: 8px; }
-    .metro-dot.active { background: var(--active); transform: scale(1.3); box-shadow: 0 0 8px var(--active); }
+    /* Removed margin-bottom and slightly increased size for better GuitarTuna style */
+    .metro-dot { width: 12px; height: 12px; border-radius: 50%; background: #333; transition: all 0.1s; }
+    .metro-dot.active { background: var(--active); transform: scale(1.4); box-shadow: 0 0 10px var(--active); }
 
     .btn-press:active { transform: scale(0.95); }
     .text-primary { color: var(--primary); }
@@ -115,7 +116,16 @@
       <div class="space-y-5 max-w-lg mx-auto pb-10">
         <input type="text" id="add-title" placeholder="Song Title" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 focus:border-primary focus:outline-none">
         <input type="text" id="add-artist" placeholder="Artist" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 focus:border-primary focus:outline-none">
-        <input type="number" id="add-bpm" placeholder="Default BPM (e.g., 80)" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 focus:border-primary focus:outline-none">
+        
+        <div class="flex gap-4">
+          <input type="number" id="add-bpm" placeholder="Default BPM (e.g., 80)" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 focus:border-primary focus:outline-none">
+          <select id="add-time-sig" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 focus:border-primary focus:outline-none text-white">
+            <option value="4/4">4/4 Time</option>
+            <option value="3/4">3/4 Time</option>
+            <option value="2/4">2/4 Time</option>
+            <option value="6/8">6/8 Time</option>
+          </select>
+        </div>
         
         <div>
           <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Chords & Lyrics</label>
@@ -149,7 +159,10 @@
       <div class="bg-surface rounded-xl p-5 mb-6 border border-gray-800 shadow-xl">
         <div class="flex justify-between mb-4">
           <div><p class="text-[10px] text-gray-500 uppercase">Transcriber</p><p id="detail-posted" class="text-sm truncate max-w-[120px]"></p></div>
-          <div class="text-right"><p class="text-[10px] text-gray-500 uppercase">Target BPM</p><p id="detail-bpm" class="text-sm font-bold text-primary"></p></div>
+          <div class="text-right">
+            <p class="text-[10px] text-gray-500 uppercase">Target BPM & Time</p>
+            <p class="text-sm font-bold text-primary"><span id="detail-bpm"></span> <span class="text-gray-500 text-xs font-normal" id="detail-time-sig"></span></p>
+          </div>
         </div>
         <div class="mb-4">
           <p class="text-[10px] text-gray-500 uppercase mb-2">Strumming Pattern</p>
@@ -177,7 +190,8 @@
 
     <div class="h-1 bg-gray-800 w-full"><div id="practice-progress-bar" class="h-full bg-active w-0 transition-all duration-300 shadow-[0_0_10px_rgba(3,218,198,0.8)]"></div></div>
 
-    <main id="practice-timeline" class="flex-1 overflow-y-auto p-4 scroll-area relative flex flex-col gap-6 pb-40"></main>
+    <main id="practice-timeline" class="flex-1 overflow-auto scroll-area relative pb-40 p-4 bg-black/20"></main>
+    
     <div id="step2-focus" class="hidden flex-1 flex-col items-center justify-center p-8 text-center">
       <i class="fas fa-drum text-6xl text-gray-700 mb-6 drop-shadow-lg"></i>
       <h2 class="text-2xl font-bold mb-2">Rhythm Training</h2>
@@ -185,7 +199,8 @@
     </div>
 
     <footer class="bg-surface border-t border-gray-800 p-4 pb-8 absolute bottom-0 w-full z-20 shadow-[0_-10px_30px_rgba(0,0,0,0.5)]">
-      <div id="practice-rhythm-viz" class="flex justify-around items-end bg-black/40 p-4 rounded-xl mb-6 border border-gray-800 h-24 shadow-inner">
+      <!-- Decoupled Rhythm Visualizer: Separate dots and strumming layers -->
+      <div id="practice-rhythm-viz" class="flex flex-col justify-around bg-black/40 p-2 rounded-xl mb-6 border border-gray-800 h-24 shadow-inner">
         <!-- Generated Dynamically -->
       </div>
       <div class="flex justify-center">
@@ -229,8 +244,8 @@
     let lastSavedPercent = -1;
 
     const MOCK_SONG = {
-      title: "Ya Rayah", artist: "Cheb Khaled", postedBy: "System", bpm: 80, ownerId: "system",
-      rawText: "Am                                G\nYa rayah win msafar trouh taaya wa twali\nF                                 E\nChhal nadmou laabad lghafline qablak ou qabli\nAm                                G\nYa rayah win msafar trouh taaya wa twali",
+      title: "Ya Rayah", artist: "Cheb Khaled", postedBy: "System", bpm: 80, timeSignature: "4/4", ownerId: "system",
+      rawText: "Am                                G\nYa rayah win msafar trouh taaya wa twali\nF                                 E\nChhal nadmou laabad lghafline qablak ou qabli\n\nAm                                G\nYa rayah win msafar trouh taaya wa twali",
       strumming: [
         { time: 0, type: "↓", raw: "D" }, { time: 0.5, type: ".", raw: "." },
         { time: 1, type: "↓", raw: "D" }, { time: 1.5, type: "↑", raw: "U" },
@@ -239,7 +254,6 @@
       ]
     };
 
-    // Helper: Toast Notifications
     window.showToast = function(msg, isSuccess = false) {
       const t = document.getElementById('toast-msg');
       t.innerText = msg;
@@ -253,7 +267,6 @@
       }, 3000);
     };
 
-    // Authentication
     window.handleLogin = async function() {
       const email = document.getElementById('email-input').value.trim();
       const pass = document.getElementById('password-input').value.trim();
@@ -315,12 +328,11 @@
     function isChordLine(line) {
       const words = line.trim().split(/\s+/).filter(w => w.length > 0);
       if (words.length === 0) return false;
-      // Regex for valid musical chords (e.g. C, Am, Cmaj7, D/F#)
       const chordRegex = /^([A-G][#b]?(m|maj|min|aug|dim|sus|add)?\d*(\/[A-G][#b]?)?)$/i;
       return words.every(w => chordRegex.test(w));
     }
 
-    function parseRawText(text) {
+    function parseRawText(text, beatsPerBar = 4) {
       const lines = text.split('\n');
       let parsedLines = [];
       let flatChords = [];
@@ -331,9 +343,8 @@
         const line = lines[i];
         
         if (isChordLine(line)) {
-          // It's a chord line, check if the next line is lyrics
-          let nextLine = (i + 1 < lines.length && !isChordLine(lines[i + 1])) ? lines[i + 1] : "";
-          if (nextLine !== "") i++; // Consume the lyric line
+          let nextLine = (i + 1 < lines.length && !isChordLine(lines[i + 1]) && lines[i+1].trim() !== "") ? lines[i + 1] : "";
+          if (nextLine !== "") i++;
 
           const chordRegex = /[^\s]+/g;
           let match;
@@ -341,60 +352,43 @@
           let lastIdx = 0;
           let lineChords = [];
 
-          // Find each chord in the line to wrap it in a highlightable span
           while ((match = chordRegex.exec(line)) !== null) {
             const chordStr = match[0];
-            // Preserve the exact spacing before the chord
             chordHtml += line.substring(lastIdx, match.index);
             chordHtml += `<span id="chord-hl-${globalChordIdx}" class="transition-all duration-200">${chordStr}</span>`;
             lastIdx = match.index + chordStr.length;
 
-            const chordObj = {
-              chord: chordStr,
-              time: currentTime,
-              lineIdx: parsedLines.length,
-              globalIdx: globalChordIdx
-            };
+            const chordObj = { chord: chordStr, time: currentTime, lineIdx: parsedLines.length, globalIdx: globalChordIdx };
             flatChords.push(chordObj);
             lineChords.push(chordObj);
-
-            currentTime += 4; // Assign 4 beats to every chord detected
+            currentTime += beatsPerBar; // Time Signature dependent
             globalChordIdx++;
           }
-          // Add remaining spaces at end of line
           chordHtml += line.substring(lastIdx);
 
-          parsedLines.push({
-            chordHtml: chordHtml,
-            lyricLine: nextLine,
-            chords: lineChords
-          });
+          parsedLines.push({ chordHtml: chordHtml, lyricLine: nextLine, chords: lineChords });
         } else if (line.trim() !== "") {
-          // Just a lyric line with no chords above it
-          parsedLines.push({
-            chordHtml: "",
-            lyricLine: line,
-            chords: []
-          });
+          parsedLines.push({ chordHtml: "", lyricLine: line, chords: [] });
+        } else {
+          parsedLines.push({ chordHtml: "", lyricLine: "", chords: [] });
         }
       }
 
-      // Fallback if empty
       if (flatChords.length === 0) {
          flatChords = [{ chord: "C", time: 0, lineIdx: 0, globalIdx: 0 }];
          parsedLines = [{ chordHtml: `<span id="chord-hl-0">C</span>`, lyricLine: "Empty", chords: flatChords }];
-         currentTime = 4;
+         currentTime = beatsPerBar;
       }
 
       return { parsedLines, flatChords, totalBeats: currentTime };
     }
 
     function ensureSongFormat(song) {
-       // Convert legacy CSV data to raw text if needed
        if (!song.rawText && song.chords) {
            song.rawText = song.chords.map(c => `${c.chord}\n${c.lyric}`).join('\n\n');
        }
-       const parsed = parseRawText(song.rawText || "C\nNew Song");
+       const beatsPerBar = parseInt((song.timeSignature || "4/4").split('/')[0]) || 4;
+       const parsed = parseRawText(song.rawText || "C\nNew Song", beatsPerBar);
        song.parsedLines = parsed.parsedLines;
        song.chords = parsed.flatChords;
        song.totalBeats = parsed.totalBeats;
@@ -482,6 +476,7 @@
       document.getElementById('add-title').value = '';
       document.getElementById('add-artist').value = '';
       document.getElementById('add-bpm').value = '';
+      document.getElementById('add-time-sig').value = '4/4';
       document.getElementById('add-chords-text').value = '';
       document.getElementById('add-strum-text').value = '';
       
@@ -498,6 +493,7 @@
       document.getElementById('add-title').value = currentSong.title;
       document.getElementById('add-artist').value = currentSong.artist;
       document.getElementById('add-bpm').value = currentSong.bpm;
+      document.getElementById('add-time-sig').value = currentSong.timeSignature || '4/4';
       document.getElementById('add-chords-text').value = currentSong.rawText;
       
       const strumText = currentSong.strumming.map(s => s.raw).join('');
@@ -522,13 +518,14 @@
         const title = document.getElementById('add-title').value || "Untitled";
         const artist = document.getElementById('add-artist').value || "Unknown Artist";
         const bpm = parseInt(document.getElementById('add-bpm').value) || 80;
+        const timeSignature = document.getElementById('add-time-sig').value || "4/4";
         const rawText = document.getElementById('add-chords-text').value || "C\nEmpty";
         
         const strumText = document.getElementById('add-strum-text').value || "D.DU.UDU";
         const strumming = parseStrumPattern(strumText);
 
         const newSongData = {
-          title, artist, bpm, rawText, strumming,
+          title, artist, bpm, timeSignature, rawText, strumming,
           postedBy: user.email.split('@')[0],
           ownerId: user.uid
         };
@@ -581,6 +578,7 @@
       document.getElementById('detail-artist').innerText = currentSong.artist;
       document.getElementById('detail-posted').innerText = currentSong.postedBy || "Anonymous";
       document.getElementById('detail-bpm').innerText = currentSong.bpm;
+      document.getElementById('detail-time-sig').innerText = `(${currentSong.timeSignature || '4/4'})`;
       
       const btnEdit = document.getElementById('btn-edit-song');
       if (user && user.uid === currentSong.ownerId) {
@@ -649,6 +647,7 @@
       const timeline = document.getElementById('practice-timeline');
       const focus = document.getElementById('step2-focus');
       const rhythmViz = document.getElementById('practice-rhythm-viz');
+      const beatsPerBar = parseInt((currentSong.timeSignature || "4/4").split('/')[0]) || 4;
       
       timeline.innerHTML = '';
       rhythmViz.innerHTML = '';
@@ -665,26 +664,42 @@
         timeline.classList.remove('hidden');
         focus.classList.add('hidden');
         
-        // Render parsed timeline blocks maintaining raw spacing (whitespace-pre)
-        timeline.innerHTML = currentSong.parsedLines.map((lineData, i) => `
-          <div id="block-${i}" class="timeline-block scroll-area overflow-x-auto p-4 bg-surface-light rounded-xl border border-gray-800 shadow-md font-mono text-sm whitespace-pre">
-            ${lineData.chordHtml ? `<div class="text-primary font-bold mb-2">${lineData.chordHtml}</div>` : ''}
-            ${lineData.lyricLine ? `<div class="text-gray-300">${lineData.lyricLine}</div>` : ''}
-          </div>
-        `).join('');
+        // Fix: Extremely tight and grouped text lines replacing bulky tall divs
+        timeline.innerHTML = `<div class="flex flex-col min-w-max w-full">` + currentSong.parsedLines.map((lineData, i) => {
+          const isEmpty = lineData.chordHtml === '' && lineData.lyricLine === '';
+          return `
+            <div id="block-${i}" class="timeline-block px-2 sm:px-4 py-0.5 border-l-4 border-transparent font-mono text-sm sm:text-base whitespace-pre ${isEmpty ? 'h-3 sm:h-4' : ''}">
+              ${lineData.chordHtml ? `<div class="text-primary font-bold leading-none">${lineData.chordHtml}</div>` : ''}
+              ${lineData.lyricLine ? `<div class="text-gray-300 leading-none">${lineData.lyricLine}</div>` : ''}
+            </div>
+          `;
+        }).join('') + `</div>`;
         
-        activeStrumPattern = step === 1 ? [
-          { time: 0, type: "↓", raw: "D" }, { time: 1, type: ".", raw: "." },
-          { time: 2, type: ".", raw: "." }, { time: 3, type: ".", raw: "." }
-        ] : normalizedStrumming;
+        // For Step 1, create a pattern dynamically based on the Time Signature
+        if (step === 1) {
+            activeStrumPattern = [{ time: 0, type: "↓", raw: "D" }];
+            for(let i=1; i<beatsPerBar; i++) {
+                activeStrumPattern.push({ time: i, type: ".", raw: "." });
+            }
+        } else {
+            activeStrumPattern = normalizedStrumming;
+        }
       }
 
-      rhythmViz.innerHTML = activeStrumPattern.map((s, i) => `
-        <div class="flex flex-col items-center justify-end h-full rhythm-step w-full" id="rhythm-step-${i}">
-          <div class="metro-dot" id="dot-${i}"></div>
-          <div class="text-3xl font-bold strum-char ${s.raw === '.' ? 'opacity-30' : ''}" id="strum-${i}">${s.type}</div>
-        </div>
+      // GuitarTuna UI approach: Decoupled dots and strum characters rows
+      let dotsHtml = '';
+      for(let i=0; i<beatsPerBar; i++) {
+          dotsHtml += `<div class="metro-dot" id="dot-${i}"></div>`;
+      }
+      
+      let strumsHtml = activeStrumPattern.map((s, i) => `
+          <div class="text-2xl sm:text-3xl font-bold strum-char ${s.raw === '.' ? 'opacity-30' : ''}" id="strum-${i}">${s.type}</div>
       `).join('');
+
+      rhythmViz.innerHTML = `
+          <div class="flex justify-around items-center w-full px-8 h-1/2">${dotsHtml}</div>
+          <div class="flex justify-around items-center w-full h-1/2">${strumsHtml}</div>
+      `;
 
       navigate('practice');
     };
@@ -706,6 +721,8 @@
     };
 
     function scheduler() {
+      const beatsPerBar = parseInt((currentSong.timeSignature || "4/4").split('/')[0]) || 4;
+      
       while (nextNoteTime < audioCtx.currentTime + 0.1) {
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
@@ -719,7 +736,7 @@
         if(uiBpm >= 40 && uiBpm <= 300) currentBpm = uiBpm;
 
         nextNoteTime += 60.0 / currentBpm;
-        currentBeatInBar = (currentBeatInBar + 1) % 4;
+        currentBeatInBar = (currentBeatInBar + 1) % beatsPerBar;
       }
       if(isPlaying) {
         animationId = requestAnimationFrame(updateUI);
@@ -739,29 +756,37 @@
         saveProg(decile);
       }
 
-      // Rhythm Visualization
-      const subBeat = beat % 4;
-      const stepDuration = 4 / activeStrumPattern.length;
-      const activeIndex = Math.floor(subBeat / stepDuration);
+      const beatsPerBar = parseInt((currentSong.timeSignature || "4/4").split('/')[0]) || 4;
+      const subBeat = beat % beatsPerBar;
+      
+      // Decoupled Visualization: 1) Active Dot
+      const activeDotIndex = Math.floor(subBeat);
+      for(let i=0; i<beatsPerBar; i++) {
+         const dot = document.getElementById(`dot-${i}`);
+         if(dot) {
+             if(i === activeDotIndex) dot.classList.add('active');
+             else dot.classList.remove('active');
+         }
+      }
+
+      // Decoupled Visualization: 2) Active Strum
+      const stepDuration = beatsPerBar / activeStrumPattern.length;
+      const activeStrumIndex = Math.floor(subBeat / stepDuration);
 
       activeStrumPattern.forEach((s, i) => {
-        const dot = document.getElementById(`dot-${i}`);
         const char = document.getElementById(`strum-${i}`);
-        if(!dot || !char) return;
-
-        if (i === activeIndex) {
-          dot.classList.add('active');
-          if(s.raw !== '.') char.classList.add('active');
-        } else {
-          dot.classList.remove('active');
-          char.classList.remove('active');
+        if(char) {
+            if (i === activeStrumIndex) {
+              if(s.raw !== '.') char.classList.add('active');
+            } else {
+              char.classList.remove('active');
+            }
         }
       });
 
       // Dual Chord/Line Highlighting Logic
       if(currentStepMode !== 2 && currentSong.chords && currentSong.chords.length > 0) {
         
-        // Find which chord is currently active based on elapsed beats
         let activeChord = null;
         for(let i=0; i < currentSong.chords.length; i++) {
            if(beat >= currentSong.chords[i].time) activeChord = currentSong.chords[i];
@@ -769,7 +794,6 @@
         }
 
         if (activeChord) {
-          // Highlight the parent block/line
           const blockEl = document.getElementById(`block-${activeChord.lineIdx}`);
           if(blockEl && !blockEl.classList.contains('active')) {
             document.querySelectorAll('.timeline-block').forEach(b => b.classList.remove('active'));
@@ -777,15 +801,12 @@
             blockEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
           }
 
-          // Highlight the specific chord text
           const chordEl = document.getElementById(`chord-hl-${activeChord.globalIdx}`);
           if (chordEl && !chordEl.classList.contains('text-active')) {
-             // Reset all chords
              document.querySelectorAll('[id^="chord-hl-"]').forEach(c => {
                  c.classList.remove('text-active', 'drop-shadow-[0_0_8px_rgba(3,218,198,0.8)]', 'scale-110', 'inline-block');
                  c.classList.add('text-primary');
              });
-             // Activate target chord
              chordEl.classList.remove('text-primary');
              chordEl.classList.add('text-active', 'drop-shadow-[0_0_8px_rgba(3,218,198,0.8)]', 'scale-110', 'inline-block');
           }
