@@ -1,4 +1,4 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+﻿import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 import { getFirestore } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import * as Music from './modules/music.js';
@@ -38,6 +38,18 @@ import { AudioEngine } from './modules/audio-engine.js';
     let activeTab = 'home';
     let metronomeTimer = null;
     let metronomeBeatIndex = 0;
+    let toolRecordings = [];
+    let toolAudioPlayers = new Map();
+    let activeToolAudioId = null;
+    let toolRecorder = null;
+    let toolRecordingStream = null;
+    let toolRecordingChunks = [];
+    let toolRecordingTimeout = null;
+    let selectedChordReference = 'C';
+    let activeToolPage = 'home';
+    let currentSongComments = [];
+    let currentSongRatings = [];
+    let pendingSongRating = 0;
     let tunerStream = null;
     let tunerAnalyser = null;
     let tunerSource = null;
@@ -45,7 +57,13 @@ import { AudioEngine } from './modules/audio-engine.js';
     let trainingTimer = null;
     let trainingBeatIndex = 0;
     const METRONOME_STORAGE_KEY = 'guitartrainer.metronome.settings';
-    const DEFAULT_SETTINGS = { practiceTextSize: 14, enableStrumDetection: false, enableChordDetection: false };
+    const DEFAULT_SETTINGS = {
+      practiceTextSize: 14,
+      enableStrumDetection: false,
+      enableChordDetection: false,
+      favoriteSongIds: [],
+      recentPractice: []
+    };
     let userSettings = { ...DEFAULT_SETTINGS };
     let practiceStream = null;
     let practiceAnalyser = null;
@@ -57,7 +75,7 @@ import { AudioEngine } from './modules/audio-engine.js';
     const audioEngine = new AudioEngine();
 
     const CAPO_OPTIONS = ["No capo", "1st fret", "2nd fret", "3rd fret", "4th fret", "5th fret", "6th fret", "7th fret", "8th fret", "9th fret", "10th fret", "11th fret", "12th fret"];
-    const TAB_VIEWS = new Set(['home', 'training', 'tuner', 'metronome', 'settings']);
+    const TAB_VIEWS = new Set(['home', 'training', 'tuner', 'tools', 'settings']);
     const STANDARD_TUNING = [
       { note: 'E2', freq: 82.41 },
       { note: 'A2', freq: 110.0 },
@@ -81,22 +99,23 @@ import { AudioEngine } from './modules/audio-engine.js';
     };
     const NOTE_INDEX = { C: 0, 'B#': 0, 'C#': 1, Db: 1, D: 2, 'D#': 3, Eb: 3, E: 4, Fb: 4, F: 5, 'E#': 5, 'F#': 6, Gb: 6, G: 7, 'G#': 8, Ab: 8, A: 9, 'A#': 10, Bb: 10, B: 11, Cb: 11 };
     const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+    const CHORD_EXPLORER_LIST = Object.keys(CHORD_LIBRARY).sort((a, b) => a.localeCompare(b));
 
     const MOCK_SONG = {
       title: "Ya Rayah", artist: "Cheb Khaled", postedBy: "System", bpm: 80, timeSignature: "4/4", capo: "No capo", ownerId: "system",
       rawText: "Am                                G\nYa rayah win msafar trouh taaya wa twali\nF                                 E\nChhal nadmou laabad lghafline qablak ou qabli\n\nAm                                G\nYa rayah win msafar trouh taaya wa twali",
       strumming: [
-        { time: 0, type: "↓", raw: "D" }, { time: 0.5, type: ".", raw: "." },
-        { time: 1, type: "↓", raw: "D" }, { time: 1.5, type: "↑", raw: "U" },
-        { time: 2, type: ".", raw: "." }, { time: 2.5, type: "↑", raw: "U" },
-        { time: 3, type: "↓", raw: "D" }, { time: 3.5, type: "↑", raw: "U" }
+        { time: 0, type: "â†“", raw: "D" }, { time: 0.5, type: ".", raw: "." },
+        { time: 1, type: "â†“", raw: "D" }, { time: 1.5, type: "â†‘", raw: "U" },
+        { time: 2, type: ".", raw: "." }, { time: 2.5, type: "â†‘", raw: "U" },
+        { time: 3, type: "â†“", raw: "D" }, { time: 3.5, type: "â†‘", raw: "U" }
       ]
     };
 
     window.showToast = function(msg, isSuccess = false) {
       const t = document.getElementById('toast-msg');
       t.innerText = msg;
-      t.className = `fixed top-4 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-xl shadow-lg z-[100] transition-all duration-300 font-bold text-center w-11/12 max-w-sm pointer-events-none ${isSuccess ? 'bg-active text-black shadow-[0_5px_15px_rgba(3,218,198,0.4)]' : 'bg-danger text-white shadow-[0_5px_15px_rgba(207,102,121,0.4)]'}`;
+      t.className = `fixed top-4 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-xl z-[100] transition-all duration-300 font-bold text-center w-11/12 max-w-sm pointer-events-none border ${isSuccess ? 'bg-[#0f6e63] text-white border-[#39d7c2] shadow-[0_14px_32px_rgba(3,218,198,0.32)]' : 'bg-[#7d3142] text-white border-[#ff9bb0] shadow-[0_14px_32px_rgba(207,102,121,0.32)]'}`;
       
       void t.offsetWidth; 
       t.classList.remove('translate-y-[-150%]', 'opacity-0');
@@ -164,8 +183,16 @@ import { AudioEngine } from './modules/audio-engine.js';
     }
 
     // --- Smart Text Parsing Engine ---
-    function isChordLine(line) {
+    function normalizeChordTokensForDetection(line) {
       const words = line.trim().split(/\s+/).filter(w => w.length > 0);
+      if (words.length && /^x\d+$/i.test(words[words.length - 1])) {
+        return words.slice(0, -1);
+      }
+      return words;
+    }
+
+    function isChordLine(line) {
+      const words = normalizeChordTokensForDetection(line);
       if (words.length === 0) return false;
       const chordRegex = /^([A-G][#b]?(m|maj|min|aug|dim|sus|add)?\d*(\/[A-G][#b]?)?)$/i;
       return words.every(w => chordRegex.test(w));
@@ -190,6 +217,7 @@ import { AudioEngine } from './modules/audio-engine.js';
         const line = lines[i];
         
         if (isTagLine(line)) {
+          parsedLines.push({ type: 'tag', chordHtml: "", lyricLine: stripLeadingWhitespace(line), chords: [] });
           continue;
         }
 
@@ -206,6 +234,12 @@ import { AudioEngine } from './modules/audio-engine.js';
 
           while ((match = chordRegex.exec(normalizedChordLine)) !== null) {
             const chordStr = match[0];
+            if (/^x\d+$/i.test(chordStr)) {
+              chordHtml += normalizedChordLine.substring(lastIdx, match.index);
+              chordHtml += `<span class="text-gray-500 uppercase tracking-[0.2em]">${chordStr}</span>`;
+              lastIdx = match.index + chordStr.length;
+              continue;
+            }
             chordHtml += normalizedChordLine.substring(lastIdx, match.index);
             chordHtml += `<span id="chord-hl-${globalChordIdx}" class="transition-all duration-200">${chordStr}</span>`;
             lastIdx = match.index + chordStr.length;
@@ -218,18 +252,18 @@ import { AudioEngine } from './modules/audio-engine.js';
           }
           chordHtml += normalizedChordLine.substring(lastIdx);
 
-          parsedLines.push({ chordHtml: chordHtml, lyricLine: stripLeadingWhitespace(nextLine), chords: lineChords });
+          parsedLines.push({ type: 'content', chordHtml: chordHtml, lyricLine: stripLeadingWhitespace(nextLine), chords: lineChords });
         } else if (line.trim() !== "") {
-          parsedLines.push({ chordHtml: "", lyricLine: stripLeadingWhitespace(line), chords: [] });
+          parsedLines.push({ type: 'content', chordHtml: "", lyricLine: stripLeadingWhitespace(line), chords: [] });
         } else {
           if (parsedLines.length > 0 && parsedLines[parsedLines.length - 1].chordHtml === '' && parsedLines[parsedLines.length - 1].lyricLine === '') continue;
-          parsedLines.push({ chordHtml: "", lyricLine: "", chords: [] });
+          parsedLines.push({ type: 'empty', chordHtml: "", lyricLine: "", chords: [] });
         }
       }
 
       if (flatChords.length === 0) {
          flatChords = [{ chord: "C", time: 0, lineIdx: 0, globalIdx: 0 }];
-         parsedLines = [{ chordHtml: `<span id="chord-hl-0">C</span>`, lyricLine: "Empty", chords: flatChords }];
+         parsedLines = [{ type: 'content', chordHtml: `<span id="chord-hl-0">C</span>`, lyricLine: "Empty", chords: flatChords }];
          currentTime = beatsPerBar;
       }
 
@@ -241,13 +275,15 @@ import { AudioEngine } from './modules/audio-engine.js';
            song.rawText = song.chords.map(c => `${c.chord}\n${c.lyric}`).join('\n\n');
        }
        song.capo = song.capo || "No capo";
-       const rawPattern = (song.strumming || []).map(s => s.raw || (s.type === '↓' ? 'D' : (s.type === '↑' ? 'U' : '.'))).join('');
+       const rawPattern = (song.strumming || []).map(s => s.raw || (s.type === 'â†“' ? 'D' : (s.type === 'â†‘' ? 'U' : '.'))).join('');
        song.strumming = parseStrumPattern(rawPattern, song.timeSignature || "4/4");
        const beatsPerBar = parseInt((song.timeSignature || "4/4").split('/')[0]) || 4;
        const parsed = parseRawText(song.rawText || "C\nNew Song", beatsPerBar);
        song.parsedLines = parsed.parsedLines;
        song.chords = parsed.flatChords;
        song.totalBeats = parsed.totalBeats;
+       song.stats = { views: 0, started: 0, completed: 0, ...(song.stats || {}) };
+       song.createdAt = song.createdAt || Date.now();
        return song;
     }
 
@@ -278,10 +314,16 @@ import { AudioEngine } from './modules/audio-engine.js';
 
             await loadUserSettings();
             await loadSongs();
+            await loadToolRecordings();
+            renderToolRecordings();
+            renderChordExplorer();
+            renderToolSongsSearch();
+            showToolsHome();
             navigate('home');
             showLoading(false);
           } else {
             user = null;
+            toolRecordings = [];
             document.getElementById('email-input').value = "";
             document.getElementById('password-input').value = "";
             navigate('auth');
@@ -305,6 +347,290 @@ import { AudioEngine } from './modules/audio-engine.js';
         renderHomeList();
       }
     }
+
+    async function loadToolRecordings() {
+      if (!user || user.isAnonymous) {
+        toolRecordings = [];
+        return;
+      }
+      try {
+        toolRecordings = await repository.loadToolRecordings(user.uid);
+      } catch (e) {
+        console.error("Failed to load tool recordings", e);
+        toolRecordings = [];
+      }
+    }
+
+    function renderToolRecordings() {
+      const list = document.getElementById('tool-recordings-list');
+      if (!list) return;
+      if (!toolRecordings.length) {
+        list.innerHTML = `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-500">No registered sounds yet.</div>`;
+        return;
+      }
+      list.innerHTML = toolRecordings.map(recording => `
+        <div class="bg-black/30 border border-gray-800 rounded-2xl px-4 py-4">
+          <div class="flex items-center justify-between gap-3 mb-2">
+            <div>
+              <p class="font-semibold text-white">${recording.name || 'Untitled sound'}</p>
+              <p class="text-xs text-gray-500">${recording.createdAt ? new Date(recording.createdAt).toLocaleString() : 'Saved clip'}</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-[10px] uppercase tracking-[0.25em] text-gray-500">${Math.max(1, Math.round((recording.durationMs || 0) / 1000))}s</span>
+              <button onclick="downloadToolRecording('${recording.id}')" class="w-8 h-8 rounded-full btn-soft btn-press">
+                <i class="fas fa-download text-xs"></i>
+              </button>
+              <button onclick="deleteToolRecording('${recording.id}')" class="w-8 h-8 rounded-full btn-soft btn-press">
+                <i class="fas fa-trash text-xs"></i>
+              </button>
+            </div>
+          </div>
+          <div class="flex items-center gap-3 mt-3">
+            <button onclick="toggleToolRecordingPlayback('${recording.id}')" id="record-play-${recording.id}" class="w-11 h-11 rounded-full bg-primary text-white btn-press shadow-[0_0_18px_rgba(187,134,252,0.22)]">
+              <i class="fas fa-play"></i>
+            </button>
+            <div class="flex-1">
+              <div class="flex items-end gap-[3px] h-10 mb-2">
+                ${Array.from({ length: 36 }, (_, idx) => {
+                  const seed = recording.id.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0);
+                  const height = 18 + ((seed + (idx * 13)) % 22);
+                  return `<span class="block flex-1 rounded-full bg-white/12" style="height:${height}px" id="record-wave-${recording.id}-${idx}"></span>`;
+                }).join('')}
+              </div>
+              <div class="h-1.5 rounded-full bg-gray-800 overflow-hidden">
+                <div id="record-progress-${recording.id}" class="h-full bg-primary transition-all duration-150" style="width:0%"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function getToolAudio(recordingId) {
+      const recording = toolRecordings.find(item => item.id === recordingId);
+      if (!recording) return null;
+      if (!toolAudioPlayers.has(recordingId)) {
+        const audio = new Audio(recording.dataUrl);
+        audio.addEventListener('timeupdate', () => updateToolRecordingPlaybackUI(recordingId));
+        audio.addEventListener('ended', () => {
+          activeToolAudioId = null;
+          updateToolRecordingPlaybackUI(recordingId, true);
+        });
+        toolAudioPlayers.set(recordingId, audio);
+      }
+      return toolAudioPlayers.get(recordingId);
+    }
+
+    function updateToolRecordingPlaybackUI(recordingId, reset = false) {
+      const audio = toolAudioPlayers.get(recordingId);
+      const progress = document.getElementById(`record-progress-${recordingId}`);
+      const playBtn = document.getElementById(`record-play-${recordingId}`);
+      if (progress) {
+        const pct = reset || !audio?.duration ? 0 : (audio.currentTime / audio.duration) * 100;
+        progress.style.width = `${pct}%`;
+      }
+      if (playBtn) {
+        playBtn.innerHTML = `<i class="fas ${audio && !audio.paused && !reset ? 'fa-pause' : 'fa-play'}"></i>`;
+      }
+    }
+
+    window.toggleToolRecordingPlayback = function(recordingId) {
+      const audio = getToolAudio(recordingId);
+      if (!audio) return;
+      if (activeToolAudioId && activeToolAudioId !== recordingId) {
+        const current = toolAudioPlayers.get(activeToolAudioId);
+        if (current) {
+          current.pause();
+          updateToolRecordingPlaybackUI(activeToolAudioId, false);
+        }
+      }
+      if (audio.paused) {
+        audio.play();
+        activeToolAudioId = recordingId;
+      } else {
+        audio.pause();
+        activeToolAudioId = null;
+      }
+      updateToolRecordingPlaybackUI(recordingId, false);
+    };
+
+    window.downloadToolRecording = function(recordingId) {
+      const recording = toolRecordings.find(item => item.id === recordingId);
+      if (!recording) return;
+      const link = document.createElement('a');
+      link.href = recording.dataUrl;
+      link.download = `${(recording.name || 'recording').replace(/[^a-z0-9_-]+/gi, '_')}.webm`;
+      link.click();
+    };
+
+    function renderChordExplorer() {
+      const grid = document.getElementById('chord-explorer-grid');
+      const current = document.getElementById('chord-explorer-current');
+      if (!grid) return;
+      if (current) current.innerText = selectedChordReference;
+      grid.innerHTML = CHORD_EXPLORER_LIST.map(chord => `
+        <button onclick="selectChordReference('${chord}')" class="rounded-2xl p-3 btn-press ${selectedChordReference === chord ? 'border border-primary bg-primary/10' : 'btn-soft'}">
+          ${UI.renderChordDiagramSvg(chord)}
+        </button>
+      `).join('');
+    }
+
+    window.selectChordReference = function(chord) {
+      selectedChordReference = chord;
+      renderChordExplorer();
+    };
+
+    window.playSelectedChordReference = async function() {
+      await ensureAudioReady();
+      await playChordPreview(selectedChordReference, 'D', 'No capo');
+    };
+
+    window.openToolPage = function(tool) {
+      activeToolPage = tool;
+      const pages = ['metronome', 'recorder', 'chords', 'songs'];
+      document.getElementById('tools-home-panel')?.classList.add('hidden');
+      pages.forEach(page => {
+        document.getElementById(`tool-page-${page}`)?.classList.toggle('hidden', page !== tool);
+      });
+      document.getElementById('tools-back-btn')?.classList.remove('hidden');
+      const subtitle = document.getElementById('tools-header-subtitle');
+      if (subtitle) subtitle.innerText = tool === 'metronome' ? 'Keep steady time.' : tool === 'recorder' ? 'Save and replay short clips.' : 'Browse and hear the chord library.';
+    };
+
+    window.showToolsHome = function() {
+      activeToolPage = 'home';
+      document.getElementById('tools-home-panel')?.classList.remove('hidden');
+      ['metronome', 'recorder', 'chords', 'songs'].forEach(page => {
+        document.getElementById(`tool-page-${page}`)?.classList.add('hidden');
+      });
+      document.getElementById('tools-back-btn')?.classList.add('hidden');
+      const subtitle = document.getElementById('tools-header-subtitle');
+      if (subtitle) subtitle.innerText = 'Choose a tool.';
+    };
+
+    window.openTrainingPage = function(page) {
+      document.getElementById('training-home-panel')?.classList.add('hidden');
+      ['practice', 'dailies', 'strumming'].forEach(id => {
+        document.getElementById(`training-page-${id}`)?.classList.toggle('hidden', id !== page);
+      });
+      document.getElementById('training-back-btn')?.classList.remove('hidden');
+      const subtitle = document.getElementById('training-header-subtitle');
+      if (subtitle) subtitle.innerText = page === 'practice' ? 'Song practice hub.' : page === 'dailies' ? 'Warm-up routines.' : 'Pattern trainer.';
+    };
+
+    window.showTrainingHome = function() {
+      document.getElementById('training-home-panel')?.classList.remove('hidden');
+      ['practice', 'dailies', 'strumming'].forEach(id => {
+        document.getElementById(`training-page-${id}`)?.classList.add('hidden');
+      });
+      document.getElementById('training-back-btn')?.classList.add('hidden');
+      const subtitle = document.getElementById('training-header-subtitle');
+      if (subtitle) subtitle.innerText = 'Choose a training page.';
+    };
+
+    function updateToolRecordingUI(isRecording) {
+      const btn = document.getElementById('btn-tool-record');
+      const status = document.getElementById('tool-recording-status');
+      if (btn) {
+        btn.innerHTML = isRecording ? `<i class="fas fa-stop mr-2"></i> Stop` : `<i class="fas fa-circle mr-2"></i> Register`;
+        btn.classList.toggle('bg-danger', isRecording);
+      btn.classList.toggle('text-white', isRecording);
+      btn.classList.toggle('bg-primary', !isRecording);
+      btn.classList.toggle('text-black', false);
+      btn.classList.toggle('text-white', true);
+      btn.classList.toggle('btn-soft', false);
+      }
+      if (status) status.innerText = isRecording ? 'Recording' : 'Idle';
+    }
+
+    function stopToolRecordingStream() {
+      if (toolRecordingTimeout) {
+        clearTimeout(toolRecordingTimeout);
+        toolRecordingTimeout = null;
+      }
+      if (toolRecordingStream) {
+        toolRecordingStream.getTracks().forEach(track => track.stop());
+        toolRecordingStream = null;
+      }
+    }
+
+    window.toggleToolRecording = async function() {
+      if (!user || user.isAnonymous) {
+        showToast("Create an account to save sounds to Firebase.");
+        return;
+      }
+      if (toolRecorder && toolRecorder.state === 'recording') {
+        toolRecorder.stop();
+        return;
+      }
+      try {
+        toolRecordingChunks = [];
+        toolRecordingStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        toolRecorder = new MediaRecorder(toolRecordingStream);
+        const startedAt = Date.now();
+        toolRecorder.ondataavailable = (event) => {
+          if (event.data && event.data.size > 0) toolRecordingChunks.push(event.data);
+        };
+        toolRecorder.onstop = async () => {
+          updateToolRecordingUI(false);
+          const blob = new Blob(toolRecordingChunks, { type: toolRecorder.mimeType || 'audio/webm' });
+          toolRecorder = null;
+          stopToolRecordingStream();
+          if (!blob.size) return;
+          if (blob.size > 900000) {
+            showToast("Recording is too large. Keep it short.");
+            return;
+          }
+          const dataUrl = await new Promise(resolve => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result);
+            reader.readAsDataURL(blob);
+          });
+          const nameInput = document.getElementById('tool-recording-name');
+          const name = (nameInput?.value || '').trim() || `Sound ${new Date().toLocaleTimeString()}`;
+          await repository.saveToolRecording(user.uid, {
+            name,
+            dataUrl,
+            mimeType: blob.type || 'audio/webm',
+            durationMs: Date.now() - startedAt,
+            createdAt: Date.now()
+          });
+          if (nameInput) nameInput.value = '';
+          await loadToolRecordings();
+          renderToolRecordings();
+          showToast("Sound registered successfully.", true);
+        };
+        toolRecorder.start();
+        updateToolRecordingUI(true);
+        toolRecordingTimeout = setTimeout(() => {
+          if (toolRecorder && toolRecorder.state === 'recording') toolRecorder.stop();
+        }, 12000);
+      } catch (e) {
+        console.error("Tool recording failed", e);
+        stopToolRecordingStream();
+        toolRecorder = null;
+        updateToolRecordingUI(false);
+        showToast("Microphone access is required to register a sound.");
+      }
+    };
+
+    window.deleteToolRecording = async function(recordingId) {
+      if (!user || user.isAnonymous) return;
+      try {
+        const audio = toolAudioPlayers.get(recordingId);
+        if (audio) {
+          audio.pause();
+          toolAudioPlayers.delete(recordingId);
+        }
+        await repository.deleteToolRecording(user.uid, recordingId);
+        toolRecordings = toolRecordings.filter(recording => recording.id !== recordingId);
+        renderToolRecordings();
+        showToast("Recording deleted.", true);
+      } catch (e) {
+        console.error("Delete recording failed", e);
+        showToast("Could not delete recording.");
+      }
+    };
 
     function getBeatsPerBarFromSignature(timeSignature = "4/4") {
       return parseInt((timeSignature || "4/4").split('/')[0], 10) || 4;
@@ -335,7 +661,7 @@ import { AudioEngine } from './modules/audio-engine.js';
       for(let i=0; i < totalSlots; i++) {
         const char = cleanText[i] || '.';
         const time = i * 0.5;
-        const type = char === 'D' ? '↓' : (char === 'U' ? '↑' : (char === 'X' ? 'x' : '.'));
+        const type = char === 'D' ? 'â†“' : (char === 'U' ? 'â†‘' : (char === 'X' ? 'x' : '.'));
         pattern.push({ time, type, raw: char });
       }
       return pattern;
@@ -350,7 +676,7 @@ import { AudioEngine } from './modules/audio-engine.js';
         const leftIdx = beatIdx * 2;
         const rightIdx = leftIdx + 1;
         const buildCell = (char, idx) => {
-          const symbol = char === 'D' ? '↓' : (char === 'U' ? '↑' : (char === 'X' ? 'x' : '·'));
+          const symbol = char === 'D' ? 'â†“' : (char === 'U' ? 'â†‘' : (char === 'X' ? 'x' : 'Â·'));
           return `
             <button type="button" onclick="${clickHandlerName}(${idx})" class="pattern-cell ${char !== '.' ? 'active' : ''}">
               <div class="pattern-action ${char === '.' ? 'rest opacity-40' : ''}">${symbol}</div>
@@ -378,7 +704,7 @@ import { AudioEngine } from './modules/audio-engine.js';
             const leftIdx = beatIdx * 2;
             const rightIdx = leftIdx + 1;
             const buildCell = (char, idx) => {
-              const symbol = char === 'D' ? '↓' : (char === 'U' ? '↑' : (char === 'X' ? 'x' : '·'));
+              const symbol = char === 'D' ? 'â†“' : (char === 'U' ? 'â†‘' : (char === 'X' ? 'x' : 'Â·'));
               const validationClass = validationStates[idx] === 'success' ? 'success' : (validationStates[idx] === 'fail' ? 'fail' : '');
               return `<div class="pattern-cell ${idx === activeIndex ? 'active' : ''} ${validationClass}">
                 <div class="pattern-action ${char === '.' ? 'rest' : ''}">${symbol}</div>
@@ -458,6 +784,13 @@ import { AudioEngine } from './modules/audio-engine.js';
       const renderLine = (entry, state) => {
         if (!entry || (!entry.chordHtml && !entry.lyricLine)) {
           return `<div class="practice-line-preview ${state} min-h-[54px]"></div>`;
+        }
+        if (entry.type === 'tag') {
+          return `
+            <div class="practice-line-preview ${state}">
+              <div class="text-primary/80 uppercase tracking-[0.25em] text-[10px] sm:text-xs">${entry.lyricLine}</div>
+            </div>
+          `;
         }
         let chordHtml = entry.chordHtml || '';
         if (state === 'current' && activeChordGlobalIdx !== null) {
@@ -575,7 +908,7 @@ import { AudioEngine } from './modules/audio-engine.js';
     function updatePracticeAudioButton() {
       const btn = document.getElementById('btn-practice-audio');
       if (!btn) return;
-      btn.className = `w-9 h-9 rounded-lg border btn-press ${practiceChordAudioEnabled ? 'bg-primary/20 border-primary/40 text-primary' : 'bg-black/40 border-gray-700 text-gray-500'}`;
+      btn.className = `w-9 h-9 rounded-lg border btn-press ${practiceChordAudioEnabled ? 'bg-primary/20 border-primary/40 text-primary' : 'btn-soft'}`;
       btn.innerHTML = `<i class="fas ${practiceChordAudioEnabled ? 'fa-volume-up' : 'fa-volume-mute'} text-sm"></i>`;
     }
 
@@ -814,8 +1147,15 @@ import { AudioEngine } from './modules/audio-engine.js';
       document.getElementById(`view-${id}`).classList.add('active');
       if (TAB_VIEWS.has(id)) activeTab = id;
       updateTabBar();
+      if (id === 'tools') showToolsHome();
+      if (id === 'training') showTrainingHome();
       if (id !== 'tuner') stopTuner();
-      if (id !== 'metronome') stopStandaloneMetronome();
+      if (id !== 'tools') {
+        stopStandaloneMetronome();
+        if (toolRecorder && toolRecorder.state === 'recording') toolRecorder.stop();
+        else stopToolRecordingStream();
+        updateToolRecordingUI(false);
+      }
       if (id !== 'training') stopTrainingPlayback();
     };
 
@@ -902,6 +1242,44 @@ import { AudioEngine } from './modules/audio-engine.js';
       }
     };
 
+    async function persistUserSettingsPartial(patch) {
+      userSettings = { ...userSettings, ...patch };
+      if (!user || user.isAnonymous) return;
+      try {
+        await repository.saveUserSettings(user.uid, userSettings);
+      } catch (e) {
+        console.error('Could not persist settings patch', e);
+      }
+    }
+
+    async function rememberRecentPractice(songId, progress = null) {
+      const current = Array.isArray(userSettings.recentPractice) ? [...userSettings.recentPractice] : [];
+      const next = [{ songId, progress: progress || userProgress }, ...current.filter(entry => entry.songId !== songId)].slice(0, 8);
+      await persistUserSettingsPartial({ recentPractice: next });
+      renderHomeDashboard();
+    }
+
+    window.toggleFavoriteSong = async function() {
+      if (!currentSong) return;
+      const favorites = new Set(userSettings.favoriteSongIds || []);
+      if (favorites.has(currentSong.id)) favorites.delete(currentSong.id);
+      else favorites.add(currentSong.id);
+      await persistUserSettingsPartial({ favoriteSongIds: Array.from(favorites) });
+      updateFavoriteButton();
+      renderHomeDashboard();
+    };
+
+    function updateFavoriteButton() {
+      const btn = document.getElementById('btn-favorite-song');
+      if (!btn || !currentSong) return;
+      const isFavorite = (userSettings.favoriteSongIds || []).includes(currentSong.id);
+      btn.classList.remove('favorite-btn', 'idle', 'active', 'bg-primary/10', 'border-primary', 'text-primary');
+      btn.classList.add('favorite-btn', isFavorite ? 'active' : 'idle');
+      btn.setAttribute('aria-pressed', isFavorite ? 'true' : 'false');
+      btn.title = isFavorite ? 'Remove Favorite' : 'Add To Favorites';
+      btn.innerHTML = `<i class="${isFavorite ? 'fas' : 'far'} fa-heart"></i>`;
+    }
+
     window.saveSettingsFromModal = function() {
       return saveSettings('modal');
     };
@@ -961,7 +1339,7 @@ import { AudioEngine } from './modules/audio-engine.js';
       document.getElementById('training-status').innerText = 'Idle';
       document.getElementById('btn-training-toggle').innerHTML = `<i class="fas fa-play mr-2"></i> Start Training`;
       document.getElementById('btn-training-toggle').classList.replace('bg-danger', 'bg-primary');
-      document.getElementById('btn-training-toggle').classList.replace('text-white', 'text-black');
+        document.getElementById('btn-training-toggle').classList.add('text-white');
       renderTrainingPatternPreview();
     }
 
@@ -974,7 +1352,7 @@ import { AudioEngine } from './modules/audio-engine.js';
       document.getElementById('training-status').innerText = 'Playing';
       document.getElementById('btn-training-toggle').innerHTML = `<i class="fas fa-stop mr-2"></i> Stop Training`;
       document.getElementById('btn-training-toggle').classList.replace('bg-primary', 'bg-danger');
-      document.getElementById('btn-training-toggle').classList.replace('text-black', 'text-white');
+        document.getElementById('btn-training-toggle').classList.add('text-white');
       clickStandaloneMetronome(true);
       renderTrainingPatternPreview(trainingBeatIndex);
       trainingTimer = setInterval(() => {
@@ -990,17 +1368,161 @@ import { AudioEngine } from './modules/audio-engine.js';
     };
 
     function renderHomeList() {
-      UI.renderSongList('song-list', songs);
+      renderHomeDashboard();
+    }
+
+    function getSongRatingAverage(song) {
+      return song?.ratingSummary?.average || 0;
+    }
+
+    function renderStars(value = 0) {
+      const rounded = Math.round(value);
+      return `<div class="flex items-center gap-1 text-[11px]">${Array.from({ length: 5 }, (_, index) => `<i class="fas fa-star ${index < rounded ? 'text-primary' : 'text-gray-700'}"></i>`).join('')}</div>`;
+    }
+
+    function buildSongDashboardCard(song, options = {}) {
+      const stepProgress = userProgress && currentSong?.id === song.id ? userProgress : null;
+      const progress = options.progress || stepProgress || { step1: { p: 0 }, step2: { p: 0 }, step3: { p: 0 } };
+      const p1 = Math.min(100, progress.step1?.p || 0);
+      const p2 = Math.min(100, progress.step2?.p || 0);
+      const p3 = Math.min(100, progress.step3?.p || 0);
+      const global = Math.round((p1 + p2 + p3) / 3);
+      return `
+        <button onclick="openSongDetails('${song.id}')" class="w-full text-left btn-soft rounded-2xl px-4 py-4 btn-press">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="font-bold text-white">${song.title}</div>
+              <div class="text-xs text-gray-400 mt-1">${song.artist || 'Unknown artist'}</div>
+              <div class="mt-2">${renderStars(getSongRatingAverage(song))}</div>
+            </div>
+            <span class="text-xs text-gray-300 font-semibold">${global}%</span>
+          </div>
+          <div class="grid grid-cols-3 gap-2 mt-3">
+            <div class="h-2.5 rounded-full bg-black/60 overflow-hidden border" style="border-color:rgba(187,134,252,0.35)"><div class="h-full rounded-full bg-primary shadow-[0_0_12px_rgba(187,134,252,0.55)]" style="width:${p1}%"></div></div>
+            <div class="h-2.5 rounded-full bg-black/60 overflow-hidden border" style="border-color:rgba(3,218,198,0.35)"><div class="h-full rounded-full bg-active shadow-[0_0_12px_rgba(3,218,198,0.6)]" style="width:${p2}%"></div></div>
+            <div class="h-2.5 rounded-full bg-black/60 overflow-hidden border" style="border-color:rgba(207,102,121,0.35)"><div class="h-full rounded-full bg-danger shadow-[0_0_12px_rgba(207,102,121,0.55)]" style="width:${p3}%"></div></div>
+          </div>
+        </button>
+      `;
+    }
+
+    function renderHomeDashboard() {
+      const search = (document.getElementById('home-song-search')?.value || '').trim().toLowerCase();
+      const favorites = songs.filter(song => (userSettings.favoriteSongIds || []).includes(song.id));
+      const recentEntries = userSettings.recentPractice || [];
+      const recentSongs = recentEntries
+        .map(entry => ({ song: songs.find(song => song.id === entry.songId), progress: entry.progress }))
+        .filter(entry => entry.song);
+      const filteredSongs = songs.filter(song => !search || song.title?.toLowerCase().includes(search) || song.artist?.toLowerCase().includes(search));
+
+      const favoritesContainer = document.getElementById('home-favorites-list');
+      const recentContainer = document.getElementById('home-recent-practice-list');
+      const allContainer = document.getElementById('home-all-songs-list');
+      if (favoritesContainer) favoritesContainer.innerHTML = favorites.length ? favorites.map(song => buildSongDashboardCard(song)).join('') : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No favorite songs yet.</div>`;
+      if (recentContainer) recentContainer.innerHTML = recentSongs.length ? recentSongs.map(({ song, progress }) => buildSongDashboardCard(song, { progress })).join('') : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No started practice songs yet.</div>`;
+      if (allContainer) allContainer.innerHTML = filteredSongs.length ? filteredSongs.map(song => buildSongDashboardCard(song)).join('') : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No songs found.</div>`;
+
+      const practiceShortcuts = document.getElementById('training-practice-shortcuts');
+      if (practiceShortcuts) practiceShortcuts.innerHTML = recentSongs.length ? recentSongs.slice(0, 4).map(({ song, progress }) => buildSongDashboardCard(song, { progress })).join('') : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">Start from a song on Home to see it here.</div>`;
+    }
+
+    function renderToolSongsSearch(query = '') {
+      const container = document.getElementById('tool-songs-results');
+      if (!container) return;
+      const q = (query || '').trim().toLowerCase();
+      const filtered = songs.filter(song => !q || song.title?.toLowerCase().includes(q) || song.artist?.toLowerCase().includes(q));
+      if (!filtered.length) {
+        container.innerHTML = `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No songs found.</div>`;
+        return;
+      }
+      container.innerHTML = filtered.map(song => `
+        <button onclick="openSongDetails('${song.id}')" class="w-full text-left btn-soft rounded-xl px-4 py-4 btn-press">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <div class="font-bold text-white">${song.title}</div>
+              <div class="text-xs text-gray-400 mt-1">${song.artist || 'Unknown artist'}</div>
+              <div class="mt-2">${renderStars(getSongRatingAverage(song))}</div>
+            </div>
+            <i class="fas fa-chevron-right text-primary"></i>
+          </div>
+        </button>
+      `).join('');
+    }
+
+    window.renderToolSongsSearch = renderToolSongsSearch;
+
+    function renderSongComments() {
+      const list = document.getElementById('detail-comments-list');
+      const count = document.getElementById('detail-comments-count');
+      if (count) count.innerText = String(currentSongComments.length);
+      if (!list) return;
+      if (!currentSongComments.length) {
+        list.innerHTML = `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No comments yet.</div>`;
+        return;
+      }
+      list.innerHTML = currentSongComments.map(comment => `
+        <div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3">
+          <div class="flex items-center justify-between gap-3">
+            <p class="font-semibold text-white">${comment.authorName || 'Anonymous'}</p>
+            <p class="text-[10px] uppercase tracking-[0.2em] text-gray-500">${comment.createdAt ? new Date(comment.createdAt).toLocaleDateString() : ''}</p>
+          </div>
+          <p class="text-sm text-gray-300 mt-2 whitespace-pre-wrap">${comment.text || ''}</p>
+        </div>
+      `).join('');
+    }
+
+    function renderSongRatingSummary() {
+      const summary = document.getElementById('detail-rating-summary');
+      if (!summary) return;
+      if (!currentSongRatings.length) {
+        summary.innerText = 'No ratings';
+        return;
+      }
+      const avg = currentSongRatings.reduce((sum, item) => sum + (item.rating || 0), 0) / currentSongRatings.length;
+      summary.innerText = `${avg.toFixed(1)} / 5 (${currentSongRatings.length})`;
+    }
+
+    async function loadSongSocialData() {
+      if (!currentSong) return;
+      try {
+        currentSongComments = await repository.loadSongComments(currentSong.id);
+      } catch (e) {
+        console.error('Comments load failed', e);
+        currentSongComments = [];
+      }
+      try {
+        currentSongRatings = await repository.loadSongRatings(currentSong.id);
+      } catch (e) {
+        console.error('Ratings load failed', e);
+        currentSongRatings = [];
+      }
+      renderSongComments();
+      renderSongRatingSummary();
+    }
+
+    async function bumpSongStat(field) {
+      if (!currentSong?.id) return;
+      const nextStats = {
+        ...(currentSong.stats || { views: 0, started: 0, completed: 0 }),
+        [field]: ((currentSong.stats?.[field]) || 0) + 1
+      };
+      currentSong.stats = nextStats;
+      await repository.updateSongMeta(currentSong.id, { stats: nextStats });
     }
 
     window.openSongDetails = async function(id) {
       currentSong = songs.find(s => s.id === id);
+      renderToolSongsSearch(document.getElementById('tool-song-search')?.value || '');
       document.getElementById('detail-title').innerText = currentSong.title;
       document.getElementById('detail-artist').innerText = currentSong.artist;
       document.getElementById('detail-posted').innerText = currentSong.postedBy || "Anonymous";
       document.getElementById('detail-bpm').innerText = currentSong.bpm;
       document.getElementById('detail-time-sig').innerText = `(${currentSong.timeSignature || '4/4'})`;
-      document.getElementById('detail-capo').innerText = `• ${currentSong.capo || 'No capo'}`;
+      document.getElementById('detail-capo').innerText = '• ' + (currentSong.capo || 'No capo');
+      document.getElementById('detail-stat-views').innerText = String(currentSong.stats?.views || 0);
+      document.getElementById('detail-stat-started').innerText = String(currentSong.stats?.started || 0);
+      document.getElementById('detail-stat-completed').innerText = String(currentSong.stats?.completed || 0);
+      document.getElementById('detail-created-at').innerText = currentSong.createdAt ? new Date(currentSong.createdAt).toLocaleDateString() : '-';
       
       const btnEdit = document.getElementById('btn-edit-song');
       if (user && user.uid === currentSong.ownerId) {
@@ -1013,8 +1535,16 @@ import { AudioEngine } from './modules/audio-engine.js';
       
       const unique = [...new Set(currentSong.chords.map(c => c.chord))];
       UI.renderChordLibrary('detail-chords', unique);
+      updateFavoriteButton();
 
       await loadProgress();
+      await loadSongSocialData();
+      try {
+        await bumpSongStat('views');
+        document.getElementById('detail-stat-views').innerText = String(currentSong.stats?.views || 0);
+      } catch (e) {
+        console.error("Could not update views", e);
+      }
       renderSteps();
       navigate('details');
     };
@@ -1032,6 +1562,85 @@ import { AudioEngine } from './modules/audio-engine.js';
     function renderSteps() {
       UI.renderPracticeSteps('practice-steps-container', userProgress);
     }
+
+    window.submitSongComment = async function() {
+      if (!user || user.isAnonymous || !currentSong) {
+        showToast("Create an account to comment.");
+        return;
+      }
+      const input = document.getElementById('detail-comment-input');
+      const text = input?.value?.trim();
+      if (!text) return;
+      try {
+        await repository.addSongComment(currentSong.id, {
+          authorId: user.uid,
+          authorName: user.email ? user.email.split('@')[0] : 'Guest',
+          text,
+          createdAt: Date.now()
+        });
+        input.value = '';
+        await loadSongSocialData();
+        showToast("Comment added.", true);
+      } catch (e) {
+        console.error("Comment save failed", e);
+        showToast("Could not save comment.");
+      }
+    };
+
+    function renderRatingStars(selected = 0) {
+      const stars = document.getElementById('rating-stars');
+      if (!stars) return;
+      stars.innerHTML = Array.from({ length: 5 }, (_, index) => {
+        const value = index + 1;
+        const active = value <= selected;
+        return `<button onclick="setSongRating(${value})" class="btn-press text-3xl ${active ? 'text-primary' : 'text-gray-600'}"><i class="fas fa-star"></i></button>`;
+      }).join('');
+    }
+
+    window.setSongRating = function(value) {
+      pendingSongRating = value;
+      renderRatingStars(pendingSongRating);
+    };
+
+    window.closeRatingModal = function() {
+      document.getElementById('rating-modal')?.classList.add('hidden');
+      document.getElementById('rating-modal')?.classList.remove('flex');
+    };
+
+    function openRatingModal() {
+      pendingSongRating = 0;
+      renderRatingStars(0);
+      const modal = document.getElementById('rating-modal');
+      modal?.classList.remove('hidden');
+      modal?.classList.add('flex');
+    }
+
+    window.submitSongRating = async function() {
+      if (!user || user.isAnonymous || !currentSong || pendingSongRating < 1) {
+        closeRatingModal();
+        return;
+      }
+      try {
+        await repository.upsertSongRating(currentSong.id, user.uid, {
+          rating: pendingSongRating,
+          authorId: user.uid,
+          updatedAt: Date.now()
+        });
+        await loadSongSocialData();
+        const average = currentSongRatings.length ? currentSongRatings.reduce((sum, item) => sum + (item.rating || 0), 0) / currentSongRatings.length : pendingSongRating;
+        currentSong.ratingSummary = { average, count: currentSongRatings.length };
+        const songIndex = songs.findIndex(song => song.id === currentSong.id);
+        if (songIndex >= 0) songs[songIndex].ratingSummary = currentSong.ratingSummary;
+        await repository.updateSongMeta(currentSong.id, { ratingSummary: currentSong.ratingSummary });
+        renderHomeDashboard();
+        renderToolSongsSearch(document.getElementById('tool-song-search')?.value || '');
+        showToast("Rating saved.", true);
+      } catch (e) {
+        console.error("Rating save failed", e);
+        showToast("Could not save rating.");
+      }
+      closeRatingModal();
+    };
 
     window.startPractice = function(step) {
       currentStepMode = step;
@@ -1054,9 +1663,56 @@ import { AudioEngine } from './modules/audio-engine.js';
       timeline.innerHTML = '';
       rhythmViz.innerHTML = '';
 
+      if (step === 0) {
+        document.getElementById('practice-step-label').innerText = `Preview`;
+        timeline.classList.remove('hidden');
+        focus.classList.add('hidden');
+        chordPanel.classList.add('hidden');
+        timeline.innerHTML = `
+          <div class="max-w-3xl mx-auto p-4 sm:p-6 space-y-5">
+            <div class="bg-surface rounded-2xl p-5 border border-gray-800">
+              <div class="grid sm:grid-cols-4 gap-3 text-sm">
+                <div><div class="text-[10px] uppercase tracking-[0.2em] text-gray-500 mb-1">Artist</div><div class="text-white font-semibold">${currentSong.artist || '-'}</div></div>
+                <div><div class="text-[10px] uppercase tracking-[0.2em] text-gray-500 mb-1">Tempo</div><div class="text-white font-semibold">${currentSong.bpm} BPM</div></div>
+                <div><div class="text-[10px] uppercase tracking-[0.2em] text-gray-500 mb-1">Time</div><div class="text-white font-semibold">${currentSong.timeSignature || '4/4'}</div></div>
+                <div><div class="text-[10px] uppercase tracking-[0.2em] text-gray-500 mb-1">Capo</div><div class="text-white font-semibold">${currentSong.capo || 'No capo'}</div></div>
+              </div>
+            </div>
+            <div class="bg-surface rounded-2xl p-5 border border-gray-800">
+              <div class="text-[10px] uppercase tracking-[0.2em] text-gray-500 mb-3">Pattern</div>
+              <div id="practice-preview-pattern"></div>
+            </div>
+            <div class="bg-surface rounded-2xl p-5 border border-gray-800">
+              <div class="text-[10px] uppercase tracking-[0.2em] text-gray-500 mb-3">Lyrics And Chords</div>
+              <div class="timeline-content flex flex-col">` + currentSong.parsedLines.map((lineData, i) => `
+                <div id="block-${i}" class="timeline-block ${lineData.chordHtml === '' && lineData.lyricLine === '' ? 'compact-gap' : 'tight-stack'} px-1 sm:px-3 py-0 border-l-4 border-transparent font-mono">
+                  ${lineData.chordHtml || lineData.lyricLine ? `<div class="timeline-pair">${lineData.chordHtml ? `<div class="timeline-line chords text-primary font-bold" style="font-size:var(--practice-chord-size, 11px)">${lineData.chordHtml}</div>` : ''}${lineData.lyricLine ? `<div class="timeline-line ${lineData.type === 'tag' ? 'text-primary/80 uppercase tracking-[0.25em] text-[10px] sm:text-xs' : 'lyrics text-gray-300'}" style="${lineData.type === 'tag' ? '' : 'font-size:var(--practice-text-size, 14px)'}">${lineData.lyricLine}</div>` : ''}</div>` : ''}
+                </div>
+              `).join('') + `</div>
+            </div>
+          </div>`;
+        const normalizedPreview = currentSong.strumming.map(s => ({ ...s, raw: s.raw || '.' }));
+        UI.renderPatternVisualizer('practice-rhythm-viz', normalizedPreview, beatsPerBar, -1, []);
+        UI.renderPatternVisualizer('practice-preview-pattern', normalizedPreview, beatsPerBar, -1, []);
+        const footerButton = document.getElementById('btn-play');
+        footerButton.innerHTML = `<i class="fas fa-play mr-2"></i> Start Step 1`;
+        footerButton.onclick = () => startPractice(1);
+        navigate('practice');
+        return;
+      }
+
       const normalizedStrumming = currentSong.strumming.map(s => ({
-        ...s, raw: s.raw || (s.type === '↓' ? 'D' : (s.type === '↑' ? 'U' : '.'))
+        ...s, raw: s.raw || (s.type === 'â†“' ? 'D' : (s.type === 'â†‘' ? 'U' : '.'))
       }));
+
+
+      if (user && !user.isAnonymous) {
+        bumpSongStat('started').then(() => {
+          const startedEl = document.getElementById('detail-stat-started');
+          if (startedEl) startedEl.innerText = String(currentSong.stats?.started || 0);
+        }).catch(err => console.error('Start stat failed', err));
+      }
+      rememberRecentPractice(currentSong.id, userProgress).catch(err => console.error('Recent practice update failed', err));
 
       if(step === 2) {
         timeline.classList.add('hidden');
@@ -1066,7 +1722,7 @@ import { AudioEngine } from './modules/audio-engine.js';
       } else {
         timeline.classList.remove('hidden');
         focus.classList.add('hidden');
-        if (step === 1) {
+        if (step === 1 || step === 3) {
           chordPanel.classList.remove('hidden');
           timeline.classList.add('hidden');
           const firstChord = currentSong.chords?.[0]?.chord || 'C';
@@ -1082,7 +1738,7 @@ import { AudioEngine } from './modules/audio-engine.js';
           const isEmpty = lineData.chordHtml === '' && lineData.lyricLine === '';
           return `
             <div id="block-${i}" class="timeline-block ${isEmpty ? 'compact-gap' : 'tight-stack'} px-1 sm:px-3 py-0 border-l-4 border-transparent font-mono">
-              ${lineData.chordHtml || lineData.lyricLine ? `<div class="timeline-pair">${lineData.chordHtml ? `<div class="timeline-line chords text-primary font-bold" style="font-size:var(--practice-chord-size, 11px)">${lineData.chordHtml}</div>` : ''}${lineData.lyricLine ? `<div class="timeline-line lyrics text-gray-300" style="font-size:var(--practice-text-size, 14px)">${lineData.lyricLine}</div>` : ''}</div>` : ''}
+              ${lineData.chordHtml || lineData.lyricLine ? `<div class="timeline-pair">${lineData.chordHtml ? `<div class="timeline-line chords text-primary font-bold" style="font-size:var(--practice-chord-size, 11px)">${lineData.chordHtml}</div>` : ''}${lineData.lyricLine ? `<div class="timeline-line ${lineData.type === 'tag' ? 'text-primary/80 uppercase tracking-[0.25em] text-[10px] sm:text-xs' : 'lyrics text-gray-300'}" style="${lineData.type === 'tag' ? '' : 'font-size:var(--practice-text-size, 14px)'}">${lineData.lyricLine}</div>` : ''}</div>` : ''}
             </div>
           `;
         }).join('') + `</div>`;
@@ -1091,7 +1747,7 @@ import { AudioEngine } from './modules/audio-engine.js';
         if (step === 1) {
             activeStrumPattern = [];
             for(let i=0; i<getPatternSlotCount(beatsPerBar); i++) {
-                activeStrumPattern.push({ time: i * 0.5, type: i === 0 ? "↓" : ".", raw: i === 0 ? "D" : "." });
+                activeStrumPattern.push({ time: i * 0.5, type: i === 0 ? "â†“" : ".", raw: i === 0 ? "D" : "." });
             }
         } else {
             activeStrumPattern = normalizedStrumming;
@@ -1101,6 +1757,10 @@ import { AudioEngine } from './modules/audio-engine.js';
       practiceValidationStates = new Array(activeStrumPattern.length).fill(null);
       UI.renderPatternVisualizer('practice-rhythm-viz', activeStrumPattern, beatsPerBar, -1, practiceValidationStates);
       startPracticeDetection();
+
+      const footerButton = document.getElementById('btn-play');
+      footerButton.innerHTML = `<i class="fas fa-play mr-2"></i> Start`;
+      footerButton.onclick = togglePlay;
 
       navigate('practice');
     };
@@ -1115,7 +1775,7 @@ import { AudioEngine } from './modules/audio-engine.js';
         lastSavedPercent = -1;
         document.getElementById('btn-play').innerHTML = `<i class="fas fa-stop"></i> Stop`;
         document.getElementById('btn-play').classList.replace('bg-primary', 'bg-danger');
-        document.getElementById('btn-play').classList.replace('text-black', 'text-white');
+        document.getElementById('btn-play').classList.add('text-white');
         document.getElementById('btn-play').classList.replace('shadow-[0_0_20px_rgba(187,134,252,0.4)]', 'shadow-[0_0_20px_rgba(207,102,121,0.4)]');
         scheduler();
       } else { stopPlayback(); }
@@ -1183,7 +1843,7 @@ import { AudioEngine } from './modules/audio-engine.js';
       // Dual Chord/Line Highlighting Logic
       if(currentStepMode !== 2 && currentSong.chords && currentSong.chords.length > 0) {
         if (activeChord) {
-          if (currentStepMode === 1) {
+          if (currentStepMode === 1 || currentStepMode === 3) {
             UI.renderChordLibrary('practice-current-chord', [activeChord.chord], activeChord.chord);
             UI.renderPracticeCurrentLine({ containerId: 'practice-current-line', lineData: currentSong.parsedLines?.[activeChord.lineIdx], parsedLines: currentSong.parsedLines, activeChordGlobalIdx: activeChord.globalIdx });
           }
@@ -1208,7 +1868,14 @@ import { AudioEngine } from './modules/audio-engine.js';
       }
 
       if(beat >= currentSong.totalBeats) {
-        saveProg(100); 
+        saveProg(100);
+        if (user && !user.isAnonymous) {
+          bumpSongStat('completed').then(() => {
+            const completedEl = document.getElementById('detail-stat-completed');
+            if (completedEl) completedEl.innerText = String(currentSong.stats?.completed || 0);
+          }).catch(err => console.error('Completed stat failed', err));
+          openRatingModal();
+        }
         stopPlayback();
       }
     }
@@ -1218,6 +1885,7 @@ import { AudioEngine } from './modules/audio-engine.js';
       const key = `step${currentStepMode}`;
       if(p > (userProgress[key]?.p || 0)) {
         userProgress[key] = { p };
+        rememberRecentPractice(currentSong.id, userProgress).catch(err => console.error('Recent practice update failed', err));
         try {
           await repository.saveProgress(user.uid, currentSong.id, userProgress);
         } catch (e) {
@@ -1236,7 +1904,7 @@ import { AudioEngine } from './modules/audio-engine.js';
       const btn = document.getElementById('btn-play');
       btn.innerHTML = `<i class="fas fa-play mr-2"></i> Start`;
       btn.classList.replace('bg-danger', 'bg-primary');
-      btn.classList.replace('text-white', 'text-black');
+      btn.classList.add('text-white');
       btn.classList.replace('shadow-[0_0_20px_rgba(207,102,121,0.4)]', 'shadow-[0_0_20px_rgba(187,134,252,0.4)]');
       
       // Remove visual active states
@@ -1256,10 +1924,10 @@ import { AudioEngine } from './modules/audio-engine.js';
 
     function renderBottomTabs() {
       const tabs = [
-        { id: 'home', label: 'Songs', icon: 'fa-music' },
+        { id: 'home', label: 'Home', icon: 'fa-house' },
         { id: 'training', label: 'Training', icon: 'fa-dumbbell' },
         { id: 'tuner', label: 'Tuner', icon: 'fa-microphone' },
-        { id: 'metronome', label: 'Metronome', icon: 'fa-wave-square' },
+        { id: 'tools', label: 'Tools', icon: 'fa-toolbox' },
         { id: 'settings', label: 'Settings', icon: 'fa-gear' }
       ];
       const tabBar = document.getElementById('bottom-tabbar');
@@ -1336,7 +2004,7 @@ import { AudioEngine } from './modules/audio-engine.js';
       const btn = document.getElementById('btn-metro-toggle');
       btn.innerHTML = `<i class="fas fa-stop mr-2"></i> Stop Metronome`;
       btn.classList.replace('bg-primary', 'bg-danger');
-      btn.classList.replace('text-black', 'text-white');
+      btn.classList.add('text-white');
     }
 
     function stopStandaloneMetronome() {
@@ -1346,7 +2014,7 @@ import { AudioEngine } from './modules/audio-engine.js';
       const btn = document.getElementById('btn-metro-toggle');
       btn.innerHTML = `<i class="fas fa-play mr-2"></i> Start Metronome`;
       btn.classList.replace('bg-danger', 'bg-primary');
-      btn.classList.replace('text-white', 'text-black');
+      btn.classList.add('text-white');
     }
 
     window.toggleStandaloneMetronome = function() {
@@ -1434,7 +2102,7 @@ import { AudioEngine } from './modules/audio-engine.js';
         tunerSource.connect(tunerAnalyser);
         document.getElementById('btn-tuner-toggle').innerHTML = `<i class="fas fa-stop mr-2"></i> Stop Tuner`;
         document.getElementById('btn-tuner-toggle').classList.replace('bg-primary', 'bg-danger');
-        document.getElementById('btn-tuner-toggle').classList.replace('text-black', 'text-white');
+        document.getElementById('btn-tuner-toggle').classList.add('text-white');
         document.getElementById('tuner-status').innerText = 'Listening...';
         startTunerLoop();
       } catch (err) {
@@ -1459,7 +2127,7 @@ import { AudioEngine } from './modules/audio-engine.js';
       if (tunerBtn) {
         tunerBtn.innerHTML = `<i class="fas fa-microphone mr-2"></i> Start Tuner`;
         tunerBtn.classList.replace('bg-danger', 'bg-primary');
-        tunerBtn.classList.replace('text-white', 'text-black');
+        tunerBtn.classList.add('text-white');
       }
       const status = document.getElementById('tuner-status');
       if (status && activeTab !== 'tuner') status.innerText = 'Idle';
@@ -1490,6 +2158,10 @@ import { AudioEngine } from './modules/audio-engine.js';
       renderBottomTabs();
       applyUserSettings(DEFAULT_SETTINGS);
       renderTunerMeter(0);
+      renderToolRecordings();
+      renderChordExplorer();
+      renderToolSongsSearch();
+      showToolsHome();
       syncAddPatternEditor();
       updateTrainingPatternEditor();
       restoreMetronomeSettings();
@@ -1498,10 +2170,21 @@ import { AudioEngine } from './modules/audio-engine.js';
         if (document.hidden) {
           stopTuner();
           stopStandaloneMetronome();
+          if (toolRecorder && toolRecorder.state === 'recording') toolRecorder.stop();
+          else stopToolRecordingStream();
+          updateToolRecordingUI(false);
           stopTrainingPlayback();
           stopPracticeDetection();
           if (isPlaying) stopPlayback();
         }
       });
+      document.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape') return;
+        if (!document.getElementById('text-settings-modal')?.classList.contains('hidden')) return closeTextSettingsModal();
+        if (!document.getElementById('rating-modal')?.classList.contains('hidden')) return closeRatingModal();
+        if (document.getElementById('view-practice')?.classList.contains('active')) return stopAndExitPractice();
+      });
       initApp();
     };
+
+

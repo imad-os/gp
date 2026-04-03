@@ -1,4 +1,4 @@
-import { collection, getDocs, doc, setDoc, getDoc, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { collection, getDocs, doc, setDoc, getDoc, addDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
 export class FirestoreRepository {
   constructor(db) {
@@ -21,7 +21,11 @@ export class FirestoreRepository {
       await setDoc(songRef, songData, { merge: true });
       return editingSongId;
     }
-    const created = await addDoc(collection(this.db, 'songs'), songData);
+    const created = await addDoc(collection(this.db, 'songs'), {
+      ...songData,
+      createdAt: songData.createdAt || Date.now(),
+      stats: songData.stats || { views: 0, started: 0, completed: 0 }
+    });
     return created.id;
   }
 
@@ -45,5 +49,51 @@ export class FirestoreRepository {
   async saveProgress(userId, songId, progress) {
     const progRef = doc(this.db, 'users', userId, 'progress', songId);
     await setDoc(progRef, progress, { merge: true });
+  }
+
+  async loadToolRecordings(userId) {
+    const recordingsRef = collection(this.db, 'users', userId, 'tool_recordings');
+    const snap = await getDocs(recordingsRef);
+    return snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  }
+
+  async saveToolRecording(userId, recording) {
+    const recordingsRef = collection(this.db, 'users', userId, 'tool_recordings');
+    const created = await addDoc(recordingsRef, recording);
+    return created.id;
+  }
+
+  async deleteToolRecording(userId, recordingId) {
+    await deleteDoc(doc(this.db, 'users', userId, 'tool_recordings', recordingId));
+  }
+
+  async loadSongComments(songId) {
+    const commentsRef = collection(this.db, 'songs', songId, 'comments');
+    const snap = await getDocs(commentsRef);
+    return snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  }
+
+  async addSongComment(songId, comment) {
+    const commentsRef = collection(this.db, 'songs', songId, 'comments');
+    const created = await addDoc(commentsRef, comment);
+    return created.id;
+  }
+
+  async loadSongRatings(songId) {
+    const ratingsRef = collection(this.db, 'songs', songId, 'ratings');
+    const snap = await getDocs(ratingsRef);
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  }
+
+  async upsertSongRating(songId, userId, rating) {
+    await setDoc(doc(this.db, 'songs', songId, 'ratings', userId), rating, { merge: true });
+  }
+
+  async updateSongMeta(songId, patch) {
+    await setDoc(doc(this.db, 'songs', songId), patch, { merge: true });
   }
 }

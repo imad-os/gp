@@ -145,6 +145,7 @@ export function renderSongList(containerId, songs) {
 
 export function renderPracticeSteps(containerId, userProgress) {
   const steps = [
+    { id: 0, name: "Preview", desc: "See lyrics, chords, capo, and pattern before you play" },
     { id: 1, name: "Chords Mastery", desc: "1 Downstroke per measure" },
     { id: 2, name: "Rhythm Pattern", desc: "Focus on the strumming visual" },
     { id: 3, name: "Full Song", desc: "The ultimate performance" }
@@ -152,6 +153,19 @@ export function renderPracticeSteps(containerId, userProgress) {
   const container = document.getElementById(containerId);
   if (!container) return;
   container.innerHTML = steps.map(s => {
+    if (s.id === 0) {
+      return `
+        <div onclick="startPractice(0)" class="bg-surface-light rounded-xl p-4 flex justify-between items-center cursor-pointer border border-gray-800 hover:border-gray-600 transition-colors btn-press relative overflow-hidden">
+          <div class="flex gap-4 items-center pl-2">
+            <div class="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold shadow-sm">
+              <i class="fas fa-eye"></i>
+            </div>
+            <div><h4 class="font-bold text-sm text-white">${s.name}</h4><p class="text-[10px] text-gray-500">${s.desc}</p></div>
+          </div>
+          <span class="text-xs font-bold text-gray-400">Open</span>
+        </div>
+      `;
+    }
     const p = userProgress[`step${s.id}`]?.p || 0;
     const isComplete = p >= 100;
     return `
