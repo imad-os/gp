@@ -1559,6 +1559,16 @@ import { AudioEngine } from './modules/audio-engine.js';
       return trimmed || '/';
     }
 
+    function restoreRedirectedRouteFromQuery() {
+      try {
+        const url = new URL(window.location.href);
+        const redirected = url.searchParams.get('r');
+        if (!redirected) return;
+        const restored = normalizePathname(redirected);
+        window.history.replaceState({ path: restored }, '', restored);
+      } catch {}
+    }
+
     function pushUrlPath(path, { replace = false } = {}) {
       const normalized = normalizePathname(path);
       const current = normalizePathname(window.location.pathname || '/');
@@ -2162,6 +2172,7 @@ import { AudioEngine } from './modules/audio-engine.js';
       if (!currentSong) {
         showToast("Song not found.");
         navigate('home', { skipUrl, replaceUrl });
+        if (skipUrl || isHandlingRouteChange) pushUrlPath('/songs', { replace: true });
         return;
       }
       renderToolSongsSearch(document.getElementById('tool-song-search')?.value || '');
@@ -2855,6 +2866,7 @@ import { AudioEngine } from './modules/audio-engine.js';
     window.updateMetronomeSettings = updateMetronomeSettings;
 
     window.onload = () => {
+      restoreRedirectedRouteFromQuery();
       populateCapoOptions();
       renderBottomTabs();
       applyUserSettings(DEFAULT_SETTINGS);
@@ -2863,7 +2875,7 @@ import { AudioEngine } from './modules/audio-engine.js';
       setToolRecordingVizIdle();
       renderChordExplorer();
       renderToolSongsSearch();
-      showToolsHome();
+      showToolsHome({ skipUrl: true });
       syncAddPatternEditor();
       updateTrainingPatternEditor();
       restoreMetronomeSettings();
