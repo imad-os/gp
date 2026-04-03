@@ -28,10 +28,11 @@
     .timeline-block.active { background: rgba(3, 218, 198, 0.1); border-left-color: var(--active); transform: scale(1.02); }
     .timeline-block.active .chord { color: var(--active); }
     
-    .strum { transition: all 0.1s; color: #555; }
-    .strum.active { color: var(--active); text-shadow: 0 0 10px rgba(3,218,198,0.5); transform: scale(1.2); }
+    .rhythm-step { transition: transform 0.1s ease; }
+    .strum-char { transition: all 0.1s; color: #555; }
+    .strum-char.active { color: var(--active); text-shadow: 0 0 10px rgba(3,218,198,0.5); transform: scale(1.2); }
     
-    .metro-dot { width: 10px; height: 10px; border-radius: 50%; background: #333; transition: all 0.1s; }
+    .metro-dot { width: 10px; height: 10px; border-radius: 50%; background: #333; transition: all 0.1s; margin-bottom: 8px; }
     .metro-dot.active { background: var(--active); transform: scale(1.3); box-shadow: 0 0 8px var(--active); }
 
     .btn-press:active { transform: scale(0.95); }
@@ -41,41 +42,66 @@
 </head>
 <body>
 
-  <!-- Login/Username Overlay -->
+  <!-- Toast Notifications -->
+  <div id="toast-msg" class="fixed top-4 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-xl shadow-lg z-[100] transition-all duration-300 translate-y-[-150%] opacity-0 font-bold text-center w-11/12 max-w-sm pointer-events-none"></div>
+
+  <!-- VIEW: Auth (Login/Signup) -->
   <div id="view-auth" class="view active items-center justify-center p-6 bg-[#121212] z-50">
     <div class="w-full max-w-sm bg-surface p-8 rounded-2xl border border-gray-800 shadow-2xl">
       <div class="text-center mb-8">
         <i class="fas fa-guitar text-5xl text-primary mb-4"></i>
         <h1 class="text-2xl font-bold">GuitarTrainer</h1>
-        <p class="text-gray-400 mt-2">Enter your username to begin</p>
+        <p class="text-gray-400 mt-2 text-sm">Login or practice as a guest</p>
       </div>
-      <input type="text" id="username-input" placeholder="GuitarHero99" class="w-full bg-black/50 border border-gray-700 rounded-xl px-4 py-3 mb-4 text-white focus:outline-none focus:border-primary">
-      <button onclick="handleLogin()" class="w-full bg-primary text-black font-bold py-3 rounded-xl btn-press">
-        Start Practicing
-      </button>
+      
+      <div class="space-y-4 mb-6">
+        <input type="email" id="email-input" placeholder="Email Address" class="w-full bg-black/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary transition-colors">
+        <input type="password" id="password-input" placeholder="Password" class="w-full bg-black/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary transition-colors">
+      </div>
+
+      <div class="space-y-3">
+        <button onclick="handleLogin()" class="w-full bg-primary text-black font-bold py-3 rounded-xl btn-press">
+          Login
+        </button>
+        <button onclick="handleSignup()" class="w-full bg-surface-light border border-gray-700 text-white font-bold py-3 rounded-xl btn-press">
+          Create Account
+        </button>
+      </div>
+      
+      <div class="mt-8 text-center">
+        <button onclick="handleGuest()" class="text-gray-500 text-sm hover:text-white transition-colors underline">
+          Continue as Guest
+        </button>
+      </div>
     </div>
   </div>
 
   <!-- Loading Overlay -->
-  <div id="loading-overlay" class="absolute inset-0 bg-[#121212] z-50 hidden flex-col items-center justify-center">
+  <div id="loading-overlay" class="absolute inset-0 bg-[#121212] z-[60] flex-col items-center justify-center hidden">
     <i class="fas fa-circle-notch fa-spin text-4xl text-primary mb-4"></i>
-    <p id="loading-text" class="text-gray-400">Syncing with Cloud...</p>
+    <p id="loading-text" class="text-gray-400 font-mono text-sm tracking-widest uppercase">Connecting...</p>
   </div>
 
   <!-- VIEW 1: Home (Song List) -->
   <div id="view-home" class="view">
     <header class="bg-surface p-4 border-b border-gray-800 flex justify-between items-center shadow-md">
-      <h1 class="text-xl font-bold text-primary">GuitarTrainer</h1>
-      <span id="display-username" class="text-xs text-gray-500 font-mono"></span>
+      <h1 class="text-xl font-bold text-primary flex items-center gap-2">
+        <i class="fas fa-guitar"></i> Trainer
+      </h1>
+      <div class="flex items-center gap-3">
+        <span id="display-username" class="text-xs text-gray-500 max-w-[100px] truncate"></span>
+        <button onclick="handleLogout()" id="btn-logout" class="text-gray-400 hover:text-danger transition-colors" title="Logout">
+          <i class="fas fa-sign-out-alt"></i>
+        </button>
+      </div>
     </header>
     <main class="flex-1 overflow-y-auto p-4 scroll-area">
       <div class="flex justify-between items-center mb-4">
-        <h2 class="text-lg text-gray-400 font-semibold uppercase tracking-wider">My Songs</h2>
+        <h2 class="text-lg text-gray-400 font-semibold uppercase tracking-wider">Library</h2>
       </div>
       <div id="song-list" class="space-y-4"></div>
     </main>
-    <!-- Add Song Button -->
-    <button onclick="navigate('add-song')" class="fixed bottom-6 right-6 w-14 h-14 bg-primary text-black rounded-full shadow-lg flex items-center justify-center text-2xl btn-press z-10">
+    <button id="btn-add-song" onclick="navigate('add-song')" class="fixed bottom-6 right-6 w-14 h-14 bg-primary text-black rounded-full shadow-[0_0_15px_rgba(187,134,252,0.3)] flex items-center justify-center text-2xl btn-press z-10 transition-transform hidden">
       <i class="fas fa-plus"></i>
     </button>
   </div>
@@ -83,23 +109,29 @@
   <!-- VIEW: Add Song -->
   <div id="view-add-song" class="view">
     <header class="bg-surface p-4 border-b border-gray-800 flex items-center shadow-md">
-      <button onclick="navigate('home')" class="mr-4 text-gray-400 btn-press"><i class="fas fa-times text-xl"></i></button>
+      <button onclick="navigate('home')" class="mr-4 text-gray-400 btn-press"><i class="fas fa-arrow-left text-xl"></i></button>
       <h1 class="text-xl font-bold">New Song</h1>
     </header>
     <main class="flex-1 overflow-y-auto p-6 scroll-area bg-black/20">
-      <div class="space-y-4 max-w-lg mx-auto">
-        <input type="text" id="add-title" placeholder="Song Title" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3">
-        <input type="text" id="add-artist" placeholder="Artist" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3">
-        <input type="number" id="add-bpm" placeholder="Default BPM" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3">
+      <div class="space-y-5 max-w-lg mx-auto pb-10">
+        <input type="text" id="add-title" placeholder="Song Title" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 focus:border-primary focus:outline-none">
+        <input type="text" id="add-artist" placeholder="Artist" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 focus:border-primary focus:outline-none">
+        <input type="number" id="add-bpm" placeholder="Default BPM (e.g., 80)" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 focus:border-primary focus:outline-none">
         
-        <label class="block text-xs font-bold text-gray-500 uppercase">Chords & Lyrics (JSON Format)</label>
-        <textarea id="add-chords-json" rows="5" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-2 text-xs font-mono" placeholder='[{"time":0,"chord":"Am","lyric":"Hello"}]'></textarea>
+        <div>
+          <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Chords & Lyrics</label>
+          <p class="text-[10px] text-gray-500 mb-2">Format per line: <b>Beat, Chord, Lyric</b></p>
+          <textarea id="add-chords-text" rows="6" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 text-sm font-mono leading-relaxed focus:border-primary focus:outline-none" placeholder="0, Am, Ya rayah...&#10;4, G, win msafar...&#10;8, F, trouh taaya...&#10;12, E, wa twali..."></textarea>
+        </div>
         
-        <label class="block text-xs font-bold text-gray-500 uppercase">Strumming Pattern (JSON Format)</label>
-        <textarea id="add-strum-json" rows="4" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-2 text-xs font-mono" placeholder='[{"time":0,"type":"↓"},{"time":1.5,"type":"↑"}]'></textarea>
+        <div>
+          <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Strumming Pattern</label>
+          <p class="text-[10px] text-gray-500 mb-2">Use <b>D</b> (Down), <b>U</b> (Up), and <b>.</b> (Silence/Hold) for rests.</p>
+          <input type="text" id="add-strum-text" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 text-lg tracking-widest font-mono uppercase focus:border-primary focus:outline-none" placeholder="D . D U . U D U">
+        </div>
 
-        <button onclick="saveNewSong()" class="w-full bg-active text-black font-bold py-4 rounded-xl mt-4 btn-press">
-          <i class="fas fa-save mr-2"></i> Save Song
+        <button onclick="saveNewSong()" class="w-full bg-active text-black font-bold py-4 rounded-xl mt-4 btn-press shadow-[0_0_15px_rgba(3,218,198,0.2)]">
+          <i class="fas fa-save mr-2"></i> Save to Library
         </button>
       </div>
     </main>
@@ -114,8 +146,8 @@
     <main class="flex-1 overflow-y-auto p-4 scroll-area">
       <div class="bg-surface rounded-xl p-5 mb-6 border border-gray-800 shadow-xl">
         <div class="flex justify-between mb-4">
-          <div><p class="text-[10px] text-gray-500 uppercase">Origin</p><p id="detail-posted" class="text-sm"></p></div>
-          <div><p class="text-[10px] text-gray-500 uppercase">Target BPM</p><p id="detail-bpm" class="text-sm"></p></div>
+          <div><p class="text-[10px] text-gray-500 uppercase">Transcriber</p><p id="detail-posted" class="text-sm truncate max-w-[120px]"></p></div>
+          <div class="text-right"><p class="text-[10px] text-gray-500 uppercase">Target BPM</p><p id="detail-bpm" class="text-sm font-bold text-primary"></p></div>
         </div>
         <div class="mb-4">
           <p class="text-[10px] text-gray-500 uppercase mb-2">Strumming Pattern</p>
@@ -135,32 +167,27 @@
     <header class="bg-surface p-4 border-b border-gray-800 flex justify-between items-center z-20">
       <button onclick="stopAndExitPractice()" class="text-gray-400 btn-press"><i class="fas fa-times text-xl"></i></button>
       <div class="text-center">
-        <p id="practice-step-label" class="text-[10px] text-primary font-bold uppercase"></p>
+        <p id="practice-step-label" class="text-[10px] text-primary font-bold uppercase tracking-widest"></p>
         <p id="practice-title" class="text-sm font-medium"></p>
       </div>
-      <input type="number" id="practice-bpm" class="w-14 bg-black/50 text-white rounded text-center border border-gray-700">
+      <input type="number" id="practice-bpm" class="w-14 bg-black/50 text-white rounded text-center border border-gray-700 focus:border-primary focus:outline-none py-1">
     </header>
 
-    <div class="h-1 bg-gray-800 w-full"><div id="practice-progress-bar" class="h-full bg-active w-0 transition-all"></div></div>
+    <div class="h-1 bg-gray-800 w-full"><div id="practice-progress-bar" class="h-full bg-active w-0 transition-all duration-300 shadow-[0_0_10px_rgba(3,218,198,0.8)]"></div></div>
 
     <main id="practice-timeline" class="flex-1 overflow-y-auto p-4 scroll-area relative flex flex-col gap-6 pb-40"></main>
     <div id="step2-focus" class="hidden flex-1 flex-col items-center justify-center p-8 text-center">
-      <i class="fas fa-drum text-6xl text-gray-700 mb-4"></i>
-      <h2 class="text-2xl font-bold">Rhythm Training</h2>
-      <p class="text-gray-400">Ignore the lyrics. Master the timing.</p>
+      <i class="fas fa-drum text-6xl text-gray-700 mb-6 drop-shadow-lg"></i>
+      <h2 class="text-2xl font-bold mb-2">Rhythm Training</h2>
+      <p class="text-gray-400 max-w-[250px]">Ignore the lyrics and chords. Focus strictly on mastering the right hand strumming timing.</p>
     </div>
 
-    <footer class="bg-surface border-t border-gray-800 p-4 pb-8 absolute bottom-0 w-full z-20 shadow-2xl">
-      <!-- Metronome Visualizer -->
-      <div class="flex justify-center gap-4 mb-4" id="metronome-dots">
-        <div class="metro-dot" id="dot-0"></div>
-        <div class="metro-dot" id="dot-1"></div>
-        <div class="metro-dot" id="dot-2"></div>
-        <div class="metro-dot" id="dot-3"></div>
+    <footer class="bg-surface border-t border-gray-800 p-4 pb-8 absolute bottom-0 w-full z-20 shadow-[0_-10px_30px_rgba(0,0,0,0.5)]">
+      <div id="practice-rhythm-viz" class="flex justify-around items-end bg-black/40 p-4 rounded-xl mb-6 border border-gray-800 h-24 shadow-inner">
+        <!-- Generated Dynamically -->
       </div>
-      <div id="practice-strumming" class="flex justify-around text-3xl font-bold bg-black/40 p-4 rounded-xl mb-4 border border-gray-800"></div>
       <div class="flex justify-center">
-        <button id="btn-play" onclick="togglePlay()" class="bg-primary text-black font-bold py-4 px-14 rounded-full text-lg btn-press">
+        <button id="btn-play" onclick="togglePlay()" class="bg-primary text-black font-bold py-4 px-16 rounded-full text-lg btn-press shadow-[0_0_20px_rgba(187,134,252,0.4)]">
           <i class="fas fa-play mr-2"></i> Start
         </button>
       </div>
@@ -169,11 +196,11 @@
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
     import { getFirestore, collection, getDocs, doc, setDoc, getDoc, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-    const appId = "1:282086325190:web:b3ec1bca510460e87a50c7";
-    const firebaseConfig = {
+    const appId = typeof __app_id !== 'undefined' ? __app_id : "1:282086325190:web:b3ec1bca510460e87a50c7";
+    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
       apiKey: "AIzaSyD-J0dAS2C7_KCpupKpvB_lLhi55TkbWTQ",
       authDomain: "guitarpractice-dfa4b.firebaseapp.com",
       projectId: "guitarpractice-dfa4b",
@@ -181,11 +208,11 @@
       messagingSenderId: "282086325190",
       appId: "1:282086325190:web:b3ec1bca510460e87a50c7"
     };
+    
     let app, auth, db, user;
     let songs = [];
     let currentSong = null;
     let userProgress = {};
-    let username = "";
     
     let audioCtx = null;
     let isPlaying = false;
@@ -207,76 +234,213 @@
         { time: 24, chord: "F", lyric: "qablak ou..." }, { time: 28, chord: "E", lyric: "qabli..." }
       ],
       strumming: [
-        { time: 0, type: "↓" }, { time: 0.5, type: "↓" }, { time: 1, type: "↑" }, { time: 1.5, type: "↑" },
-        { time: 2.5, type: "↓" }, { time: 3, type: "↑" }, { time: 3.5, type: "↓" }
+        { time: 0, type: "↓", raw: "D" }, { time: 0.5, type: ".", raw: "." },
+        { time: 1, type: "↓", raw: "D" }, { time: 1.5, type: "↑", raw: "U" },
+        { time: 2, type: ".", raw: "." }, { time: 2.5, type: "↑", raw: "U" },
+        { time: 3, type: "↓", raw: "D" }, { time: 3.5, type: "↑", raw: "U" }
       ]
     };
 
-    window.handleLogin = function() {
-      const input = document.getElementById('username-input').value.trim();
-      if (!input) return;
-      username = input;
-      localStorage.setItem('guitar_trainer_username', username);
-      initApp();
+    // Helper: Toast Notifications
+    window.showToast = function(msg, isSuccess = false) {
+      const t = document.getElementById('toast-msg');
+      t.innerText = msg;
+      t.className = `fixed top-4 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-xl shadow-lg z-[100] transition-all duration-300 font-bold text-center w-11/12 max-w-sm pointer-events-none ${isSuccess ? 'bg-active text-black shadow-[0_5px_15px_rgba(3,218,198,0.4)]' : 'bg-danger text-white shadow-[0_5px_15px_rgba(207,102,121,0.4)]'}`;
+      
+      // Force reflow and show
+      void t.offsetWidth; 
+      t.classList.remove('translate-y-[-150%]', 'opacity-0');
+      
+      setTimeout(() => {
+        t.classList.add('translate-y-[-150%]', 'opacity-0');
+      }, 3000);
     };
 
+    // Authentication Handlers
+    window.handleLogin = async function() {
+      const email = document.getElementById('email-input').value.trim();
+      const pass = document.getElementById('password-input').value.trim();
+      if(!email || !pass) return showToast("Please enter email and password");
+      
+      showLoading(true, "Authenticating...");
+      try {
+        await signInWithEmailAndPassword(auth, email, pass);
+      } catch(err) {
+        showLoading(false);
+        showToast(err.message.replace('Firebase:', '').trim() || "Login failed");
+      }
+    };
+
+    window.handleSignup = async function() {
+      const email = document.getElementById('email-input').value.trim();
+      const pass = document.getElementById('password-input').value.trim();
+      if(!email || !pass) return showToast("Please enter email and password");
+      if(pass.length < 6) return showToast("Password must be at least 6 characters");
+      
+      showLoading(true, "Creating account...");
+      try {
+        await createUserWithEmailAndPassword(auth, email, pass);
+        showToast("Account created successfully!", true);
+      } catch(err) {
+        showLoading(false);
+        showToast(err.message.replace('Firebase:', '').trim() || "Signup failed");
+      }
+    };
+
+    window.handleGuest = async function() {
+      showLoading(true, "Entering as guest...");
+      try {
+        await signInAnonymously(auth);
+      } catch(err) {
+        showLoading(false);
+        showToast("Failed to connect as guest.");
+      }
+    };
+
+    window.handleLogout = async function() {
+      if(isPlaying) stopPlayback();
+      showLoading(true, "Signing out...");
+      try {
+        await signOut(auth);
+      } catch(e) {
+        showLoading(false);
+      }
+    };
+
+    function showLoading(show, text = "Loading...") {
+      const l = document.getElementById('loading-overlay');
+      document.getElementById('loading-text').innerText = text;
+      show ? l.classList.remove('hidden') : l.classList.add('hidden');
+      if (show) l.classList.add('flex');
+    }
+
     async function initApp() {
-      document.getElementById('loading-overlay').classList.remove('hidden');
+      showLoading(true, "Initializing...");
       try {
         app = initializeApp(firebaseConfig);
         auth = getAuth(app);
         db = getFirestore(app);
 
+        // Environment token bypass if provided
         const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-        if (token) await signInWithCustomToken(auth, token);
-        else await signInAnonymously(auth);
+        if (token) {
+          try { await signInWithCustomToken(auth, token); } catch(e) { console.error("Token fail:", e); }
+        }
 
         onAuthStateChanged(auth, async (u) => {
           if (u) {
             user = u;
-            document.getElementById('display-username').innerText = username;
+            const isGuest = user.isAnonymous;
+            
+            // Set UI based on auth level
+            document.getElementById('display-username').innerText = isGuest ? "Guest Player" : user.email.split('@')[0];
+            document.getElementById('display-username').title = isGuest ? "Guest" : user.email;
+            
+            // Guests cannot add songs
+            const addBtn = document.getElementById('btn-add-song');
+            if(isGuest) addBtn.classList.add('hidden');
+            else addBtn.classList.remove('hidden');
+
             await loadSongs();
             navigate('home');
-            document.getElementById('loading-overlay').classList.add('hidden');
+            showLoading(false);
+          } else {
+            user = null;
+            document.getElementById('email-input').value = "";
+            document.getElementById('password-input').value = "";
+            navigate('auth');
+            showLoading(false);
           }
         });
       } catch (err) {
         console.error(err);
-        songs = [MOCK_SONG];
-        renderHomeList();
-        navigate('home');
-        document.getElementById('loading-overlay').classList.add('hidden');
+        showToast("Failed to connect to servers.");
+        showLoading(false);
       }
     }
 
     async function loadSongs() {
-      const songsRef = collection(db, 'artifacts', appId, 'public', 'data', 'songs');
-      const snap = await getDocs(songsRef);
-      if (snap.empty) {
-        await setDoc(doc(songsRef, 'default_song'), MOCK_SONG);
-        songs = [{ id: 'default_song', ...MOCK_SONG }];
-      } else {
-        songs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      try {
+        const songsRef = collection(db, 'artifacts', appId, 'public', 'data', 'songs');
+        const snap = await getDocs(songsRef);
+        if (snap.empty) {
+          await setDoc(doc(songsRef, 'default_song'), MOCK_SONG);
+          songs = [{ id: 'default_song', ...MOCK_SONG }];
+        } else {
+          songs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        }
+        renderHomeList();
+      } catch(e) {
+        console.error("Failed to load songs", e);
+        songs = [MOCK_SONG]; // Fallback purely for presentation
+        renderHomeList();
       }
-      renderHomeList();
+    }
+
+    function parseStrumPattern(strText) {
+      const cleanText = strText.replace(/\s+/g, '').toUpperCase();
+      const pattern = [];
+      const totalSteps = cleanText.length || 8; 
+      for(let i=0; i < totalSteps; i++) {
+        const char = cleanText[i] || '.';
+        const time = i * (4 / totalSteps);
+        const type = char === 'D' ? '↓' : (char === 'U' ? '↑' : '.');
+        pattern.push({ time, type, raw: char });
+      }
+      return pattern;
     }
 
     window.saveNewSong = async function() {
-      const title = document.getElementById('add-title').value;
-      const artist = document.getElementById('add-artist').value;
-      const bpm = parseInt(document.getElementById('add-bpm').value);
-      const chords = JSON.parse(document.getElementById('add-chords-json').value);
-      const strum = JSON.parse(document.getElementById('add-strum-json').value);
+      if (!user) return navigate('auth');
+      if (user.isAnonymous) return showToast("Please create an account to add songs.");
 
-      const newSong = {
-        title, artist, bpm, chords, strumming: strum,
-        postedBy: username, totalBeats: chords[chords.length-1].time + 4
-      };
+      try {
+        const title = document.getElementById('add-title').value || "Untitled";
+        const artist = document.getElementById('add-artist').value || "Unknown Artist";
+        const bpm = parseInt(document.getElementById('add-bpm').value) || 80;
 
-      document.getElementById('loading-overlay').classList.remove('hidden');
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'songs'), newSong);
-      await loadSongs();
-      navigate('home');
+        const chordsText = document.getElementById('add-chords-text').value;
+        let chords = [];
+        chordsText.split('\n').forEach(line => {
+          const parts = line.split(',');
+          if (parts.length >= 2) {
+            chords.push({
+              time: parseFloat(parts[0].trim()) || 0,
+              chord: parts[1].trim(),
+              lyric: parts.slice(2).join(',').trim() || ""
+            });
+          }
+        });
+        if(chords.length === 0) chords = [{time: 0, chord: "C", lyric: "Empty"}];
+
+        const strumText = document.getElementById('add-strum-text').value || "D.DU.UDU";
+        const strumming = parseStrumPattern(strumText);
+
+        const newSong = {
+          title, artist, bpm, chords, strumming,
+          postedBy: user.email.split('@')[0],
+          ownerId: user.uid,
+          totalBeats: chords[chords.length-1].time + 4
+        };
+
+        showLoading(true, "Saving song...");
+        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'songs'), newSong);
+        await loadSongs();
+        
+        document.getElementById('add-title').value = '';
+        document.getElementById('add-artist').value = '';
+        document.getElementById('add-bpm').value = '';
+        document.getElementById('add-chords-text').value = '';
+        document.getElementById('add-strum-text').value = '';
+        
+        showToast("Song added successfully!", true);
+        navigate('home');
+      } catch (e) {
+        console.error("Error saving song:", e);
+        showToast("Failed to save song.");
+      } finally {
+        showLoading(false);
+      }
     };
 
     window.navigate = function(id) {
@@ -287,9 +451,9 @@
     function renderHomeList() {
       const list = document.getElementById('song-list');
       list.innerHTML = songs.map(s => `
-        <div onclick="openSongDetails('${s.id}')" class="bg-surface rounded-xl p-4 flex justify-between items-center border border-gray-800 btn-press">
-          <div><h3 class="font-bold">${s.title}</h3><p class="text-xs text-gray-500">${s.artist}</p></div>
-          <i class="fas fa-chevron-right text-gray-700"></i>
+        <div onclick="openSongDetails('${s.id}')" class="bg-surface rounded-xl p-4 flex justify-between items-center border border-gray-800 btn-press hover:border-primary transition-colors cursor-pointer">
+          <div><h3 class="font-bold text-white">${s.title}</h3><p class="text-xs text-gray-500">${s.artist}</p></div>
+          <i class="fas fa-chevron-right text-primary opacity-50"></i>
         </div>
       `).join('');
     }
@@ -298,12 +462,16 @@
       currentSong = songs.find(s => s.id === id);
       document.getElementById('detail-title').innerText = currentSong.title;
       document.getElementById('detail-artist').innerText = currentSong.artist;
-      document.getElementById('detail-posted').innerText = currentSong.postedBy;
+      document.getElementById('detail-posted').innerText = currentSong.postedBy || "Anonymous";
       document.getElementById('detail-bpm').innerText = currentSong.bpm;
       
-      document.getElementById('detail-strum-viz').innerHTML = currentSong.strumming.map(s => `<span>${s.type}</span>`).join('');
+      document.getElementById('detail-strum-viz').innerHTML = currentSong.strumming.map(s => {
+        const raw = s.raw || (s.type === '↓' ? 'D' : (s.type === '↑' ? 'U' : '.'));
+        return `<span class="${raw === '.' ? 'opacity-30' : ''}">${s.type}</span>`;
+      }).join('');
+      
       const unique = [...new Set(currentSong.chords.map(c => c.chord))];
-      document.getElementById('detail-chords').innerHTML = unique.map(c => `<span class="bg-gray-800 text-active px-2 py-1 rounded text-[10px] font-bold border border-gray-700">${c}</span>`).join('');
+      document.getElementById('detail-chords').innerHTML = unique.map(c => `<span class="bg-surface-light text-active px-3 py-1 rounded-md text-[10px] font-bold border border-gray-700">${c}</span>`).join('');
 
       await loadProgress();
       renderSteps();
@@ -311,10 +479,15 @@
     };
 
     async function loadProgress() {
-      // Logic uses username subcollection to keep it unique per local "user"
-      const progRef = doc(db, 'artifacts', appId, 'users', username, 'progress', currentSong.id);
-      const snap = await getDoc(progRef);
-      userProgress = snap.exists() ? snap.data() : { step1: {p:0}, step2: {p:0}, step3: {p:0} };
+      if (!user) return;
+      try {
+        const progRef = doc(db, 'artifacts', appId, 'users', user.uid, 'progress', currentSong.id);
+        const snap = await getDoc(progRef);
+        userProgress = snap.exists() ? snap.data() : { step1: {p:0}, step2: {p:0}, step3: {p:0} };
+      } catch(e) {
+        console.error("Could not load progress", e);
+        userProgress = { step1: {p:0}, step2: {p:0}, step3: {p:0} };
+      }
     }
 
     function renderSteps() {
@@ -325,13 +498,17 @@
       ];
       document.getElementById('practice-steps-container').innerHTML = steps.map(s => {
         const p = userProgress[`step${s.id}`]?.p || 0;
+        const isComplete = p >= 100;
         return `
-          <div onclick="startPractice(${s.id})" class="bg-surface-light rounded-xl p-4 flex justify-between items-center cursor-pointer border border-gray-800 btn-press">
-            <div class="flex gap-4 items-center">
-              <div class="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold">${s.id}</div>
-              <div><h4 class="font-bold text-sm">${s.name}</h4><p class="text-[10px] text-gray-500">${s.desc}</p></div>
+          <div onclick="startPractice(${s.id})" class="bg-surface-light rounded-xl p-4 flex justify-between items-center cursor-pointer border border-gray-800 hover:border-gray-600 transition-colors btn-press relative overflow-hidden">
+            <div class="absolute left-0 top-0 bottom-0 w-1 bg-primary opacity-${isComplete ? '100' : '0'}"></div>
+            <div class="flex gap-4 items-center pl-2">
+              <div class="w-8 h-8 rounded-full ${isComplete ? 'bg-active text-black' : 'bg-primary/20 text-primary'} flex items-center justify-center font-bold shadow-sm">
+                ${isComplete ? '<i class="fas fa-check"></i>' : s.id}
+              </div>
+              <div><h4 class="font-bold text-sm ${isComplete ? 'text-white' : ''}">${s.name}</h4><p class="text-[10px] text-gray-500">${s.desc}</p></div>
             </div>
-            <span class="text-xs font-bold ${p >= 100 ? 'text-active' : 'text-gray-400'}">${Math.floor(p)}%</span>
+            <span class="text-xs font-bold ${isComplete ? 'text-active drop-shadow-[0_0_8px_rgba(3,218,198,0.5)]' : 'text-gray-400'}">${Math.floor(p)}%</span>
           </div>
         `;
       }).join('');
@@ -343,32 +520,45 @@
       document.getElementById('practice-bpm').value = currentBpm;
       document.getElementById('practice-title').innerText = currentSong.title;
       document.getElementById('practice-step-label').innerText = `Step ${step}`;
+      document.getElementById('practice-progress-bar').style.width = `0%`;
       
       const timeline = document.getElementById('practice-timeline');
       const focus = document.getElementById('step2-focus');
-      const strumming = document.getElementById('practice-strumming');
+      const rhythmViz = document.getElementById('practice-rhythm-viz');
       
       timeline.innerHTML = '';
-      strumming.innerHTML = '';
+      rhythmViz.innerHTML = '';
+
+      const normalizedStrumming = currentSong.strumming.map(s => ({
+        ...s, raw: s.raw || (s.type === '↓' ? 'D' : (s.type === '↑' ? 'U' : '.'))
+      }));
 
       if(step === 2) {
         timeline.classList.add('hidden');
         focus.classList.remove('hidden');
-        activeStrumPattern = currentSong.strumming;
+        activeStrumPattern = normalizedStrumming;
       } else {
         timeline.classList.remove('hidden');
         focus.classList.add('hidden');
         timeline.innerHTML = currentSong.chords.map((c, i) => `
-          <div id="block-${i}" class="timeline-block p-4 bg-black/20 rounded-xl border border-gray-800">
+          <div id="block-${i}" class="timeline-block p-4 bg-surface-light rounded-xl border border-gray-800 shadow-md">
             <div class="chord font-bold text-xl">${c.chord}</div>
             <div class="lyric text-sm text-gray-400">${c.lyric}</div>
           </div>
         `).join('');
-        activeStrumPattern = step === 1 ? [{ time: 0, type: "↓" }] : currentSong.strumming;
+        
+        activeStrumPattern = step === 1 ? [
+          { time: 0, type: "↓", raw: "D" }, { time: 1, type: ".", raw: "." },
+          { time: 2, type: ".", raw: "." }, { time: 3, type: ".", raw: "." }
+        ] : normalizedStrumming;
       }
 
-      strumming.innerHTML = activeStrumPattern.map((s, i) => `<span id="strum-${i}">${s.type}</span>`).join('');
-      if(step === 1) strumming.innerHTML += `<span class="opacity-20">. . .</span>`;
+      rhythmViz.innerHTML = activeStrumPattern.map((s, i) => `
+        <div class="flex flex-col items-center justify-end h-full rhythm-step w-full" id="rhythm-step-${i}">
+          <div class="metro-dot" id="dot-${i}"></div>
+          <div class="text-3xl font-bold strum-char ${s.raw === '.' ? 'opacity-30' : ''}" id="strum-${i}">${s.type}</div>
+        </div>
+      `).join('');
 
       navigate('practice');
     };
@@ -382,6 +572,9 @@
         currentBeatInBar = 0;
         lastSavedPercent = -1;
         document.getElementById('btn-play').innerHTML = `<i class="fas fa-stop"></i> Stop`;
+        document.getElementById('btn-play').classList.replace('bg-primary', 'bg-danger');
+        document.getElementById('btn-play').classList.replace('text-black', 'text-white');
+        document.getElementById('btn-play').classList.replace('shadow-[0_0_20px_rgba(187,134,252,0.4)]', 'shadow-[0_0_20px_rgba(207,102,121,0.4)]');
         scheduler();
       } else { stopPlayback(); }
     };
@@ -396,6 +589,10 @@
         gain.gain.setValueAtTime(0.3, nextNoteTime);
         gain.gain.exponentialRampToValueAtTime(0.001, nextNoteTime + 0.05);
         
+        // Handle dynamic BPM change
+        const uiBpm = parseInt(document.getElementById('practice-bpm').value) || currentBpm;
+        if(uiBpm >= 40 && uiBpm <= 300) currentBpm = uiBpm;
+
         nextNoteTime += 60.0 / currentBpm;
         currentBeatInBar = (currentBeatInBar + 1) % 4;
       }
@@ -411,28 +608,30 @@
       const percent = Math.min(100, (beat / currentSong.totalBeats) * 100);
       document.getElementById('practice-progress-bar').style.width = `${percent}%`;
 
-      // Save progress every 10%
       const decile = Math.floor(percent / 10) * 10;
       if(decile > lastSavedPercent) {
         lastSavedPercent = decile;
         saveProg(decile);
       }
 
-      // Metronome Dots
-      const activeDot = Math.floor(beat % 4);
-      document.querySelectorAll('.metro-dot').forEach((d, i) => {
-        i === activeDot ? d.classList.add('active') : d.classList.remove('active');
-      });
-
-      // Strum Highlighting
       const subBeat = beat % 4;
+      const stepDuration = 4 / activeStrumPattern.length;
+      const activeIndex = Math.floor(subBeat / stepDuration);
+
       activeStrumPattern.forEach((s, i) => {
-        const el = document.getElementById(`strum-${i}`);
-        if(!el) return;
-        Math.abs(subBeat - s.time) < 0.2 ? el.classList.add('active') : el.classList.remove('active');
+        const dot = document.getElementById(`dot-${i}`);
+        const char = document.getElementById(`strum-${i}`);
+        if(!dot || !char) return;
+
+        if (i === activeIndex) {
+          dot.classList.add('active');
+          if(s.raw !== '.') char.classList.add('active');
+        } else {
+          dot.classList.remove('active');
+          char.classList.remove('active');
+        }
       });
 
-      // Timeline Highlighting
       if(currentStepMode !== 2) {
         currentSong.chords.forEach((c, i) => {
           const el = document.getElementById(`block-${i}`);
@@ -447,33 +646,47 @@
         });
       }
 
-      if(beat >= currentSong.totalBeats) stopPlayback();
+      if(beat >= currentSong.totalBeats) {
+        saveProg(100); // 100% finished
+        stopPlayback();
+      }
     }
 
     async function saveProg(p) {
+      if (!user) return; // Silent return if anonymous/no user
       const key = `step${currentStepMode}`;
       if(p > (userProgress[key]?.p || 0)) {
         userProgress[key] = { p };
-        await setDoc(doc(db, 'artifacts', appId, 'users', username, 'progress', currentSong.id), userProgress, { merge: true });
+        try {
+          const progRef = doc(db, 'artifacts', appId, 'users', user.uid, 'progress', currentSong.id);
+          await setDoc(progRef, userProgress, { merge: true });
+        } catch (e) {
+          console.error("Progress save failed invisibly", e);
+        }
       }
     }
 
     function stopPlayback() {
       isPlaying = false;
       cancelAnimationFrame(animationId);
-      document.getElementById('btn-play').innerHTML = `<i class="fas fa-play"></i> Start`;
-      document.querySelectorAll('.active').forEach(a => a.classList.remove('active'));
+      
+      const btn = document.getElementById('btn-play');
+      btn.innerHTML = `<i class="fas fa-play mr-2"></i> Start`;
+      btn.classList.replace('bg-danger', 'bg-primary');
+      btn.classList.replace('text-white', 'text-black');
+      btn.classList.replace('shadow-[0_0_20px_rgba(207,102,121,0.4)]', 'shadow-[0_0_20px_rgba(187,134,252,0.4)]');
+      
+      document.querySelectorAll('.active').forEach(a => {
+        if(a.id !== 'view-practice' && !a.classList.contains('view')) a.classList.remove('active');
+      });
     }
 
-    window.stopAndExitPractice = () => { stopPlayback(); openSongDetails(currentSong.id); };
-
-    window.onload = () => {
-      const saved = localStorage.getItem('guitar_trainer_username');
-      if(saved) {
-        username = saved;
-        document.getElementById('username-input').value = username;
-      }
+    window.stopAndExitPractice = () => { 
+      stopPlayback(); 
+      openSongDetails(currentSong.id); 
     };
+
+    window.onload = initApp;
   </script>
 </body>
 </html>
