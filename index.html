@@ -217,16 +217,6 @@
     </header>
     <main class="flex-1 overflow-y-auto p-4 pb-28 scroll-area">
       <div class="space-y-6">
-        <div class="bg-surface rounded-2xl p-5 border border-gray-800">
-          <div class="flex items-center justify-between gap-3 mb-3">
-            <div>
-              <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-1">Search</p>
-              <h2 class="font-bold text-lg">Find A Song</h2>
-            </div>
-            <button onclick="openToolPage('songs'); navigate('tools');" class="btn-soft px-4 py-2 rounded-full btn-press">Open Songs Tool</button>
-          </div>
-          <input id="home-song-search" type="text" oninput="renderHomeDashboard()" placeholder="Search by title or artist" class="w-full bg-black/30 border border-gray-800 rounded-xl px-4 py-3 outline-none text-white">
-        </div>
         <div>
           <div class="flex items-center justify-between gap-3 mb-3">
             <h2 class="text-lg text-gray-200 font-semibold">Favorite Songs</h2>
@@ -238,12 +228,6 @@
             <h2 class="text-lg text-gray-200 font-semibold">Continue Practice</h2>
           </div>
           <div id="home-recent-practice-list" class="space-y-3"></div>
-        </div>
-        <div>
-          <div class="flex items-center justify-between gap-3 mb-3">
-            <h2 class="text-lg text-gray-200 font-semibold">Browse Songs</h2>
-          </div>
-          <div id="home-all-songs-list" class="space-y-3"></div>
         </div>
       </div>
     </main>
@@ -405,6 +389,11 @@
             <div class="font-bold text-lg mb-1">Chord Explorer</div>
             <p class="text-sm text-gray-400">Browse the available chord library and hear each chord like practice playback.</p>
           </button>
+          <button onclick="openToolPage('chord-builder')" class="tool-nav-card btn-press">
+            <span class="tool-nav-icon"><i class="fas fa-plus text-lg"></i></span>
+            <div class="font-bold text-lg mb-1">Add Chord</div>
+            <p class="text-sm text-gray-400">Create a new chord shape and save it to the database.</p>
+          </button>
           <button onclick="openToolPage('songs')" class="tool-nav-card btn-press">
             <span class="tool-nav-icon"><i class="fas fa-magnifying-glass text-lg"></i></span>
             <div class="font-bold text-lg mb-1">Songs</div>
@@ -456,6 +445,13 @@
             </button>
           </div>
           <p class="text-xs text-gray-500 mb-4">Short clips work best here. The recorder stops automatically after about 12 seconds.</p>
+          <div id="tool-recording-viz-wrap" class="hidden mb-4 bg-black/30 border border-gray-800 rounded-xl px-3 py-3">
+            <div class="flex items-center justify-between mb-2">
+              <p class="text-[10px] uppercase tracking-[0.22em] text-gray-500">Live Input</p>
+              <span id="tool-recording-viz-label" class="text-[10px] uppercase tracking-[0.22em] text-active">Capturing...</span>
+            </div>
+            <div id="tool-recording-viz" class="h-12 flex items-end gap-[3px]"></div>
+          </div>
           <div id="tool-recordings-list" class="space-y-3">
             <div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-500">No registered sounds yet.</div>
           </div>
@@ -473,6 +469,55 @@
           <div id="chord-explorer-grid" class="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-4"></div>
           <button onclick="playSelectedChordReference()" class="bg-primary text-black font-bold py-3 px-8 rounded-full btn-press shadow-[0_0_20px_rgba(187,134,252,0.25)]">
             <i class="fas fa-volume-up mr-2"></i> Play Chord
+          </button>
+        </div>
+
+        <div id="tool-page-chord-builder" class="hidden bg-surface rounded-2xl p-5 border border-gray-800">
+          <div class="flex items-center justify-between gap-3 mb-3">
+            <div>
+              <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-1">Tool</p>
+              <h2 class="font-bold text-lg">Add Chord</h2>
+              <p class="text-sm text-gray-400">Pick string positions, then save. Duplicate names or duplicate shapes are blocked.</p>
+            </div>
+          </div>
+          <div class="space-y-3 mb-4">
+            <input id="tool-chord-name" type="text" oninput="updateChordBuilderPreview()" placeholder="Chord name (example: Gm7)" class="w-full bg-black/30 border border-gray-800 rounded-xl px-4 py-3 outline-none text-white">
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              <label class="bg-black/30 border border-gray-800 rounded-xl px-3 py-2 text-xs text-gray-300">E6
+                <select id="tool-chord-string-e6" onchange="updateChordBuilderPreview()" class="mt-1 w-full bg-transparent outline-none text-white">
+                  <option value="x">Mute</option><option value="0">Open</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option>
+                </select>
+              </label>
+              <label class="bg-black/30 border border-gray-800 rounded-xl px-3 py-2 text-xs text-gray-300">A
+                <select id="tool-chord-string-a" onchange="updateChordBuilderPreview()" class="mt-1 w-full bg-transparent outline-none text-white">
+                  <option value="x">Mute</option><option value="0">Open</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option>
+                </select>
+              </label>
+              <label class="bg-black/30 border border-gray-800 rounded-xl px-3 py-2 text-xs text-gray-300">D
+                <select id="tool-chord-string-d" onchange="updateChordBuilderPreview()" class="mt-1 w-full bg-transparent outline-none text-white">
+                  <option value="x">Mute</option><option value="0">Open</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option>
+                </select>
+              </label>
+              <label class="bg-black/30 border border-gray-800 rounded-xl px-3 py-2 text-xs text-gray-300">G
+                <select id="tool-chord-string-g" onchange="updateChordBuilderPreview()" class="mt-1 w-full bg-transparent outline-none text-white">
+                  <option value="x">Mute</option><option value="0">Open</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option>
+                </select>
+              </label>
+              <label class="bg-black/30 border border-gray-800 rounded-xl px-3 py-2 text-xs text-gray-300">B
+                <select id="tool-chord-string-b" onchange="updateChordBuilderPreview()" class="mt-1 w-full bg-transparent outline-none text-white">
+                  <option value="x">Mute</option><option value="0">Open</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option>
+                </select>
+              </label>
+              <label class="bg-black/30 border border-gray-800 rounded-xl px-3 py-2 text-xs text-gray-300">E1
+                <select id="tool-chord-string-e1" onchange="updateChordBuilderPreview()" class="mt-1 w-full bg-transparent outline-none text-white">
+                  <option value="x">Mute</option><option value="0">Open</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option>
+                </select>
+              </label>
+            </div>
+          </div>
+          <div id="tool-chord-preview" class="mb-4"></div>
+          <button onclick="saveChordToLibrary()" class="w-full bg-primary text-black font-bold py-3 px-8 rounded-full btn-press shadow-[0_0_20px_rgba(187,134,252,0.25)]">
+            <i class="fas fa-save mr-2"></i> Save Chord To Database
           </button>
         </div>
 
@@ -568,9 +613,12 @@
         
         <div>
           <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Strumming Pattern</label>
-          <p class="text-[10px] text-gray-500 mb-2">Each beat has two slots: the beat and the <b>&amp;</b>. Tap a slot to cycle <b>Down</b>, <b>Up</b>, <b>Chuck</b>, and <b>Rest</b>.</p>
-          <input type="hidden" id="add-strum-text">
-          <div id="add-strum-editor" class="pattern-editor-grid"></div>
+          <p class="text-[10px] text-gray-500 mb-2">Add one or more patterns. Use tags like <b>[verse 1]</b> and <b>[verse 2]</b> so practice mode can apply each pattern to the matching section.</p>
+          <div id="add-strum-editor"></div>
+          <button type="button" onclick="addPatternRow()" class="mt-2 w-full btn-soft rounded-xl py-2 btn-press text-sm">
+            <i class="fas fa-plus mr-2"></i> Add Pattern
+          </button>
+          <p class="text-[10px] text-gray-500 mt-2">If extra patterns have no tag, only the first pattern is used in practice mode.</p>
         </div>
 
         <button id="btn-save-song" onclick="saveSong()" class="w-full bg-active text-black font-bold py-4 rounded-xl mt-4 btn-press shadow-[0_0_15px_rgba(3,218,198,0.2)]">
@@ -659,7 +707,15 @@
       </div>
     </header>
 
-    <div class="h-1 bg-gray-800 w-full"><div id="practice-progress-bar" class="h-full bg-active w-0 transition-all duration-300 shadow-[0_0_10px_rgba(3,218,198,0.8)]"></div></div>
+    <div class="bg-black/40 border-y border-gray-800 px-4 py-2">
+      <div class="flex items-center justify-between text-[11px] mb-1">
+        <span class="uppercase tracking-[0.18em] text-gray-400">Progress</span>
+        <span id="practice-progress-text" class="font-bold text-active">0%</span>
+      </div>
+      <div class="h-2.5 bg-gray-800/90 rounded-full overflow-hidden border border-gray-700">
+        <div id="practice-progress-bar" class="h-full bg-active w-0 transition-all duration-300 shadow-[0_0_14px_rgba(3,218,198,0.85)]"></div>
+      </div>
+    </div>
 
     <div id="practice-current-chord-panel" class="hidden practice-chord-panel p-4">
       <div class="max-w-md mx-auto">

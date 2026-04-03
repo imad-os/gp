@@ -96,4 +96,21 @@ export class FirestoreRepository {
   async updateSongMeta(songId, patch) {
     await setDoc(doc(this.db, 'songs', songId), patch, { merge: true });
   }
+
+  async loadChords(defaultChords = []) {
+    const chordsRef = collection(this.db, 'chords');
+    const snap = await getDocs(chordsRef);
+    if (snap.empty && defaultChords.length) {
+      for (const chord of defaultChords) {
+        await addDoc(chordsRef, chord);
+      }
+      return defaultChords.map((chord, idx) => ({ id: `seed-${idx}`, ...chord }));
+    }
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  }
+
+  async saveChord(chordData) {
+    const created = await addDoc(collection(this.db, 'chords'), chordData);
+    return created.id;
+  }
 }

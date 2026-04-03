@@ -31,8 +31,14 @@ import { AudioEngine } from './modules/audio-engine.js';
     let animationId;
     let currentStepMode = 1;
     let activeStrumPattern = [];
+    let practicePatternAssignments = [];
+    let activePatternAssignmentIndex = -1;
+    let pausedPracticeBeat = null;
+    let practicePausedByBlur = false;
     let lastSavedPercent = -1;
     let lastPlayedStrumIndex = -1;
+    let addPatternEntries = [];
+    let nextAddPatternEntryId = 1;
     let practiceChordAudioEnabled = true;
     let activeChordVoices = [];
     let activeTab = 'home';
@@ -45,6 +51,9 @@ import { AudioEngine } from './modules/audio-engine.js';
     let toolRecordingStream = null;
     let toolRecordingChunks = [];
     let toolRecordingTimeout = null;
+    let toolRecordingAnalyser = null;
+    let toolRecordingSource = null;
+    let toolRecordingVizAnimationId = null;
     let selectedChordReference = 'C';
     let activeToolPage = 'home';
     let currentSongComments = [];
@@ -84,7 +93,7 @@ import { AudioEngine } from './modules/audio-engine.js';
       { note: 'B3', freq: 246.94 },
       { note: 'E4', freq: 329.63 }
     ];
-    const CHORD_LIBRARY = {
+    const DEFAULT_CHORD_LIBRARY = {
       C: { baseFret: 1, strings: ['x', 3, 2, 0, 1, 0], fingers: [0, 3, 2, 0, 1, 0] },
       Cm: { baseFret: 3, strings: ['x', 3, 5, 5, 4, 3], fingers: [0, 1, 3, 4, 2, 1] },
       D: { baseFret: 1, strings: ['x', 'x', 0, 2, 3, 2], fingers: [0, 0, 0, 1, 3, 2] },
@@ -97,18 +106,21 @@ import { AudioEngine } from './modules/audio-engine.js';
       Am: { baseFret: 1, strings: ['x', 0, 2, 2, 1, 0], fingers: [0, 0, 2, 3, 1, 0] },
       B7: { baseFret: 1, strings: ['x', 2, 1, 2, 0, 2], fingers: [0, 2, 1, 3, 0, 4] }
     };
+    let CHORD_LIBRARY = { ...DEFAULT_CHORD_LIBRARY };
     const NOTE_INDEX = { C: 0, 'B#': 0, 'C#': 1, Db: 1, D: 2, 'D#': 3, Eb: 3, E: 4, Fb: 4, F: 5, 'E#': 5, 'F#': 6, Gb: 6, G: 7, 'G#': 8, Ab: 8, A: 9, 'A#': 10, Bb: 10, B: 11, Cb: 11 };
     const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-    const CHORD_EXPLORER_LIST = Object.keys(CHORD_LIBRARY).sort((a, b) => a.localeCompare(b));
+    let CHORD_EXPLORER_LIST = Object.keys(CHORD_LIBRARY).sort((a, b) => a.localeCompare(b));
+    let chordEntries = [];
+    let isHandlingRouteChange = false;
 
     const MOCK_SONG = {
       title: "Ya Rayah", artist: "Cheb Khaled", postedBy: "System", bpm: 80, timeSignature: "4/4", capo: "No capo", ownerId: "system",
       rawText: "Am                                G\nYa rayah win msafar trouh taaya wa twali\nF                                 E\nChhal nadmou laabad lghafline qablak ou qabli\n\nAm                                G\nYa rayah win msafar trouh taaya wa twali",
       strumming: [
-        { time: 0, type: "â†“", raw: "D" }, { time: 0.5, type: ".", raw: "." },
-        { time: 1, type: "â†“", raw: "D" }, { time: 1.5, type: "â†‘", raw: "U" },
-        { time: 2, type: ".", raw: "." }, { time: 2.5, type: "â†‘", raw: "U" },
-        { time: 3, type: "â†“", raw: "D" }, { time: 3.5, type: "â†‘", raw: "U" }
+        { time: 0, type: "↓", raw: "D" }, { time: 0.5, type: ".", raw: "." },
+        { time: 1, type: "↓", raw: "D" }, { time: 1.5, type: "↑", raw: "U" },
+        { time: 2, type: ".", raw: "." }, { time: 2.5, type: "↑", raw: "U" },
+        { time: 3, type: "↓", raw: "D" }, { time: 3.5, type: "↑", raw: "U" }
       ]
     };
 
@@ -206,6 +218,125 @@ import { AudioEngine } from './modules/audio-engine.js';
       return line.replace(/^\s+/, '');
     }
 
+    function escapeHtml(text = '') {
+      return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function normalizeTagKey(rawTag = "") {
+      const tag = String(rawTag || '')
+        .trim()
+        .replace(/^\[\s*/, '')
+        .replace(/\s*\]$/, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+      return tag;
+    }
+
+    function strumTypeToRaw(type = '') {
+      const normalized = String(type || '');
+      if (normalized === 'D' || normalized === '↓' || normalized === 'â†“') return 'D';
+      if (normalized === 'U' || normalized === '↑' || normalized === 'â†‘') return 'U';
+      if (normalized === 'X' || normalized === 'x') return 'X';
+      return '.';
+    }
+
+    function normalizeChordNameKey(name = "") {
+      return String(name || '').trim().toLowerCase();
+    }
+
+    function normalizeChordShapeKey(strings = []) {
+      return strings.map(v => String(v).trim().toLowerCase()).join('|');
+    }
+
+    function toDefaultChordEntries() {
+      return Object.entries(DEFAULT_CHORD_LIBRARY).map(([name, data]) => ({
+        name,
+        baseFret: Number(data.baseFret) || 1,
+        strings: Array.isArray(data.strings) ? data.strings.map(v => (String(v).toLowerCase() === 'x' ? 'x' : Number(v) || 0)) : ['x', 0, 0, 0, 0, 0],
+        fingers: Array.isArray(data.fingers) ? data.fingers.map(v => Number(v) || 0) : [0, 0, 0, 0, 0, 0]
+      }));
+    }
+
+    function normalizeChordEntry(raw = {}) {
+      const name = String(raw.name || '').trim();
+      const strings = Array.isArray(raw.strings) && raw.strings.length === 6
+        ? raw.strings.map(v => (String(v).toLowerCase() === 'x' ? 'x' : Number(v) || 0))
+        : ['x', 0, 0, 0, 0, 0];
+      const normalized = {
+        id: raw.id || '',
+        name,
+        nameKey: normalizeChordNameKey(name),
+        baseFret: Math.max(1, Number(raw.baseFret) || 1),
+        strings,
+        fingers: Array.isArray(raw.fingers) && raw.fingers.length === 6
+          ? raw.fingers.map(v => Number(v) || 0)
+          : strings.map(v => (v === 'x' || v === 0 ? 0 : 1))
+      };
+      normalized.shapeKey = normalizeChordShapeKey(normalized.strings);
+      return normalized;
+    }
+
+    function refreshChordLibraryFromEntries(entries = []) {
+      const next = {};
+      entries.forEach(entry => {
+        if (!entry.name) return;
+        next[entry.name] = {
+          baseFret: entry.baseFret,
+          strings: entry.strings,
+          fingers: entry.fingers
+        };
+      });
+      CHORD_LIBRARY = Object.keys(next).length ? next : { ...DEFAULT_CHORD_LIBRARY };
+      CHORD_EXPLORER_LIST = Object.keys(CHORD_LIBRARY).sort((a, b) => a.localeCompare(b));
+      if (!CHORD_EXPLORER_LIST.includes(selectedChordReference)) {
+        selectedChordReference = CHORD_EXPLORER_LIST[0] || 'C';
+      }
+    }
+
+    function buildChordTagIndex(parsedLines = []) {
+      const lineTagIndex = [];
+      let currentTagKey = '';
+      parsedLines.forEach((lineData, idx) => {
+        if (lineData?.type === 'tag') {
+          const match = String(lineData.lyricLine || '').match(/\[([^\]]+)\]/);
+          const candidate = match ? match[1] : lineData.lyricLine;
+          currentTagKey = normalizeTagKey(candidate);
+        }
+        lineTagIndex[idx] = currentTagKey;
+      });
+      return lineTagIndex;
+    }
+
+    function extractRawPatternFromEntry(entry = {}) {
+      if (typeof entry?.patternText === 'string') return entry.patternText;
+      if (typeof entry?.rawPattern === 'string') return entry.rawPattern;
+      if (typeof entry?.pattern === 'string') return entry.pattern;
+      const arr = Array.isArray(entry?.strumming) ? entry.strumming : [];
+      return arr.map(s => s?.raw || strumTypeToRaw(s?.type)).join('');
+    }
+
+    function normalizeSongStrummingPatterns(song, beatsPerBar, timeSignature) {
+      const candidateEntries = Array.isArray(song?.strummingPatterns) && song.strummingPatterns.length
+        ? song.strummingPatterns
+        : [{ tag: '', strumming: song?.strumming || [] }];
+      return candidateEntries.map((entry, idx) => {
+        const rawText = normalizePatternText(extractRawPatternFromEntry(entry), beatsPerBar);
+        return {
+          id: `song-pattern-${idx}`,
+          tag: String(entry?.tag || ''),
+          tagKey: normalizeTagKey(entry?.tag || ''),
+          patternText: rawText,
+          strumming: parseStrumPattern(rawText, timeSignature)
+        };
+      }).filter(entry => entry.strumming.length > 0);
+    }
+
     function parseRawText(text, beatsPerBar = 4) {
       const lines = text.split('\n');
       let parsedLines = [];
@@ -275,12 +406,14 @@ import { AudioEngine } from './modules/audio-engine.js';
            song.rawText = song.chords.map(c => `${c.chord}\n${c.lyric}`).join('\n\n');
        }
        song.capo = song.capo || "No capo";
-       const rawPattern = (song.strumming || []).map(s => s.raw || (s.type === 'â†“' ? 'D' : (s.type === 'â†‘' ? 'U' : '.'))).join('');
-       song.strumming = parseStrumPattern(rawPattern, song.timeSignature || "4/4");
-       const beatsPerBar = parseInt((song.timeSignature || "4/4").split('/')[0]) || 4;
+       const timeSignature = song.timeSignature || "4/4";
+       const beatsPerBar = parseInt(timeSignature.split('/')[0]) || 4;
+       song.strummingPatterns = normalizeSongStrummingPatterns(song, beatsPerBar, timeSignature);
+       song.strumming = song.strummingPatterns[0]?.strumming || parseStrumPattern('', timeSignature);
        const parsed = parseRawText(song.rawText || "C\nNew Song", beatsPerBar);
        song.parsedLines = parsed.parsedLines;
        song.chords = parsed.flatChords;
+       song.chordTagIndex = buildChordTagIndex(parsed.parsedLines);
        song.totalBeats = parsed.totalBeats;
        song.stats = { views: 0, started: 0, completed: 0, ...(song.stats || {}) };
        song.createdAt = song.createdAt || Date.now();
@@ -314,19 +447,20 @@ import { AudioEngine } from './modules/audio-engine.js';
 
             await loadUserSettings();
             await loadSongs();
+            await loadChordLibraryData();
             await loadToolRecordings();
             renderToolRecordings();
             renderChordExplorer();
             renderToolSongsSearch();
-            showToolsHome();
-            navigate('home');
+            showToolsHome({ skipUrl: true });
+            await applyRouteFromLocation({ replaceUnknown: true });
             showLoading(false);
           } else {
             user = null;
             toolRecordings = [];
             document.getElementById('email-input').value = "";
             document.getElementById('password-input').value = "";
-            navigate('auth');
+            navigate('auth', { replaceUrl: true, pathOverride: '/auth' });
             showLoading(false);
           }
         });
@@ -345,6 +479,19 @@ import { AudioEngine } from './modules/audio-engine.js';
         console.error("Failed to load songs", e);
         songs = [ensureSongFormat(MOCK_SONG)]; 
         renderHomeList();
+      }
+    }
+
+    async function loadChordLibraryData() {
+      try {
+        const seedDefaults = user && !user.isAnonymous ? toDefaultChordEntries() : [];
+        const raw = await repository.loadChords(seedDefaults);
+        chordEntries = raw.map(normalizeChordEntry).filter(entry => entry.name && entry.nameKey);
+        refreshChordLibraryFromEntries(chordEntries);
+      } catch (e) {
+        console.error("Failed to load chord library", e);
+        chordEntries = toDefaultChordEntries().map(normalizeChordEntry);
+        refreshChordLibraryFromEntries(chordEntries);
       }
     }
 
@@ -470,7 +617,7 @@ import { AudioEngine } from './modules/audio-engine.js';
       if (current) current.innerText = selectedChordReference;
       grid.innerHTML = CHORD_EXPLORER_LIST.map(chord => `
         <button onclick="selectChordReference('${chord}')" class="rounded-2xl p-3 btn-press ${selectedChordReference === chord ? 'border border-primary bg-primary/10' : 'btn-soft'}">
-          ${UI.renderChordDiagramSvg(chord)}
+          ${renderChordDiagramSvg(chord)}
         </button>
       `).join('');
     }
@@ -485,30 +632,137 @@ import { AudioEngine } from './modules/audio-engine.js';
       await playChordPreview(selectedChordReference, 'D', 'No capo');
     };
 
-    window.openToolPage = function(tool) {
+    function getChordBuilderStrings() {
+      const ids = ['tool-chord-string-e6', 'tool-chord-string-a', 'tool-chord-string-d', 'tool-chord-string-g', 'tool-chord-string-b', 'tool-chord-string-e1'];
+      return ids.map(id => {
+        const value = document.getElementById(id)?.value || 'x';
+        return value === 'x' ? 'x' : Number(value);
+      });
+    }
+
+    function updateChordBuilderPreview() {
+      const name = (document.getElementById('tool-chord-name')?.value || '').trim() || 'Preview';
+      const strings = getChordBuilderStrings();
+      const temp = { name, strings, fingers: strings.map(v => (v === 'x' || v === 0 ? 0 : 1)) };
+      const minFret = strings.filter(v => typeof v === 'number' && v > 0).reduce((min, v) => Math.min(min, v), Infinity);
+      temp.baseFret = Number.isFinite(minFret) ? Math.max(1, minFret) : 1;
+      const wrap = document.getElementById('tool-chord-preview');
+      if (wrap) {
+        wrap.innerHTML = renderChordDiagramSvg(temp.name, true, temp);
+      }
+      return temp;
+    }
+
+    function resetChordBuilder() {
+      const nameEl = document.getElementById('tool-chord-name');
+      if (nameEl) nameEl.value = '';
+      ['tool-chord-string-e6', 'tool-chord-string-a', 'tool-chord-string-d', 'tool-chord-string-g', 'tool-chord-string-b', 'tool-chord-string-e1'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = 'x';
+      });
+      updateChordBuilderPreview();
+    }
+
+    window.updateChordBuilderPreview = updateChordBuilderPreview;
+
+    window.saveChordToLibrary = async function() {
+      if (!user || user.isAnonymous) {
+        showToast("Create an account to add chords.");
+        return;
+      }
+      const name = (document.getElementById('tool-chord-name')?.value || '').trim();
+      if (!name) {
+        showToast("Please enter a chord name.");
+        return;
+      }
+      const strings = getChordBuilderStrings();
+      const hasFrettedNote = strings.some(v => typeof v === 'number' && v > 0);
+      if (!hasFrettedNote) {
+        showToast("Select at least one fretted string position.");
+        return;
+      }
+      await loadChordLibraryData();
+      const nameKey = normalizeChordNameKey(name);
+      const shapeKey = normalizeChordShapeKey(strings);
+      const duplicateByName = chordEntries.find(entry => entry.nameKey === nameKey);
+      const duplicateByShape = chordEntries.find(entry => entry.shapeKey === shapeKey);
+      if (duplicateByName && duplicateByShape) {
+        showToast(`Already exists: name "${duplicateByName.name}" and shape match.`);
+        return;
+      }
+      if (duplicateByName) {
+        showToast(`Chord name "${duplicateByName.name}" already exists.`);
+        return;
+      }
+      if (duplicateByShape) {
+        showToast(`Chord shape already exists as "${duplicateByShape.name}".`);
+        return;
+      }
+      const minFret = strings.filter(v => typeof v === 'number' && v > 0).reduce((min, v) => Math.min(min, v), Infinity);
+      const baseFret = Number.isFinite(minFret) ? Math.max(1, minFret) : 1;
+      const chordPayload = {
+        name,
+        baseFret,
+        strings,
+        fingers: strings.map(v => (v === 'x' || v === 0 ? 0 : 1)),
+        createdAt: Date.now(),
+        createdBy: user.uid
+      };
+      try {
+        await repository.saveChord(chordPayload);
+        chordEntries.push(normalizeChordEntry(chordPayload));
+        refreshChordLibraryFromEntries(chordEntries);
+        renderChordExplorer();
+        resetChordBuilder();
+        showToast("Chord added to library.", true);
+      } catch (e) {
+        console.error("Save chord failed", e);
+        showToast("Could not save chord.");
+      }
+    };
+
+    window.openToolPage = function(tool, options = {}) {
+      const { skipUrl = false, replaceUrl = false } = options || {};
       activeToolPage = tool;
-      const pages = ['metronome', 'recorder', 'chords', 'songs'];
+      const pages = ['metronome', 'recorder', 'chords', 'chord-builder', 'songs'];
       document.getElementById('tools-home-panel')?.classList.add('hidden');
       pages.forEach(page => {
         document.getElementById(`tool-page-${page}`)?.classList.toggle('hidden', page !== tool);
       });
       document.getElementById('tools-back-btn')?.classList.remove('hidden');
       const subtitle = document.getElementById('tools-header-subtitle');
-      if (subtitle) subtitle.innerText = tool === 'metronome' ? 'Keep steady time.' : tool === 'recorder' ? 'Save and replay short clips.' : 'Browse and hear the chord library.';
+      if (subtitle) subtitle.innerText = tool === 'metronome'
+        ? 'Keep steady time.'
+        : tool === 'recorder'
+          ? 'Save and replay short clips.'
+          : tool === 'chord-builder'
+            ? 'Add new chords to the database.'
+            : tool === 'songs'
+              ? 'Find a song quickly.'
+              : 'Browse and hear the chord library.';
+      if (tool === 'chord-builder') updateChordBuilderPreview();
+      if (!skipUrl && !isHandlingRouteChange) {
+        pushUrlPath(`/tools/${encodeURIComponent(tool)}`, { replace: replaceUrl });
+      }
     };
 
-    window.showToolsHome = function() {
+    window.showToolsHome = function(options = {}) {
+      const { skipUrl = false, replaceUrl = false } = options || {};
       activeToolPage = 'home';
       document.getElementById('tools-home-panel')?.classList.remove('hidden');
-      ['metronome', 'recorder', 'chords', 'songs'].forEach(page => {
+      ['metronome', 'recorder', 'chords', 'chord-builder', 'songs'].forEach(page => {
         document.getElementById(`tool-page-${page}`)?.classList.add('hidden');
       });
       document.getElementById('tools-back-btn')?.classList.add('hidden');
       const subtitle = document.getElementById('tools-header-subtitle');
       if (subtitle) subtitle.innerText = 'Choose a tool.';
+      if (!skipUrl && !isHandlingRouteChange) {
+        pushUrlPath('/tools', { replace: replaceUrl });
+      }
     };
 
-    window.openTrainingPage = function(page) {
+    window.openTrainingPage = function(page, options = {}) {
+      const { skipUrl = false, replaceUrl = false } = options || {};
       document.getElementById('training-home-panel')?.classList.add('hidden');
       ['practice', 'dailies', 'strumming'].forEach(id => {
         document.getElementById(`training-page-${id}`)?.classList.toggle('hidden', id !== page);
@@ -516,9 +770,13 @@ import { AudioEngine } from './modules/audio-engine.js';
       document.getElementById('training-back-btn')?.classList.remove('hidden');
       const subtitle = document.getElementById('training-header-subtitle');
       if (subtitle) subtitle.innerText = page === 'practice' ? 'Song practice hub.' : page === 'dailies' ? 'Warm-up routines.' : 'Pattern trainer.';
+      if (!skipUrl && !isHandlingRouteChange) {
+        pushUrlPath(`/training/${encodeURIComponent(page)}`, { replace: replaceUrl });
+      }
     };
 
-    window.showTrainingHome = function() {
+    window.showTrainingHome = function(options = {}) {
+      const { skipUrl = false, replaceUrl = false } = options || {};
       document.getElementById('training-home-panel')?.classList.remove('hidden');
       ['practice', 'dailies', 'strumming'].forEach(id => {
         document.getElementById(`training-page-${id}`)?.classList.add('hidden');
@@ -526,11 +784,81 @@ import { AudioEngine } from './modules/audio-engine.js';
       document.getElementById('training-back-btn')?.classList.add('hidden');
       const subtitle = document.getElementById('training-header-subtitle');
       if (subtitle) subtitle.innerText = 'Choose a training page.';
+      if (!skipUrl && !isHandlingRouteChange) {
+        pushUrlPath('/training', { replace: replaceUrl });
+      }
     };
+
+    function ensureToolRecordingVizBars() {
+      const viz = document.getElementById('tool-recording-viz');
+      if (!viz) return [];
+      if (!viz.children.length) {
+        viz.innerHTML = Array.from({ length: 28 }, () => `<span class="block flex-1 rounded-full bg-primary/70 transition-all duration-75" style="height:6px"></span>`).join('');
+      }
+      return Array.from(viz.children);
+    }
+
+    function setToolRecordingVizIdle() {
+      const bars = ensureToolRecordingVizBars();
+      bars.forEach((bar, idx) => {
+        const base = idx % 3 === 0 ? 8 : 6;
+        bar.style.height = `${base}px`;
+        bar.style.opacity = '0.35';
+      });
+    }
+
+    function stopToolRecordingVisualizer() {
+      if (toolRecordingVizAnimationId) {
+        cancelAnimationFrame(toolRecordingVizAnimationId);
+        toolRecordingVizAnimationId = null;
+      }
+      if (toolRecordingSource) {
+        try { toolRecordingSource.disconnect(); } catch {}
+        toolRecordingSource = null;
+      }
+      toolRecordingAnalyser = null;
+      setToolRecordingVizIdle();
+    }
+
+    async function startToolRecordingVisualizer(stream) {
+      try {
+        const ctx = await ensureAudioReady();
+        if (!ctx || !stream) return;
+        stopToolRecordingVisualizer();
+        toolRecordingAnalyser = ctx.createAnalyser();
+        toolRecordingAnalyser.fftSize = 256;
+        toolRecordingAnalyser.smoothingTimeConstant = 0.78;
+        toolRecordingSource = ctx.createMediaStreamSource(stream);
+        toolRecordingSource.connect(toolRecordingAnalyser);
+        const bars = ensureToolRecordingVizBars();
+        const freqData = new Uint8Array(toolRecordingAnalyser.frequencyBinCount);
+        const render = () => {
+          if (!toolRecordingAnalyser) return;
+          toolRecordingAnalyser.getByteFrequencyData(freqData);
+          const chunk = Math.max(1, Math.floor(freqData.length / bars.length));
+          bars.forEach((bar, idx) => {
+            const start = idx * chunk;
+            const end = Math.min(freqData.length, start + chunk);
+            let sum = 0;
+            for (let i = start; i < end; i++) sum += freqData[i];
+            const avg = end > start ? sum / (end - start) : 0;
+            const height = 6 + (avg / 255) * 40;
+            bar.style.height = `${height.toFixed(1)}px`;
+            bar.style.opacity = `${Math.max(0.35, avg / 255)}`;
+          });
+          toolRecordingVizAnimationId = requestAnimationFrame(render);
+        };
+        render();
+      } catch (e) {
+        console.error("Recorder visualizer start failed", e);
+      }
+    }
 
     function updateToolRecordingUI(isRecording) {
       const btn = document.getElementById('btn-tool-record');
       const status = document.getElementById('tool-recording-status');
+      const vizWrap = document.getElementById('tool-recording-viz-wrap');
+      const vizLabel = document.getElementById('tool-recording-viz-label');
       if (btn) {
         btn.innerHTML = isRecording ? `<i class="fas fa-stop mr-2"></i> Stop` : `<i class="fas fa-circle mr-2"></i> Register`;
         btn.classList.toggle('bg-danger', isRecording);
@@ -541,6 +869,9 @@ import { AudioEngine } from './modules/audio-engine.js';
       btn.classList.toggle('btn-soft', false);
       }
       if (status) status.innerText = isRecording ? 'Recording' : 'Idle';
+      if (vizWrap) vizWrap.classList.toggle('hidden', !isRecording);
+      if (vizLabel) vizLabel.innerText = isRecording ? 'Capturing...' : 'Idle';
+      if (!isRecording) stopToolRecordingVisualizer();
     }
 
     function stopToolRecordingStream() {
@@ -602,6 +933,7 @@ import { AudioEngine } from './modules/audio-engine.js';
         };
         toolRecorder.start();
         updateToolRecordingUI(true);
+        startToolRecordingVisualizer(toolRecordingStream);
         toolRecordingTimeout = setTimeout(() => {
           if (toolRecorder && toolRecorder.state === 'recording') toolRecorder.stop();
         }, 12000);
@@ -661,7 +993,7 @@ import { AudioEngine } from './modules/audio-engine.js';
       for(let i=0; i < totalSlots; i++) {
         const char = cleanText[i] || '.';
         const time = i * 0.5;
-        const type = char === 'D' ? 'â†“' : (char === 'U' ? 'â†‘' : (char === 'X' ? 'x' : '.'));
+        const type = char === 'D' ? '↓' : (char === 'U' ? '↑' : (char === 'X' ? 'x' : '.'));
         pattern.push({ time, type, raw: char });
       }
       return pattern;
@@ -676,9 +1008,12 @@ import { AudioEngine } from './modules/audio-engine.js';
         const leftIdx = beatIdx * 2;
         const rightIdx = leftIdx + 1;
         const buildCell = (char, idx) => {
-          const symbol = char === 'D' ? 'â†“' : (char === 'U' ? 'â†‘' : (char === 'X' ? 'x' : 'Â·'));
+          const symbol = char === 'D' ? '&#8595;' : (char === 'U' ? '&#8593;' : (char === 'X' ? 'x' : '&middot;'));
+          const clickExpr = String(clickHandlerName || '').includes('__INDEX__')
+            ? String(clickHandlerName).replace('__INDEX__', idx)
+            : `${clickHandlerName}(${idx})`;
           return `
-            <button type="button" onclick="${clickHandlerName}(${idx})" class="pattern-cell ${char !== '.' ? 'active' : ''}">
+            <button type="button" onclick="${clickExpr}" class="pattern-cell ${char !== '.' ? 'active' : ''}">
               <div class="pattern-action ${char === '.' ? 'rest opacity-40' : ''}">${symbol}</div>
               <div class="pattern-count">${getPatternCountLabel(idx)}</div>
             </button>
@@ -704,7 +1039,7 @@ import { AudioEngine } from './modules/audio-engine.js';
             const leftIdx = beatIdx * 2;
             const rightIdx = leftIdx + 1;
             const buildCell = (char, idx) => {
-              const symbol = char === 'D' ? 'â†“' : (char === 'U' ? 'â†‘' : (char === 'X' ? 'x' : 'Â·'));
+              const symbol = char === 'D' ? '&#8595;' : (char === 'U' ? '&#8593;' : (char === 'X' ? 'x' : '&middot;'));
               const validationClass = validationStates[idx] === 'success' ? 'success' : (validationStates[idx] === 'fail' ? 'fail' : '');
               return `<div class="pattern-cell ${idx === activeIndex ? 'active' : ''} ${validationClass}">
                 <div class="pattern-action ${char === '.' ? 'rest' : ''}">${symbol}</div>
@@ -730,8 +1065,8 @@ import { AudioEngine } from './modules/audio-engine.js';
       return CHORD_LIBRARY[fallback] || null;
     }
 
-    function renderChordDiagramSvg(chordName, large = false) {
-      const data = getChordDiagramData(chordName);
+    function renderChordDiagramSvg(chordName, large = false, overrideData = null) {
+      const data = overrideData || getChordDiagramData(chordName);
       if (!data) {
         return `<div class="chord-diagram-card ${large ? 'large' : ''} flex items-center justify-center min-h-[120px]"><div class="text-center"><p class="text-xl font-bold text-primary">${chordName}</p><p class="text-[10px] text-gray-500 mt-2">Diagram soon</p></div></div>`;
       }
@@ -905,6 +1240,48 @@ import { AudioEngine } from './modules/audio-engine.js';
       return activeChord;
     }
 
+    function buildPracticePatternAssignments(song, beatsPerBar) {
+      const fallbackPattern = (song?.strummingPatterns?.[0]?.strumming || song?.strumming || []).map(slot => ({
+        ...slot,
+        raw: slot?.raw || '.'
+      }));
+      const fallback = fallbackPattern.length ? fallbackPattern : parseStrumPattern('', song?.timeSignature || '4/4');
+      const tagToPattern = new Map();
+      (song?.strummingPatterns || []).forEach((entry, idx) => {
+        if (idx > 0 && !entry?.tagKey) return;
+        if (entry?.tagKey) tagToPattern.set(entry.tagKey, entry.strumming || fallback);
+      });
+      const assignments = [];
+      let lastPatternRef = null;
+      let lastTagKey = null;
+      const chordList = song?.chords || [];
+      const chordTagIndex = song?.chordTagIndex || [];
+      chordList.forEach(chord => {
+        const tagKey = chordTagIndex[chord.lineIdx] || '';
+        const selected = (tagKey && tagToPattern.get(tagKey)) || fallback;
+        if (selected !== lastPatternRef || tagKey !== lastTagKey) {
+          assignments.push({ startBeat: chord.time || 0, pattern: selected, tagKey });
+          lastPatternRef = selected;
+          lastTagKey = tagKey;
+        }
+      });
+      if (!assignments.length) {
+        assignments.push({ startBeat: 0, pattern: fallback, tagKey: '' });
+      }
+      return assignments;
+    }
+
+    function getPracticePatternForBeat(beat) {
+      if (!practicePatternAssignments.length) return { index: 0, pattern: activeStrumPattern };
+      let chosenIndex = 0;
+      for (let i = 0; i < practicePatternAssignments.length; i++) {
+        if (beat >= practicePatternAssignments[i].startBeat) chosenIndex = i;
+        else break;
+      }
+      const chosen = practicePatternAssignments[chosenIndex];
+      return { index: chosenIndex, pattern: chosen?.pattern || activeStrumPattern };
+    }
+
     function updatePracticeAudioButton() {
       const btn = document.getElementById('btn-practice-audio');
       if (!btn) return;
@@ -1053,7 +1430,8 @@ import { AudioEngine } from './modules/audio-engine.js';
       }
     }
 
-    window.openAddSong = function() {
+    window.openAddSong = function(options = {}) {
+      const { skipUrl = false, replaceUrl = false } = options || {};
       editingSongId = null;
       document.getElementById('add-view-title').innerText = "New Song";
       document.getElementById('btn-save-song').innerHTML = '<i class="fas fa-save mr-2"></i> Save to Library';
@@ -1064,13 +1442,14 @@ import { AudioEngine } from './modules/audio-engine.js';
       document.getElementById('add-time-sig').value = '4/4';
       document.getElementById('add-capo').value = 'No capo';
       document.getElementById('add-chords-text').value = '';
-      document.getElementById('add-strum-text').value = normalizePatternText('', 4);
+      addPatternEntries = [{ id: nextAddPatternEntryId++, tag: '', patternText: normalizePatternText('', 4) }];
       syncAddPatternEditor();
       
-      navigate('add-song');
+      navigate('add-song', { skipUrl, replaceUrl, pathOverride: '/songs/new' });
     };
 
-    window.editCurrentSong = function() {
+    window.editCurrentSong = function(options = {}) {
+      const { skipUrl = false, replaceUrl = false } = options || {};
       if (!currentSong) return;
       editingSongId = currentSong.id;
       
@@ -1083,12 +1462,19 @@ import { AudioEngine } from './modules/audio-engine.js';
       document.getElementById('add-time-sig').value = currentSong.timeSignature || '4/4';
       document.getElementById('add-capo').value = currentSong.capo || 'No capo';
       document.getElementById('add-chords-text').value = currentSong.rawText;
-      
-      const strumText = currentSong.strumming.map(s => s.raw).join('');
-      document.getElementById('add-strum-text').value = normalizePatternText(strumText, getBeatsPerBarFromSignature(currentSong.timeSignature || '4/4'));
+      const timeSignature = currentSong.timeSignature || '4/4';
+      const beatsPerBar = getBeatsPerBarFromSignature(timeSignature);
+      const sourcePatterns = Array.isArray(currentSong.strummingPatterns) && currentSong.strummingPatterns.length
+        ? currentSong.strummingPatterns
+        : [{ tag: '', strumming: currentSong.strumming || [] }];
+      addPatternEntries = sourcePatterns.map(entry => ({
+        id: nextAddPatternEntryId++,
+        tag: String(entry.tag || ''),
+        patternText: normalizePatternText(extractRawPatternFromEntry(entry), beatsPerBar)
+      }));
       syncAddPatternEditor();
       
-      navigate('add-song');
+      navigate('add-song', { skipUrl, replaceUrl, pathOverride: `/songs/${encodeURIComponent(currentSong.id)}/edit` });
     };
 
     window.closeAddEdit = function() {
@@ -1112,11 +1498,36 @@ import { AudioEngine } from './modules/audio-engine.js';
         const rawText = document.getElementById('add-chords-text').value || "C\nEmpty";
         
         const beatsPerBar = getBeatsPerBarFromSignature(timeSignature);
-        const strumText = normalizePatternText(document.getElementById('add-strum-text').value || "", beatsPerBar);
-        const strumming = parseStrumPattern(strumText, timeSignature);
+        const preparedPatterns = addPatternEntries.map((entry, idx) => {
+          const patternText = normalizePatternText(entry.patternText || "", beatsPerBar);
+          const tag = String(entry.tag || '').trim();
+          return {
+            tag,
+            tagKey: normalizeTagKey(tag),
+            patternText,
+            strumming: parseStrumPattern(patternText, timeSignature),
+            index: idx
+          };
+        }).filter(entry => entry.strumming.length > 0);
+        const fallbackPattern = {
+          tag: '',
+          tagKey: '',
+          patternText: normalizePatternText("", beatsPerBar),
+          strumming: parseStrumPattern("", timeSignature),
+          index: 0
+        };
+        const normalizedPatterns = (preparedPatterns.length ? preparedPatterns : [fallbackPattern])
+          .filter((entry, idx) => idx === 0 || entry.tagKey);
+        const primaryPattern = normalizedPatterns[0];
 
         const newSongData = {
-          title, artist, bpm, timeSignature, capo, rawText, strumming,
+          title, artist, bpm, timeSignature, capo, rawText,
+          strumming: primaryPattern.strumming,
+          strummingPatterns: normalizedPatterns.map(entry => ({
+            tag: entry.tag,
+            patternText: entry.patternText,
+            strumming: entry.strumming
+          })),
           postedBy: user.email.split('@')[0],
           ownerId: user.uid
         };
@@ -1142,7 +1553,44 @@ import { AudioEngine } from './modules/audio-engine.js';
       }
     };
 
-    window.navigate = function(id) {
+    function normalizePathname(path = '/') {
+      const raw = String(path || '/').split('?')[0].split('#')[0];
+      const trimmed = raw.replace(/\/+$/, '');
+      return trimmed || '/';
+    }
+
+    function pushUrlPath(path, { replace = false } = {}) {
+      const normalized = normalizePathname(path);
+      const current = normalizePathname(window.location.pathname || '/');
+      if (normalized === current) return;
+      const method = replace ? 'replaceState' : 'pushState';
+      window.history[method]({ path: normalized }, '', normalized);
+    }
+
+    function buildPathForView(id) {
+      if (id === 'auth') return '/auth';
+      if (id === 'home') return '/';
+      if (id === 'training') return '/training';
+      if (id === 'tuner') return '/tuner';
+      if (id === 'tools') return '/tools';
+      if (id === 'settings') return '/settings';
+      if (id === 'add-song') {
+        if (editingSongId) return `/songs/${encodeURIComponent(editingSongId)}/edit`;
+        return '/songs/new';
+      }
+      if (id === 'details') {
+        if (currentSong?.id) return `/songs/${encodeURIComponent(currentSong.id)}`;
+        return '/songs';
+      }
+      if (id === 'practice') {
+        if (currentSong?.id) return `/practice/${encodeURIComponent(currentSong.id)}/${currentStepMode}`;
+        return '/practice';
+      }
+      return '/';
+    }
+
+    window.navigate = function(id, options = {}) {
+      const { skipUrl = false, replaceUrl = false, pathOverride = null } = options || {};
       document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
       document.getElementById(`view-${id}`).classList.add('active');
       if (TAB_VIEWS.has(id)) activeTab = id;
@@ -1157,7 +1605,111 @@ import { AudioEngine } from './modules/audio-engine.js';
         updateToolRecordingUI(false);
       }
       if (id !== 'training') stopTrainingPlayback();
+      if (!skipUrl && !isHandlingRouteChange) {
+        pushUrlPath(pathOverride || buildPathForView(id), { replace: replaceUrl });
+      }
     };
+
+    async function applyRouteFromLocation({ replaceUnknown = true } = {}) {
+      if (isHandlingRouteChange) return;
+      isHandlingRouteChange = true;
+      try {
+        const path = normalizePathname(window.location.pathname || '/');
+        const parts = path.split('/').filter(Boolean);
+
+        if (!user) {
+          navigate('auth', { skipUrl: true });
+          if (path !== '/auth') pushUrlPath('/auth', { replace: true });
+          return;
+        }
+
+        if (path === '/auth') {
+          navigate('home', { skipUrl: true });
+          pushUrlPath('/', { replace: true });
+          return;
+        }
+
+        if (path === '/' || path === '/home') {
+          navigate('home', { skipUrl: true });
+          return;
+        }
+
+        if (path === '/settings') {
+          navigate('settings', { skipUrl: true });
+          return;
+        }
+
+        if (path === '/tuner') {
+          navigate('tuner', { skipUrl: true });
+          return;
+        }
+
+        if (parts[0] === 'tools') {
+          navigate('tools', { skipUrl: true });
+          const tool = decodeURIComponent(parts[1] || '');
+          const allowed = new Set(['metronome', 'recorder', 'chords', 'chord-builder', 'songs']);
+          if (tool && allowed.has(tool)) openToolPage(tool, { skipUrl: true });
+          else showToolsHome({ skipUrl: true });
+          return;
+        }
+
+        if (parts[0] === 'training') {
+          navigate('training', { skipUrl: true });
+          const page = decodeURIComponent(parts[1] || '');
+          const allowed = new Set(['practice', 'dailies', 'strumming']);
+          if (page && allowed.has(page)) openTrainingPage(page, { skipUrl: true });
+          else showTrainingHome({ skipUrl: true });
+          return;
+        }
+
+        if (parts[0] === 'songs') {
+          if (parts.length === 1) {
+            navigate('tools', { skipUrl: true });
+            openToolPage('songs', { skipUrl: true });
+            return;
+          }
+          if (parts[1] === 'new') {
+            openAddSong({ skipUrl: true });
+            return;
+          }
+          const songId = decodeURIComponent(parts[1] || '');
+          if (!songId) {
+            navigate('home', { skipUrl: true });
+            if (replaceUnknown) pushUrlPath('/', { replace: true });
+            return;
+          }
+          if (parts[2] === 'edit') {
+            await openSongDetails(songId, { skipUrl: true });
+            editCurrentSong({ skipUrl: true });
+            return;
+          }
+          await openSongDetails(songId, { skipUrl: true });
+          return;
+        }
+
+        if (parts[0] === 'practice') {
+          const songId = decodeURIComponent(parts[1] || '');
+          const parsedStep = parseInt(parts[2] || '1', 10);
+          const step = [0, 1, 2, 3].includes(parsedStep) ? parsedStep : 1;
+          if (!songId) {
+            navigate('home', { skipUrl: true });
+            if (replaceUnknown) pushUrlPath('/', { replace: true });
+            return;
+          }
+          await openSongDetails(songId, { skipUrl: true });
+          startPractice(step, { skipUrl: true });
+          return;
+        }
+
+        navigate('home', { skipUrl: true });
+        if (replaceUnknown) pushUrlPath('/', { replace: true });
+      } catch (e) {
+        console.error('Route apply failed', e);
+        navigate('home', { skipUrl: true });
+      } finally {
+        isHandlingRouteChange = false;
+      }
+    }
 
     async function loadUserSettings() {
       if (!user || user.isAnonymous) {
@@ -1284,22 +1836,86 @@ import { AudioEngine } from './modules/audio-engine.js';
       return saveSettings('modal');
     };
 
-    function syncAddPatternEditor() {
+    function renderAddPatternEditors() {
       const timeSignature = document.getElementById('add-time-sig')?.value || '4/4';
       const beatsPerBar = getBeatsPerBarFromSignature(timeSignature);
-      const hiddenInput = document.getElementById('add-strum-text');
-      hiddenInput.value = normalizePatternText(hiddenInput.value, beatsPerBar);
-      UI.buildPatternEditor('add-strum-editor', hiddenInput.value, beatsPerBar, 'cycleAddPatternBeat');
+      const holder = document.getElementById('add-strum-editor');
+      if (!holder) return;
+      if (!addPatternEntries.length) {
+        addPatternEntries = [{ id: nextAddPatternEntryId++, tag: '', patternText: normalizePatternText('', beatsPerBar) }];
+      }
+      addPatternEntries = addPatternEntries.map(entry => ({
+        ...entry,
+        tag: String(entry.tag || ''),
+        patternText: normalizePatternText(entry.patternText || '', beatsPerBar)
+      }));
+      holder.innerHTML = addPatternEntries.map((entry, idx) => `
+        <div class="bg-surface border border-gray-700 rounded-xl p-3 mb-3">
+          <div class="flex items-center gap-2 mb-2">
+            <input
+              type="text"
+              value="${escapeHtml(entry.tag)}"
+              oninput="updateAddPatternTag(${entry.id}, this.value)"
+              onchange="updateAddPatternTag(${entry.id}, this.value)"
+              placeholder="Tag (example: [verse 1])"
+              class="flex-1 bg-black/30 border border-gray-700 rounded-lg px-3 py-2 text-xs focus:border-primary focus:outline-none"
+            >
+            <button
+              type="button"
+              onclick="removeAddPattern(${entry.id})"
+              class="w-9 h-9 rounded-lg btn-soft btn-press ${addPatternEntries.length === 1 ? 'opacity-40 pointer-events-none' : ''}"
+              title="Remove pattern"
+            >
+              <i class="fas fa-trash text-xs"></i>
+            </button>
+          </div>
+          <div id="add-strum-editor-${entry.id}" class="pattern-editor-grid"></div>
+          <div class="text-[10px] text-gray-500 mt-2">Pattern ${idx + 1}${idx > 0 ? ' (requires a tag for practice mode)' : ''}</div>
+        </div>
+      `).join('');
+      addPatternEntries.forEach(entry => {
+        buildPatternEditor(`add-strum-editor-${entry.id}`, entry.patternText, beatsPerBar, `cycleAddPatternBeat(${entry.id}, __INDEX__)`);
+      });
     }
 
-    window.cycleAddPatternBeat = function(index) {
-      const timeSignature = document.getElementById('add-time-sig').value || '4/4';
+    function syncAddPatternEditor() {
+      renderAddPatternEditors();
+    }
+    window.syncAddPatternEditor = syncAddPatternEditor;
+
+    window.addPatternRow = function() {
+      const timeSignature = document.getElementById('add-time-sig')?.value || '4/4';
       const beatsPerBar = getBeatsPerBarFromSignature(timeSignature);
-      const chars = normalizePatternText(document.getElementById('add-strum-text').value, beatsPerBar).split('');
+      addPatternEntries.push({
+        id: nextAddPatternEntryId++,
+        tag: '',
+        patternText: normalizePatternText('', beatsPerBar)
+      });
+      renderAddPatternEditors();
+    };
+
+    window.removeAddPattern = function(entryId) {
+      if (addPatternEntries.length <= 1) return;
+      addPatternEntries = addPatternEntries.filter(entry => entry.id !== entryId);
+      renderAddPatternEditors();
+    };
+
+    window.updateAddPatternTag = function(entryId, value) {
+      const target = addPatternEntries.find(entry => entry.id === entryId);
+      if (!target) return;
+      target.tag = String(value || '');
+    };
+
+    window.cycleAddPatternBeat = function(entryId, index) {
+      const timeSignature = document.getElementById('add-time-sig')?.value || '4/4';
+      const beatsPerBar = getBeatsPerBarFromSignature(timeSignature);
+      const target = addPatternEntries.find(entry => entry.id === entryId);
+      if (!target) return;
+      const chars = normalizePatternText(target.patternText, beatsPerBar).split('');
       const next = chars[index] === 'D' ? 'U' : (chars[index] === 'U' ? 'X' : (chars[index] === 'X' ? '.' : 'D'));
       chars[index] = next;
-      document.getElementById('add-strum-text').value = chars.join('');
-      syncAddPatternEditor();
+      target.patternText = chars.join('');
+      renderAddPatternEditors();
     };
 
     window.updateTrainingPatternEditor = function() {
@@ -1387,40 +2003,61 @@ import { AudioEngine } from './modules/audio-engine.js';
       const p2 = Math.min(100, progress.step2?.p || 0);
       const p3 = Math.min(100, progress.step3?.p || 0);
       const global = Math.round((p1 + p2 + p3) / 3);
+      const p1w = p1 > 0 ? Math.max(4, p1) : 0;
+      const p2w = p2 > 0 ? Math.max(4, p2) : 0;
+      const p3w = p3 > 0 ? Math.max(4, p3) : 0;
+      const gw = global > 0 ? Math.max(4, global) : 0;
       return `
-        <button onclick="openSongDetails('${song.id}')" class="w-full text-left btn-soft rounded-2xl px-4 py-4 btn-press">
+        <button onclick="openSongDetails('${song.id}')" class="w-full text-left tool-nav-card btn-press">
           <div class="flex items-start justify-between gap-3">
             <div>
               <div class="font-bold text-white">${song.title}</div>
               <div class="text-xs text-gray-400 mt-1">${song.artist || 'Unknown artist'}</div>
               <div class="mt-2">${renderStars(getSongRatingAverage(song))}</div>
             </div>
-            <span class="text-xs text-gray-300 font-semibold">${global}%</span>
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-gray-300 font-semibold">${global}%</span>
+              <i class="fas fa-chevron-right text-primary text-xs"></i>
+            </div>
           </div>
-          <div class="grid grid-cols-3 gap-2 mt-3">
-            <div class="h-2.5 rounded-full bg-black/60 overflow-hidden border" style="border-color:rgba(187,134,252,0.35)"><div class="h-full rounded-full bg-primary shadow-[0_0_12px_rgba(187,134,252,0.55)]" style="width:${p1}%"></div></div>
-            <div class="h-2.5 rounded-full bg-black/60 overflow-hidden border" style="border-color:rgba(3,218,198,0.35)"><div class="h-full rounded-full bg-active shadow-[0_0_12px_rgba(3,218,198,0.6)]" style="width:${p2}%"></div></div>
-            <div class="h-2.5 rounded-full bg-black/60 overflow-hidden border" style="border-color:rgba(207,102,121,0.35)"><div class="h-full rounded-full bg-danger shadow-[0_0_12px_rgba(207,102,121,0.55)]" style="width:${p3}%"></div></div>
+          <div class="mt-3">
+            <div class="flex justify-between items-center text-[10px] uppercase tracking-[0.18em] text-gray-400 mb-1">
+              <span>Overall</span>
+              <span class="text-white font-bold">${global}%</span>
+            </div>
+            <div class="h-3.5 rounded-full bg-black/80 overflow-hidden border border-gray-600">
+              <div class="h-full rounded-full bg-gradient-to-r from-[#06ffe3] to-[#03dac6] shadow-[0_0_16px_rgba(3,218,198,0.95)]" style="width:${gw}%"></div>
+            </div>
+          </div>
+          <div class="grid grid-cols-3 gap-2 mt-3 text-[10px]">
+            <div>
+              <div class="flex justify-between text-gray-300 mb-1"><span>S1</span><span>${Math.round(p1)}%</span></div>
+              <div class="h-3 rounded-full bg-black/80 overflow-hidden border" style="border-color:rgba(187,134,252,0.7)"><div class="h-full rounded-full bg-gradient-to-r from-[#d9b8ff] to-[#bb86fc] shadow-[0_0_12px_rgba(187,134,252,0.9)]" style="width:${p1w}%"></div></div>
+            </div>
+            <div>
+              <div class="flex justify-between text-gray-300 mb-1"><span>S2</span><span>${Math.round(p2)}%</span></div>
+              <div class="h-3 rounded-full bg-black/80 overflow-hidden border" style="border-color:rgba(3,218,198,0.75)"><div class="h-full rounded-full bg-gradient-to-r from-[#6ffff0] to-[#03dac6] shadow-[0_0_12px_rgba(3,218,198,0.95)]" style="width:${p2w}%"></div></div>
+            </div>
+            <div>
+              <div class="flex justify-between text-gray-300 mb-1"><span>S3</span><span>${Math.round(p3)}%</span></div>
+              <div class="h-3 rounded-full bg-black/80 overflow-hidden border" style="border-color:rgba(207,102,121,0.75)"><div class="h-full rounded-full bg-gradient-to-r from-[#ffb3c2] to-[#cf6679] shadow-[0_0_12px_rgba(207,102,121,0.95)]" style="width:${p3w}%"></div></div>
+            </div>
           </div>
         </button>
       `;
     }
 
     function renderHomeDashboard() {
-      const search = (document.getElementById('home-song-search')?.value || '').trim().toLowerCase();
       const favorites = songs.filter(song => (userSettings.favoriteSongIds || []).includes(song.id));
       const recentEntries = userSettings.recentPractice || [];
       const recentSongs = recentEntries
         .map(entry => ({ song: songs.find(song => song.id === entry.songId), progress: entry.progress }))
         .filter(entry => entry.song);
-      const filteredSongs = songs.filter(song => !search || song.title?.toLowerCase().includes(search) || song.artist?.toLowerCase().includes(search));
 
       const favoritesContainer = document.getElementById('home-favorites-list');
       const recentContainer = document.getElementById('home-recent-practice-list');
-      const allContainer = document.getElementById('home-all-songs-list');
       if (favoritesContainer) favoritesContainer.innerHTML = favorites.length ? favorites.map(song => buildSongDashboardCard(song)).join('') : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No favorite songs yet.</div>`;
       if (recentContainer) recentContainer.innerHTML = recentSongs.length ? recentSongs.map(({ song, progress }) => buildSongDashboardCard(song, { progress })).join('') : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No started practice songs yet.</div>`;
-      if (allContainer) allContainer.innerHTML = filteredSongs.length ? filteredSongs.map(song => buildSongDashboardCard(song)).join('') : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No songs found.</div>`;
 
       const practiceShortcuts = document.getElementById('training-practice-shortcuts');
       if (practiceShortcuts) practiceShortcuts.innerHTML = recentSongs.length ? recentSongs.slice(0, 4).map(({ song, progress }) => buildSongDashboardCard(song, { progress })).join('') : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">Start from a song on Home to see it here.</div>`;
@@ -1436,7 +2073,7 @@ import { AudioEngine } from './modules/audio-engine.js';
         return;
       }
       container.innerHTML = filtered.map(song => `
-        <button onclick="openSongDetails('${song.id}')" class="w-full text-left btn-soft rounded-xl px-4 py-4 btn-press">
+        <button onclick="openSongDetails('${song.id}')" class="w-full text-left tool-nav-card btn-press">
           <div class="flex items-center justify-between gap-3">
             <div>
               <div class="font-bold text-white">${song.title}</div>
@@ -1450,6 +2087,15 @@ import { AudioEngine } from './modules/audio-engine.js';
     }
 
     window.renderToolSongsSearch = renderToolSongsSearch;
+
+    function setPracticeProgressDisplay(percent = 0) {
+      const safe = Math.max(0, Math.min(100, percent));
+      const visible = safe > 0 ? Math.max(2, safe) : 0;
+      const bar = document.getElementById('practice-progress-bar');
+      const text = document.getElementById('practice-progress-text');
+      if (bar) bar.style.width = `${visible}%`;
+      if (text) text.innerText = `${Math.round(safe)}%`;
+    }
 
     function renderSongComments() {
       const list = document.getElementById('detail-comments-list');
@@ -1510,8 +2156,14 @@ import { AudioEngine } from './modules/audio-engine.js';
       await repository.updateSongMeta(currentSong.id, { stats: nextStats });
     }
 
-    window.openSongDetails = async function(id) {
+    window.openSongDetails = async function(id, options = {}) {
+      const { skipUrl = false, replaceUrl = false } = options || {};
       currentSong = songs.find(s => s.id === id);
+      if (!currentSong) {
+        showToast("Song not found.");
+        navigate('home', { skipUrl, replaceUrl });
+        return;
+      }
       renderToolSongsSearch(document.getElementById('tool-song-search')?.value || '');
       document.getElementById('detail-title').innerText = currentSong.title;
       document.getElementById('detail-artist').innerText = currentSong.artist;
@@ -1534,7 +2186,7 @@ import { AudioEngine } from './modules/audio-engine.js';
       UI.renderPatternVisualizer('detail-strum-viz', currentSong.strumming, getBeatsPerBarFromSignature(currentSong.timeSignature || '4/4'));
       
       const unique = [...new Set(currentSong.chords.map(c => c.chord))];
-      UI.renderChordLibrary('detail-chords', unique);
+      renderChordLibrary('detail-chords', unique);
       updateFavoriteButton();
 
       await loadProgress();
@@ -1546,7 +2198,7 @@ import { AudioEngine } from './modules/audio-engine.js';
         console.error("Could not update views", e);
       }
       renderSteps();
-      navigate('details');
+      navigate('details', { skipUrl, replaceUrl, pathOverride: `/songs/${encodeURIComponent(currentSong.id)}` });
     };
 
     async function loadProgress() {
@@ -1642,15 +2294,20 @@ import { AudioEngine } from './modules/audio-engine.js';
       closeRatingModal();
     };
 
-    window.startPractice = function(step) {
+    window.startPractice = function(step, options = {}) {
+      const { skipUrl = false, replaceUrl = false } = options || {};
       currentStepMode = step;
       currentBpm = currentSong.bpm;
       document.getElementById('practice-bpm').value = currentBpm;
       document.getElementById('practice-title').innerText = currentSong.title;
       document.getElementById('practice-step-label').innerText = `Step ${step}`;
-      document.getElementById('practice-progress-bar').style.width = `0%`;
+      setPracticeProgressDisplay(0);
       lastPlayedStrumIndex = -1;
+      pausedPracticeBeat = null;
+      practicePausedByBlur = false;
       practiceValidationStates = [];
+      practicePatternAssignments = [];
+      activePatternAssignmentIndex = -1;
       lastChordValidationState = null;
       updatePracticeAudioButton();
       
@@ -1697,13 +2354,18 @@ import { AudioEngine } from './modules/audio-engine.js';
         const footerButton = document.getElementById('btn-play');
         footerButton.innerHTML = `<i class="fas fa-play mr-2"></i> Start Step 1`;
         footerButton.onclick = () => startPractice(1);
-        navigate('practice');
+        navigate('practice', {
+          skipUrl,
+          replaceUrl,
+          pathOverride: `/practice/${encodeURIComponent(currentSong?.id || '')}/0`
+        });
         return;
       }
 
       const normalizedStrumming = currentSong.strumming.map(s => ({
-        ...s, raw: s.raw || (s.type === 'â†“' ? 'D' : (s.type === 'â†‘' ? 'U' : '.'))
+        ...s, raw: s.raw || strumTypeToRaw(s.type)
       }));
+      const normalizedAssignments = buildPracticePatternAssignments(currentSong, beatsPerBar);
 
 
       if (user && !user.isAnonymous) {
@@ -1718,7 +2380,8 @@ import { AudioEngine } from './modules/audio-engine.js';
         timeline.classList.add('hidden');
         focus.classList.remove('hidden');
         chordPanel.classList.add('hidden');
-        activeStrumPattern = normalizedStrumming;
+        activeStrumPattern = normalizedAssignments[0]?.pattern || normalizedStrumming;
+        practicePatternAssignments = [{ startBeat: 0, pattern: activeStrumPattern, tagKey: '' }];
       } else {
         timeline.classList.remove('hidden');
         focus.classList.add('hidden');
@@ -1726,7 +2389,7 @@ import { AudioEngine } from './modules/audio-engine.js';
           chordPanel.classList.remove('hidden');
           timeline.classList.add('hidden');
           const firstChord = currentSong.chords?.[0]?.chord || 'C';
-          UI.renderChordLibrary('practice-current-chord', [firstChord], firstChord);
+          renderChordLibrary('practice-current-chord', [firstChord], firstChord);
           const firstLine = currentSong.parsedLines?.[currentSong.chords?.[0]?.lineIdx || 0] || null;
           UI.renderPracticeCurrentLine({ containerId: 'practice-current-line', lineData: firstLine, parsedLines: currentSong.parsedLines, activeChordGlobalIdx: currentSong.chords?.[0]?.globalIdx ?? null });
         } else {
@@ -1747,10 +2410,12 @@ import { AudioEngine } from './modules/audio-engine.js';
         if (step === 1) {
             activeStrumPattern = [];
             for(let i=0; i<getPatternSlotCount(beatsPerBar); i++) {
-                activeStrumPattern.push({ time: i * 0.5, type: i === 0 ? "â†“" : ".", raw: i === 0 ? "D" : "." });
+                activeStrumPattern.push({ time: i * 0.5, type: i === 0 ? "↓" : ".", raw: i === 0 ? "D" : "." });
             }
+            practicePatternAssignments = [{ startBeat: 0, pattern: activeStrumPattern, tagKey: '' }];
         } else {
-            activeStrumPattern = normalizedStrumming;
+            activeStrumPattern = normalizedAssignments[0]?.pattern || normalizedStrumming;
+            practicePatternAssignments = normalizedAssignments;
         }
       }
 
@@ -1762,21 +2427,30 @@ import { AudioEngine } from './modules/audio-engine.js';
       footerButton.innerHTML = `<i class="fas fa-play mr-2"></i> Start`;
       footerButton.onclick = togglePlay;
 
-      navigate('practice');
+      navigate('practice', {
+        skipUrl,
+        replaceUrl,
+        pathOverride: `/practice/${encodeURIComponent(currentSong?.id || '')}/${step}`
+      });
     };
 
     window.togglePlay = async function() {
       if(!isPlaying) {
         await ensureAudioReady();
+        const resumingFromPause = pausedPracticeBeat !== null;
         isPlaying = true;
-        startTime = audioCtx.currentTime;
+        startTime = audioCtx.currentTime - ((pausedPracticeBeat || 0) * (60 / currentBpm));
         nextNoteTime = audioCtx.currentTime + 0.05;
-        currentBeatInBar = 0;
+        const beatsPerBar = parseInt((currentSong.timeSignature || "4/4").split('/')[0]) || 4;
+        currentBeatInBar = Math.floor((pausedPracticeBeat || 0) % beatsPerBar);
         lastSavedPercent = -1;
+        pausedPracticeBeat = null;
+        practicePausedByBlur = false;
         document.getElementById('btn-play').innerHTML = `<i class="fas fa-stop"></i> Stop`;
         document.getElementById('btn-play').classList.replace('bg-primary', 'bg-danger');
         document.getElementById('btn-play').classList.add('text-white');
         document.getElementById('btn-play').classList.replace('shadow-[0_0_20px_rgba(187,134,252,0.4)]', 'shadow-[0_0_20px_rgba(207,102,121,0.4)]');
+        if (resumingFromPause) startPracticeDetection();
         scheduler();
       } else { stopPlayback(); }
     };
@@ -1809,7 +2483,7 @@ import { AudioEngine } from './modules/audio-engine.js';
       if(!isPlaying) return;
       const beat = (audioCtx.currentTime - startTime) / (60 / currentBpm);
       const percent = Math.min(100, (beat / currentSong.totalBeats) * 100);
-      document.getElementById('practice-progress-bar').style.width = `${percent}%`;
+      setPracticeProgressDisplay(percent);
 
       const decile = Math.floor(percent / 10) * 10;
       if(decile > lastSavedPercent) {
@@ -1819,7 +2493,15 @@ import { AudioEngine } from './modules/audio-engine.js';
 
       const beatsPerBar = parseInt((currentSong.timeSignature || "4/4").split('/')[0]) || 4;
       const subBeat = beat % beatsPerBar;
-      
+      const { index: assignmentIndex, pattern: selectedPattern } = getPracticePatternForBeat(beat);
+      if (selectedPattern && selectedPattern !== activeStrumPattern) {
+        activeStrumPattern = selectedPattern;
+      }
+      if (assignmentIndex !== activePatternAssignmentIndex) {
+        activePatternAssignmentIndex = assignmentIndex;
+        practiceValidationStates = new Array(activeStrumPattern.length).fill(null);
+        lastPlayedStrumIndex = -1;
+      }
       const activeStrumIndex = Math.floor(subBeat * 2) % getPatternSlotCount(beatsPerBar);
       UI.renderPatternVisualizer('practice-rhythm-viz', activeStrumPattern, beatsPerBar, activeStrumIndex, practiceValidationStates);
       const activeChord = getActiveChordForBeat(beat);
@@ -1844,7 +2526,7 @@ import { AudioEngine } from './modules/audio-engine.js';
       if(currentStepMode !== 2 && currentSong.chords && currentSong.chords.length > 0) {
         if (activeChord) {
           if (currentStepMode === 1 || currentStepMode === 3) {
-            UI.renderChordLibrary('practice-current-chord', [activeChord.chord], activeChord.chord);
+            renderChordLibrary('practice-current-chord', [activeChord.chord], activeChord.chord);
             UI.renderPracticeCurrentLine({ containerId: 'practice-current-line', lineData: currentSong.parsedLines?.[activeChord.lineIdx], parsedLines: currentSong.parsedLines, activeChordGlobalIdx: activeChord.globalIdx });
           }
           const blockEl = document.getElementById(`block-${activeChord.lineIdx}`);
@@ -1894,8 +2576,27 @@ import { AudioEngine } from './modules/audio-engine.js';
       }
     }
 
+    function pausePracticePlayback(showContinue = true) {
+      if (!isPlaying) return;
+      const beat = Math.max(0, (audioCtx.currentTime - startTime) / (60 / currentBpm));
+      pausedPracticeBeat = beat;
+      isPlaying = false;
+      cancelAnimationFrame(animationId);
+      stopActiveChordPreview(0.03);
+      stopPracticeDetection();
+      const btn = document.getElementById('btn-play');
+      if (btn) {
+        btn.innerHTML = showContinue ? `<i class="fas fa-play mr-2"></i> Continue` : `<i class="fas fa-play mr-2"></i> Start`;
+        btn.classList.replace('bg-danger', 'bg-primary');
+        btn.classList.add('text-white');
+        btn.classList.replace('shadow-[0_0_20px_rgba(207,102,121,0.4)]', 'shadow-[0_0_20px_rgba(187,134,252,0.4)]');
+      }
+    }
+
     function stopPlayback() {
       isPlaying = false;
+      pausedPracticeBeat = null;
+      practicePausedByBlur = false;
       cancelAnimationFrame(animationId);
       lastPlayedStrumIndex = -1;
       stopActiveChordPreview(0.03);
@@ -2159,6 +2860,7 @@ import { AudioEngine } from './modules/audio-engine.js';
       applyUserSettings(DEFAULT_SETTINGS);
       renderTunerMeter(0);
       renderToolRecordings();
+      setToolRecordingVizIdle();
       renderChordExplorer();
       renderToolSongsSearch();
       showToolsHome();
@@ -2175,7 +2877,12 @@ import { AudioEngine } from './modules/audio-engine.js';
           updateToolRecordingUI(false);
           stopTrainingPlayback();
           stopPracticeDetection();
-          if (isPlaying) stopPlayback();
+          if (isPlaying) {
+            pausePracticePlayback(true);
+            practicePausedByBlur = true;
+          }
+        } else if (practicePausedByBlur && document.getElementById('view-practice')?.classList.contains('active')) {
+          showToast("Practice paused. Tap Continue to resume.", true);
         }
       });
       document.addEventListener('keydown', (event) => {
@@ -2183,6 +2890,9 @@ import { AudioEngine } from './modules/audio-engine.js';
         if (!document.getElementById('text-settings-modal')?.classList.contains('hidden')) return closeTextSettingsModal();
         if (!document.getElementById('rating-modal')?.classList.contains('hidden')) return closeRatingModal();
         if (document.getElementById('view-practice')?.classList.contains('active')) return stopAndExitPractice();
+      });
+      window.addEventListener('popstate', () => {
+        applyRouteFromLocation({ replaceUnknown: true }).catch(err => console.error('Popstate route failed', err));
       });
       initApp();
     };
