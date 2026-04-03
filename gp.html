@@ -375,7 +375,7 @@
         
         <div>
           <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Strumming Pattern</label>
-          <p class="text-[10px] text-gray-500 mb-2">Each beat has two slots: the beat and the <b>&amp;</b>. Tap a slot to cycle <b>Down</b>, <b>Up</b>, and <b>Rest</b>.</p>
+          <p class="text-[10px] text-gray-500 mb-2">Each beat has two slots: the beat and the <b>&amp;</b>. Tap a slot to cycle <b>Down</b>, <b>Up</b>, <b>Chuck</b>, and <b>Rest</b>.</p>
           <input type="hidden" id="add-strum-text">
           <div id="add-strum-editor" class="pattern-editor-grid"></div>
         </div>
@@ -501,6 +501,7 @@
     let lastSavedPercent = -1;
     let lastPlayedStrumIndex = -1;
     let practiceChordAudioEnabled = true;
+    let activeChordVoices = [];
     let activeTab = 'home';
     let metronomeTimer = null;
     let metronomeBeatIndex = 0;
@@ -787,7 +788,7 @@
       const cleanText = (strText || '').replace(/\s+/g, '').toUpperCase();
       return Array.from({ length: totalSlots }, (_, i) => {
         const char = cleanText[i] || '.';
-        return ['D', 'U', '.'].includes(char) ? char : '.';
+        return ['D', 'U', 'X', '.'].includes(char) ? char : '.';
       }).join('');
     }
 
@@ -799,7 +800,7 @@
       for(let i=0; i < totalSlots; i++) {
         const char = cleanText[i] || '.';
         const time = i * 0.5;
-        const type = char === 'D' ? '↓' : (char === 'U' ? '↑' : '.');
+        const type = char === 'D' ? '↓' : (char === 'U' ? '↑' : (char === 'X' ? 'x' : '.'));
         pattern.push({ time, type, raw: char });
       }
       return pattern;
@@ -814,7 +815,7 @@
         const leftIdx = beatIdx * 2;
         const rightIdx = leftIdx + 1;
         const buildCell = (char, idx) => {
-          const symbol = char === 'D' ? '↓' : (char === 'U' ? '↑' : '·');
+          const symbol = char === 'D' ? '↓' : (char === 'U' ? '↑' : (char === 'X' ? 'x' : '·'));
           return `
             <button type="button" onclick="${clickHandlerName}(${idx})" class="pattern-cell ${char !== '.' ? 'active' : ''}">
               <div class="pattern-action ${char === '.' ? 'rest opacity-40' : ''}">${symbol}</div>
@@ -842,7 +843,7 @@
             const leftIdx = beatIdx * 2;
             const rightIdx = leftIdx + 1;
             const buildCell = (char, idx) => {
-              const symbol = char === 'D' ? '↓' : (char === 'U' ? '↑' : '·');
+              const symbol = char === 'D' ? '↓' : (char === 'U' ? '↑' : (char === 'X' ? 'x' : '·'));
               return `<div class="pattern-cell ${idx === activeIndex ? 'active' : ''}">
                 <div class="pattern-action ${char === '.' ? 'rest' : ''}">${symbol}</div>
                 <div class="pattern-count">${getPatternCountLabel(idx)}</div>
@@ -984,6 +985,20 @@
       return audioCtx;
     }
 
+    function stopActiveChordPreview(release = 0.05) {
+      if (!audioCtx || !activeChordVoices.length) return;
+      const now = audioCtx.currentTime;
+      activeChordVoices.forEach(({ osc, gain }) => {
+        try {
+          gain.gain.cancelScheduledValues(now);
+          gain.gain.setValueAtTime(Math.max(gain.gain.value, 0.0001), now);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + release);
+          osc.stop(now + release + 0.02);
+        } catch {}
+      });
+      activeChordVoices = [];
+    }
+
     async function playChordPreview(chordName, direction = 'D') {
       const ctx = await ensureAudioReady();
       if (!ctx || !practiceChordAudioEnabled || !chordName) return;
@@ -991,19 +1006,23 @@
       if (!freqs.length) return;
       const now = ctx.currentTime;
       const ordered = direction === 'U' ? [...freqs].reverse() : freqs;
+      activeChordVoices = [];
       ordered.forEach((freq, idx) => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.type = idx === 0 ? 'triangle' : 'sine';
+        osc.type = idx === 0 ? 'triangle' : 'sawtooth';
         osc.frequency.value = freq;
         const offset = idx * 0.02;
         gain.gain.setValueAtTime(0.0001, now + offset);
-        gain.gain.linearRampToValueAtTime(0.18 / (idx + 1), now + offset + 0.015);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.38);
+        gain.gain.linearRampToValueAtTime(0.28 / (idx + 1), now + offset + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.08 / (idx + 1), now + offset + 0.18);
+        gain.gain.exponentialRampToValueAtTime(0.008 / (idx + 1), now + offset + 1.2);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 2.2);
         osc.connect(gain);
         gain.connect(ctx.destination);
         osc.start(now + offset);
-        osc.stop(now + offset + 0.4);
+        osc.stop(now + offset + 2.25);
+        activeChordVoices.push({ osc, gain });
       });
     }
 
@@ -1026,6 +1045,7 @@
 
     window.togglePracticeChordAudio = function() {
       practiceChordAudioEnabled = !practiceChordAudioEnabled;
+      if (!practiceChordAudioEnabled) stopActiveChordPreview(0.03);
       updatePracticeAudioButton();
     };
 
@@ -1227,7 +1247,7 @@
       const timeSignature = document.getElementById('add-time-sig').value || '4/4';
       const beatsPerBar = getBeatsPerBarFromSignature(timeSignature);
       const chars = normalizePatternText(document.getElementById('add-strum-text').value, beatsPerBar).split('');
-      const next = chars[index] === 'D' ? 'U' : (chars[index] === 'U' ? '.' : 'D');
+      const next = chars[index] === 'D' ? 'U' : (chars[index] === 'U' ? 'X' : (chars[index] === 'X' ? '.' : 'D'));
       chars[index] = next;
       document.getElementById('add-strum-text').value = chars.join('');
       syncAddPatternEditor();
@@ -1249,7 +1269,7 @@
       const beatsPerBar = getBeatsPerBarFromSignature(timeSignature);
       const holder = document.getElementById('training-pattern-editor');
       const chars = normalizePatternText(holder.dataset.pattern || '', beatsPerBar).split('');
-      chars[index] = chars[index] === 'D' ? 'U' : (chars[index] === 'U' ? '.' : 'D');
+      chars[index] = chars[index] === 'D' ? 'U' : (chars[index] === 'U' ? 'X' : (chars[index] === 'X' ? '.' : 'D'));
       holder.dataset.pattern = chars.join('');
       updateTrainingPatternEditor();
     };
@@ -1500,8 +1520,15 @@
       if (activeStrumIndex !== lastPlayedStrumIndex) {
         lastPlayedStrumIndex = activeStrumIndex;
         const activeStrum = activeStrumPattern[activeStrumIndex];
-        if (activeStrum && activeStrum.raw !== '.' && activeChord) {
-          playChordPreview(activeChord.chord, activeStrum.raw);
+        if (activeStrum) {
+          if (activeStrum.raw === '.') {
+            // Let the previous chord continue ringing naturally.
+          } else if (activeStrum.raw === 'X') {
+            stopActiveChordPreview(0.03);
+          } else if (activeChord) {
+            stopActiveChordPreview(0.03);
+            playChordPreview(activeChord.chord, activeStrum.raw);
+          }
         }
       }
 
@@ -1555,6 +1582,7 @@
       isPlaying = false;
       cancelAnimationFrame(animationId);
       lastPlayedStrumIndex = -1;
+      stopActiveChordPreview(0.03);
       
       const btn = document.getElementById('btn-play');
       btn.innerHTML = `<i class="fas fa-play mr-2"></i> Start`;
