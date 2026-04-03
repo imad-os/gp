@@ -1,477 +1,10 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>GuitarTrainer - Master Any Song</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <style>
-    :root {
-      --bg-color: #121212;
-      --surface: #1e1e1e;
-      --surface-light: #2c2c2c;
-      --primary: #bb86fc;
-      --active: #03dac6;
-      --danger: #cf6679;
-    }
-    body { background-color: var(--bg-color); color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
-    
-    .view { display: none; flex-direction: column; height: 100%; width: 100%; }
-    .view.active { display: flex; }
-
-    .scroll-area::-webkit-scrollbar { width: 6px; height: 6px; }
-    .scroll-area::-webkit-scrollbar-track { background: transparent; }
-    .scroll-area::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
-
-    .timeline-block { transition: background 0.2s ease, border-color 0.2s ease; border-left: 4px solid transparent; }
-    .timeline-block.active { background: rgba(3, 218, 198, 0.1); border-left-color: var(--active); }
-    .timeline-content { width: max-content; min-width: 100%; }
-    .timeline-pair { display: flex; flex-direction: column; align-items: flex-start; gap: 0.18rem; }
-    .timeline-line { margin: 0; padding: 0; display: block; white-space: pre; }
-    .timeline-line.chords { line-height: 1; }
-    .timeline-line.lyrics { line-height: 1.08; }
-    .timeline-block.compact-gap { height: 0.2rem; }
-    .timeline-block.tight-stack { margin-top: 0.26rem; }
-    .settings-card { background: rgba(20,20,20,0.72); border: 1px solid #2a2a2a; }
-
-    @media (max-width: 640px) {
-      .timeline-pair { transform-origin: left top; }
-      .timeline-pair { gap: 0.22rem; }
-      .timeline-line.lyrics { line-height: 1.12; }
-      .timeline-block.tight-stack { margin-top: 0.22rem; }
-    }
-    
-    .rhythm-step { transition: transform 0.1s ease; }
-    .strum-char { transition: all 0.1s; color: #555; }
-    .strum-char.active { color: var(--active); text-shadow: 0 0 10px rgba(3,218,198,0.5); transform: scale(1.2); }
-    
-    /* Removed margin-bottom and slightly increased size for better GuitarTuna style */
-    .metro-dot { width: 12px; height: 12px; border-radius: 50%; background: #333; transition: all 0.1s; }
-    .metro-dot.active { background: var(--active); transform: scale(1.4); box-shadow: 0 0 10px var(--active); }
-    .rhythm-track { width: min(100%, 34rem); margin: 0 auto; }
-
-    .btn-press:active { transform: scale(0.95); }
-    .text-primary { color: var(--primary); }
-    .bg-surface { background-color: var(--surface); }
-    .ios-tabbar {
-      background: rgba(24, 24, 24, 0.92);
-      backdrop-filter: blur(18px);
-      -webkit-backdrop-filter: blur(18px);
-      box-shadow: 0 -8px 30px rgba(0,0,0,0.35);
-    }
-    .tab-item.active { color: var(--primary); }
-    .tab-item.active .tab-pill { background: rgba(187,134,252,0.14); color: var(--primary); }
-    .meter-bar { transition: height 0.08s linear, opacity 0.08s linear; }
-    .pattern-editor-grid { display: grid; gap: 0.75rem; }
-    .pattern-group { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.25rem 0.35rem; align-items: start; }
-    .pattern-cell { background: rgba(0,0,0,0.28); border: 1px solid #343434; border-radius: 1rem; padding: 0.9rem 0.35rem 0.55rem; text-align: center; transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease; }
-    .pattern-cell:hover { border-color: #4c4c4c; }
-    .pattern-cell.active { border-color: var(--primary); box-shadow: 0 0 0 1px rgba(187,134,252,0.22), 0 10px 24px rgba(0,0,0,0.22); }
-    .pattern-action { font-size: 1.55rem; font-weight: 800; line-height: 1; }
-    .pattern-count { font-size: 0.68rem; color: #8b8b8b; margin-top: 0.5rem; letter-spacing: 0.12em; text-transform: uppercase; }
-    .pattern-pair-bracket { grid-column: 1 / -1; height: 0.8rem; position: relative; margin-top: -0.05rem; }
-    .pattern-pair-bracket::before, .pattern-pair-bracket::after { content: ""; position: absolute; bottom: 0; width: 1px; height: 0.6rem; background: #7c7c7c; }
-    .pattern-pair-bracket::before { left: 14%; }
-    .pattern-pair-bracket::after { right: 14%; }
-    .pattern-pair-bracket span { position: absolute; left: 14%; right: 14%; bottom: 0; height: 1px; background: #7c7c7c; }
-    .pattern-card { background: #121212; border: 1px solid #2f2f2f; border-radius: 1rem; padding: 0.75rem; }
-    .pattern-card .pattern-group { gap: 0.15rem 0.2rem; }
-    .pattern-card .pattern-cell { background: transparent; border-color: transparent; border-radius: 0.75rem; padding: 0.45rem 0.15rem; }
-    .pattern-card .pattern-cell.active { border-color: rgba(3,218,198,0.35); box-shadow: inset 0 0 0 1px rgba(3,218,198,0.18); }
-    .pattern-card .pattern-action { font-size: 1.35rem; }
-    .pattern-card .pattern-action.rest { opacity: 0.28; }
-    .pattern-card .pattern-count { margin-top: 0.38rem; font-size: 0.62rem; }
-    .chord-library-grid { display: flex; flex-wrap: wrap; gap: 0.55rem; align-items: flex-start; }
-    .chord-diagram-card { background: rgba(0,0,0,0.28); border: 1px solid #303030; border-radius: 0.9rem; padding: 0.45rem; }
-    .chord-diagram-card.large { padding: 0.65rem; max-width: 132px; margin: 0 auto; }
-    .chord-diagram-svg { width: 72px; height: auto; display: block; margin: 0 auto; }
-    .chord-diagram-card.large .chord-diagram-svg { width: 92px; }
-    .practice-chord-panel { background: linear-gradient(180deg, rgba(24,24,24,0.96), rgba(14,14,14,0.92)); border-bottom: 1px solid #2a2a2a; }
-    .practice-line-card { background: rgba(0,0,0,0.22); border: 1px solid #292929; border-radius: 1rem; padding: 0.9rem 1rem; min-height: 96px; }
-    .practice-line-stack { display: flex; flex-direction: column; gap: 0.7rem; }
-    .practice-line-preview { transition: opacity 0.15s ease, transform 0.15s ease; }
-    .practice-line-preview.secondary { opacity: 0.7; transform: scale(0.94); }
-    .practice-line-preview.current { opacity: 1; transform: scale(1); }
-  </style>
-</head>
-<body>
-  <svg aria-hidden="true" class="absolute w-0 h-0 overflow-hidden">
-    <defs>
-      <symbol id="chord-diagram-template" viewBox="0 0 120 150">
-        <rect x="18" y="28" width="84" height="96" rx="10" fill="none" stroke="#5a5a5a" stroke-width="2"/>
-        <line x1="34" y1="28" x2="34" y2="124" stroke="#6a6a6a" stroke-width="2"/>
-        <line x1="50" y1="28" x2="50" y2="124" stroke="#6a6a6a" stroke-width="2"/>
-        <line x1="66" y1="28" x2="66" y2="124" stroke="#6a6a6a" stroke-width="2"/>
-        <line x1="82" y1="28" x2="82" y2="124" stroke="#6a6a6a" stroke-width="2"/>
-        <line x1="98" y1="28" x2="98" y2="124" stroke="#6a6a6a" stroke-width="2"/>
-        <line x1="18" y1="47" x2="102" y2="47" stroke="#6a6a6a" stroke-width="2"/>
-        <line x1="18" y1="66" x2="102" y2="66" stroke="#6a6a6a" stroke-width="2"/>
-        <line x1="18" y1="85" x2="102" y2="85" stroke="#6a6a6a" stroke-width="2"/>
-        <line x1="18" y1="104" x2="102" y2="104" stroke="#6a6a6a" stroke-width="2"/>
-      </symbol>
-    </defs>
-  </svg>
-
-  <!-- Toast Notifications -->
-  <div id="toast-msg" class="fixed top-4 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-xl shadow-lg z-[100] transition-all duration-300 translate-y-[-150%] opacity-0 font-bold text-center w-11/12 max-w-sm pointer-events-none"></div>
-
-  <!-- VIEW: Auth (Login/Signup) -->
-  <div id="view-auth" class="view active items-center justify-center p-6 bg-[#121212] z-50">
-    <div class="w-full max-w-sm bg-surface p-8 rounded-2xl border border-gray-800 shadow-2xl">
-      <div class="text-center mb-8">
-        <i class="fas fa-guitar text-5xl text-primary mb-4"></i>
-        <h1 class="text-2xl font-bold">GuitarTrainer</h1>
-        <p class="text-gray-400 mt-2 text-sm">Login or practice as a guest</p>
-      </div>
-      
-      <div class="space-y-4 mb-6">
-        <input type="email" id="email-input" placeholder="Email Address" class="w-full bg-black/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary transition-colors">
-        <input type="password" id="password-input" placeholder="Password" class="w-full bg-black/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-primary transition-colors">
-      </div>
-
-      <div class="space-y-3">
-        <button onclick="handleLogin()" class="w-full bg-primary text-black font-bold py-3 rounded-xl btn-press">
-          Login
-        </button>
-        <button onclick="handleSignup()" class="w-full bg-surface-light border border-gray-700 text-white font-bold py-3 rounded-xl btn-press">
-          Create Account
-        </button>
-      </div>
-      
-      <div class="mt-8 text-center">
-        <button onclick="handleGuest()" class="text-gray-500 text-sm hover:text-white transition-colors underline">
-          Continue as Guest
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Loading Overlay -->
-  <div id="loading-overlay" class="absolute inset-0 bg-[#121212] z-[60] flex-col items-center justify-center hidden">
-    <i class="fas fa-circle-notch fa-spin text-4xl text-primary mb-4"></i>
-    <p id="loading-text" class="text-gray-400 font-mono text-sm tracking-widest uppercase">Connecting...</p>
-  </div>
-
-  <!-- VIEW 1: Home (Song List) -->
-  <div id="view-home" class="view">
-    <header class="bg-surface p-4 border-b border-gray-800 flex justify-between items-center shadow-md">
-      <h1 class="text-xl font-bold text-primary flex items-center gap-2">
-        <i class="fas fa-guitar"></i> Trainer
-      </h1>
-      <div class="flex items-center gap-3">
-        <span id="display-username" class="text-xs text-gray-500 max-w-[100px] truncate"></span>
-        <button onclick="handleLogout()" id="btn-logout" class="text-gray-400 hover:text-danger transition-colors" title="Logout">
-          <i class="fas fa-sign-out-alt"></i>
-        </button>
-      </div>
-    </header>
-    <main class="flex-1 overflow-y-auto p-4 pb-28 scroll-area">
-      <div class="flex justify-between items-center mb-4">
-        <h2 class="text-lg text-gray-400 font-semibold uppercase tracking-wider">Library</h2>
-      </div>
-      <div id="song-list" class="space-y-4"></div>
-    </main>
-    <button id="btn-add-song" onclick="openAddSong()" class="fixed bottom-24 right-6 w-14 h-14 bg-primary text-black rounded-full shadow-[0_0_15px_rgba(187,134,252,0.3)] flex items-center justify-center text-2xl btn-press z-10 transition-transform hidden">
-      <i class="fas fa-plus"></i>
-    </button>
-  </div>
-
-  <div id="view-training" class="view">
-    <header class="bg-surface p-4 border-b border-gray-800 shadow-md">
-      <h1 class="text-xl font-bold text-primary flex items-center gap-2">
-        <i class="fas fa-dumbbell"></i> Training
-      </h1>
-      <p class="text-xs text-gray-500 mt-1">Build consistency with daily practice blocks and focused drills.</p>
-    </header>
-    <main class="flex-1 overflow-y-auto p-4 pb-28 scroll-area bg-black/20">
-      <div class="grid gap-4">
-        <div class="bg-surface rounded-2xl p-5 border border-gray-800">
-          <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-2">Dailies</p>
-          <h2 class="text-lg font-bold mb-2">Warm up every day</h2>
-          <p class="text-sm text-gray-400 mb-4">A simple hub for daily routines is ready here, so we can plug in your streaks and short exercises next.</p>
-          <div class="grid grid-cols-3 gap-3 text-center">
-            <div class="bg-black/30 rounded-xl p-3 border border-gray-800"><p class="text-primary font-bold">5m</p><p class="text-[10px] text-gray-500 mt-1">Stretch</p></div>
-            <div class="bg-black/30 rounded-xl p-3 border border-gray-800"><p class="text-primary font-bold">8m</p><p class="text-[10px] text-gray-500 mt-1">Timing</p></div>
-            <div class="bg-black/30 rounded-xl p-3 border border-gray-800"><p class="text-primary font-bold">10m</p><p class="text-[10px] text-gray-500 mt-1">Chord Flow</p></div>
-          </div>
-        </div>
-        <div class="bg-surface rounded-2xl p-5 border border-gray-800">
-          <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-2">Training</p>
-          <h2 class="text-lg font-bold mb-2">Focused practice tracks</h2>
-          <div class="space-y-3">
-            <div class="bg-black/30 rounded-xl p-4 border border-gray-800">
-              <p class="font-semibold">Right-hand control</p>
-              <p class="text-sm text-gray-400 mt-1">Mute strums, accents, and subdivision control.</p>
-            </div>
-            <div class="bg-black/30 rounded-xl p-4 border border-gray-800">
-              <p class="font-semibold">Chord switching</p>
-              <p class="text-sm text-gray-400 mt-1">Smooth transitions under tempo pressure.</p>
-            </div>
-          </div>
-        </div>
-        <div class="bg-surface rounded-2xl p-5 border border-gray-800">
-          <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-2">New Training</p>
-          <h2 class="text-lg font-bold mb-2">Strumming Pattern</h2>
-          <div class="grid sm:grid-cols-2 gap-3 mb-4">
-            <label class="bg-black/30 rounded-xl border border-gray-800 p-4 text-left">
-              <span class="text-[10px] uppercase tracking-[0.25em] text-gray-500 block mb-2">Time Signature</span>
-              <select id="training-time-sig" onchange="updateTrainingPatternEditor()" class="w-full bg-transparent text-white outline-none">
-                <option value="2/4">2/4</option>
-                <option value="3/4">3/4</option>
-                <option value="4/4" selected>4/4</option>
-                <option value="6/8">6/8</option>
-              </select>
-            </label>
-            <label class="bg-black/30 rounded-xl border border-gray-800 p-4 text-left">
-              <span class="text-[10px] uppercase tracking-[0.25em] text-gray-500 block mb-2">BPM</span>
-              <input id="training-bpm" type="number" min="40" max="240" value="126" oninput="renderTrainingPatternPreview()" class="w-full bg-transparent text-white outline-none">
-            </label>
-          </div>
-          <div id="training-pattern-editor" class="pattern-editor-grid mb-4"></div>
-          <div class="pattern-card mb-4">
-            <div class="flex items-center justify-between mb-3 text-sm text-gray-400">
-              <span id="training-title">Chorus 126 bpm</span>
-              <span id="training-status" class="text-xs uppercase tracking-[0.25em] text-gray-500">Idle</span>
-            </div>
-            <div id="training-pattern-viz"></div>
-          </div>
-          <button id="btn-training-toggle" onclick="toggleTrainingPlayback()" class="bg-primary text-black font-bold py-3 px-8 rounded-full btn-press shadow-[0_0_20px_rgba(187,134,252,0.35)]">
-            <i class="fas fa-play mr-2"></i> Start Training
-          </button>
-        </div>
-      </div>
-    </main>
-  </div>
-
-  <div id="view-tuner" class="view">
-    <header class="bg-surface p-4 border-b border-gray-800 shadow-md">
-      <h1 class="text-xl font-bold text-primary flex items-center gap-2">
-        <i class="fas fa-microphone"></i> Tuner
-      </h1>
-      <p class="text-xs text-gray-500 mt-1">Use your microphone to tune standard guitar strings.</p>
-    </header>
-    <main class="flex-1 overflow-y-auto p-4 pb-28 scroll-area bg-black/20">
-      <div class="max-w-xl mx-auto space-y-4">
-        <div class="bg-surface rounded-2xl p-5 border border-gray-800 text-center">
-          <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-2">Detected Note</p>
-          <p id="tuner-note" class="text-6xl font-black text-primary">--</p>
-          <p id="tuner-frequency" class="text-sm text-gray-400 mt-2">Allow microphone access to start tuning.</p>
-          <p id="tuner-status" class="text-xs text-gray-500 mt-3">Idle</p>
-          <div class="mt-5">
-            <button id="btn-tuner-toggle" onclick="toggleTuner()" class="bg-primary text-black font-bold py-3 px-8 rounded-full btn-press shadow-[0_0_20px_rgba(187,134,252,0.35)]">
-              <i class="fas fa-microphone mr-2"></i> Start Tuner
-            </button>
-          </div>
-        </div>
-        <div class="bg-surface rounded-2xl p-5 border border-gray-800">
-          <div class="flex justify-between text-xs text-gray-500 mb-2">
-            <span>Flat</span>
-            <span>In Tune</span>
-            <span>Sharp</span>
-          </div>
-          <div class="relative h-20 flex items-end justify-center gap-1" id="tuner-meter"></div>
-          <div class="mt-4 grid grid-cols-3 sm:grid-cols-6 gap-2 text-center text-xs">
-            <div class="bg-black/30 border border-gray-800 rounded-xl py-3"><p class="text-primary font-bold">E2</p><p class="text-gray-500 mt-1">82.41</p></div>
-            <div class="bg-black/30 border border-gray-800 rounded-xl py-3"><p class="text-primary font-bold">A2</p><p class="text-gray-500 mt-1">110.00</p></div>
-            <div class="bg-black/30 border border-gray-800 rounded-xl py-3"><p class="text-primary font-bold">D3</p><p class="text-gray-500 mt-1">146.83</p></div>
-            <div class="bg-black/30 border border-gray-800 rounded-xl py-3"><p class="text-primary font-bold">G3</p><p class="text-gray-500 mt-1">196.00</p></div>
-            <div class="bg-black/30 border border-gray-800 rounded-xl py-3"><p class="text-primary font-bold">B3</p><p class="text-gray-500 mt-1">246.94</p></div>
-            <div class="bg-black/30 border border-gray-800 rounded-xl py-3"><p class="text-primary font-bold">E4</p><p class="text-gray-500 mt-1">329.63</p></div>
-          </div>
-        </div>
-      </div>
-    </main>
-  </div>
-
-  <div id="view-metronome" class="view">
-    <header class="bg-surface p-4 border-b border-gray-800 shadow-md">
-      <h1 class="text-xl font-bold text-primary flex items-center gap-2">
-        <i class="fas fa-wave-square"></i> Metronome
-      </h1>
-      <p class="text-xs text-gray-500 mt-1">Control tempo and accents by beat size.</p>
-    </header>
-    <main class="flex-1 overflow-y-auto p-4 pb-28 scroll-area bg-black/20">
-      <div class="max-w-xl mx-auto space-y-4">
-        <div class="bg-surface rounded-2xl p-5 border border-gray-800 text-center">
-          <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-2">Tempo</p>
-          <p id="metro-bpm-label" class="text-5xl font-black text-primary">100</p>
-          <p class="text-sm text-gray-400">beats per minute</p>
-          <input id="metro-bpm" type="range" min="40" max="240" value="100" oninput="updateMetronomeSettings()" class="w-full mt-5 accent-[#bb86fc]">
-          <div class="grid grid-cols-1 gap-4 mt-5">
-            <label class="bg-black/30 rounded-xl border border-gray-800 p-4 text-left">
-              <span class="text-[10px] uppercase tracking-[0.25em] text-gray-500 block mb-2">Beat Size</span>
-              <select id="metro-beats" onchange="updateMetronomeSettings()" class="w-full bg-transparent text-white outline-none">
-                <option value="2">2/4</option>
-                <option value="3">3/4</option>
-                <option value="4" selected>4/4</option>
-                <option value="6">6/8</option>
-              </select>
-            </label>
-          </div>
-          <div id="metro-visual" class="flex justify-center gap-3 mt-6"></div>
-          <button id="btn-metro-toggle" onclick="toggleStandaloneMetronome()" class="mt-6 bg-primary text-black font-bold py-3 px-8 rounded-full btn-press shadow-[0_0_20px_rgba(187,134,252,0.35)]">
-            <i class="fas fa-play mr-2"></i> Start Metronome
-          </button>
-        </div>
-      </div>
-    </main>
-  </div>
-
-  <div id="view-settings" class="view">
-    <header class="bg-surface p-4 border-b border-gray-800 shadow-md">
-      <h1 class="text-xl font-bold text-primary flex items-center gap-2">
-        <i class="fas fa-gear"></i> Settings
-      </h1>
-      <p class="text-xs text-gray-500 mt-1">Your practice preferences are saved to your account.</p>
-    </header>
-    <main class="flex-1 overflow-y-auto p-4 pb-28 scroll-area bg-black/20">
-      <div class="max-w-xl mx-auto space-y-4">
-        <div class="settings-card rounded-2xl p-5">
-          <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-3">Practice Text</p>
-          <div class="flex items-center justify-between gap-3 mb-3">
-            <div>
-              <h2 class="font-bold">Lyrics and chord size</h2>
-              <p class="text-sm text-gray-400">Used in the practice screen and text-size modal.</p>
-            </div>
-            <span id="settings-text-size-label" class="text-primary font-bold text-sm">14 px</span>
-          </div>
-          <input id="settings-text-size" type="range" min="11" max="24" value="14" oninput="previewTextSize(this.value)" class="w-full accent-[#bb86fc]">
-          <button onclick="saveSettings()" class="mt-4 bg-primary text-black font-bold py-3 px-6 rounded-full btn-press shadow-[0_0_20px_rgba(187,134,252,0.35)]">
-            <i class="fas fa-save mr-2"></i> Save Settings
-          </button>
-        </div>
-      </div>
-    </main>
-  </div>
-
-  <!-- VIEW: Add / Edit Song -->
-  <div id="view-add-song" class="view">
-    <header class="bg-surface p-4 border-b border-gray-800 flex items-center shadow-md">
-      <button onclick="closeAddEdit()" class="mr-4 text-gray-400 btn-press"><i class="fas fa-arrow-left text-xl"></i></button>
-      <h1 id="add-view-title" class="text-xl font-bold">New Song</h1>
-    </header>
-    <main class="flex-1 overflow-y-auto p-6 scroll-area bg-black/20">
-      <div class="space-y-5 max-w-lg mx-auto pb-10">
-        <input type="text" id="add-title" placeholder="Song Title" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 focus:border-primary focus:outline-none">
-        <input type="text" id="add-artist" placeholder="Artist" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 focus:border-primary focus:outline-none">
-        
-        <div class="flex gap-4">
-          <input type="number" id="add-bpm" placeholder="Default BPM (e.g., 80)" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 focus:border-primary focus:outline-none">
-          <select id="add-time-sig" onchange="syncAddPatternEditor()" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 focus:border-primary focus:outline-none text-white">
-            <option value="4/4">4/4 Time</option>
-            <option value="3/4">3/4 Time</option>
-            <option value="2/4">2/4 Time</option>
-            <option value="6/8">6/8 Time</option>
-          </select>
-        </div>
-        <select id="add-capo" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 focus:border-primary focus:outline-none text-white"></select>
-        
-        <div>
-          <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Chords & Lyrics</label>
-          <p class="text-[10px] text-gray-500 mb-2">Write chords above the lyrics using spaces to align them.</p>
-          <textarea id="add-chords-text" rows="8" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 text-sm font-mono whitespace-pre overflow-x-auto leading-relaxed focus:border-primary focus:outline-none" placeholder="C                                            G&#10;halit 3ayniii , fwest mdina kbiraaaa&#10;&#10;Am                                           E&#10;trouh taaya , wa twali..."></textarea>
-        </div>
-        
-        <div>
-          <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Strumming Pattern</label>
-          <p class="text-[10px] text-gray-500 mb-2">Each beat has two slots: the beat and the <b>&amp;</b>. Tap a slot to cycle <b>Down</b>, <b>Up</b>, <b>Chuck</b>, and <b>Rest</b>.</p>
-          <input type="hidden" id="add-strum-text">
-          <div id="add-strum-editor" class="pattern-editor-grid"></div>
-        </div>
-
-        <button id="btn-save-song" onclick="saveSong()" class="w-full bg-active text-black font-bold py-4 rounded-xl mt-4 btn-press shadow-[0_0_15px_rgba(3,218,198,0.2)]">
-          <i class="fas fa-save mr-2"></i> Save to Library
-        </button>
-      </div>
-    </main>
-  </div>
-
-  <!-- VIEW 2: Song Details -->
-  <div id="view-details" class="view">
-    <header class="bg-surface p-4 border-b border-gray-800 flex items-center justify-between">
-      <div class="flex items-center">
-        <button onclick="navigate('home')" class="mr-4 text-gray-400 btn-press"><i class="fas fa-arrow-left text-xl"></i></button>
-        <div><h1 id="detail-title" class="text-xl font-bold"></h1><p id="detail-artist" class="text-sm text-gray-400"></p></div>
-      </div>
-      <button id="btn-edit-song" onclick="editCurrentSong()" class="text-gray-400 hover:text-white hidden transition-colors p-2" title="Edit Song"><i class="fas fa-edit text-xl"></i></button>
-    </header>
-    <main class="flex-1 overflow-y-auto p-4 scroll-area">
-      <div class="bg-surface rounded-xl p-5 mb-6 border border-gray-800 shadow-xl">
-        <div class="flex justify-between mb-4">
-          <div><p class="text-[10px] text-gray-500 uppercase">Transcriber</p><p id="detail-posted" class="text-sm truncate max-w-[120px]"></p></div>
-          <div class="text-right">
-            <p class="text-[10px] text-gray-500 uppercase">Target BPM, Time & Capo</p>
-            <p class="text-sm font-bold text-primary"><span id="detail-bpm"></span> <span class="text-gray-500 text-xs font-normal" id="detail-time-sig"></span> <span class="text-gray-500 text-xs font-normal" id="detail-capo"></span></p>
-          </div>
-        </div>
-        <div class="mb-4">
-          <p class="text-[10px] text-gray-500 uppercase mb-2">Strumming Pattern</p>
-          <div id="detail-strum-viz" class="pattern-card"></div>
-        </div>
-        <div>
-          <p class="text-[10px] text-gray-500 uppercase mb-2">Chords Found</p>
-          <div id="detail-chords" class="flex flex-wrap gap-2"></div>
-        </div>
-      </div>
-      <div class="space-y-3" id="practice-steps-container"></div>
-    </main>
-  </div>
-
-  <!-- VIEW 3: Practice -->
-  <div id="view-practice" class="view">
-    <header class="bg-surface p-4 border-b border-gray-800 flex justify-between items-center z-20">
-      <button onclick="stopAndExitPractice()" class="text-gray-400 btn-press"><i class="fas fa-times text-xl"></i></button>
-      <div class="text-center">
-        <p id="practice-step-label" class="text-[10px] text-primary font-bold uppercase tracking-widest"></p>
-        <p id="practice-title" class="text-sm font-medium"></p>
-      </div>
-      <div class="flex items-center gap-2">
-        <button id="btn-practice-audio" onclick="togglePracticeChordAudio()" class="w-9 h-9 rounded-lg bg-primary/20 border border-primary/40 text-primary btn-press" title="Chord Audio">
-          <i class="fas fa-volume-up text-sm"></i>
-        </button>
-        <button onclick="openTextSettingsModal()" class="w-9 h-9 rounded-lg bg-black/40 border border-gray-700 text-gray-300 btn-press" title="Text Settings">
-          <i class="fas fa-text-height text-sm"></i>
-        </button>
-        <input type="number" id="practice-bpm" class="w-14 bg-black/50 text-white rounded text-center border border-gray-700 focus:border-primary focus:outline-none py-1">
-      </div>
-    </header>
-
-    <div class="h-1 bg-gray-800 w-full"><div id="practice-progress-bar" class="h-full bg-active w-0 transition-all duration-300 shadow-[0_0_10px_rgba(3,218,198,0.8)]"></div></div>
-
-    <div id="practice-current-chord-panel" class="hidden practice-chord-panel p-4">
-      <div class="max-w-md mx-auto">
-        <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-2 text-center">Current Chord</p>
-        <div id="practice-current-chord"></div>
-        <div id="practice-current-line" class="practice-line-card mt-4 font-mono"></div>
-      </div>
-    </div>
-
-    <main id="practice-timeline" class="flex-1 overflow-auto scroll-area relative pb-40 p-2 sm:p-4 bg-black/20"></main>
-    
-    <div id="step2-focus" class="hidden flex-1 flex-col items-center justify-center p-8 text-center">
-      <i class="fas fa-drum text-6xl text-gray-700 mb-6 drop-shadow-lg"></i>
-      <h2 class="text-2xl font-bold mb-2">Rhythm Training</h2>
-      <p class="text-gray-400 max-w-[250px]">Ignore the lyrics and chords. Focus strictly on mastering the right hand strumming timing.</p>
-    </div>
-
-    <footer class="bg-surface border-t border-gray-800 p-4 pb-8 absolute bottom-0 w-full z-20 shadow-[0_-10px_30px_rgba(0,0,0,0.5)]">
-      <!-- Decoupled Rhythm Visualizer: Separate dots and strumming layers -->
-      <div id="practice-rhythm-viz" class="pattern-card mb-6">
-        <!-- Generated Dynamically -->
-      </div>
-      <div class="flex justify-center">
-        <button id="btn-play" onclick="togglePlay()" class="bg-primary text-black font-bold py-4 px-16 rounded-full text-lg btn-press shadow-[0_0_20px_rgba(187,134,252,0.4)]">
-          <i class="fas fa-play mr-2"></i> Start
-        </button>
-      </div>
-    </footer>
-  </div>
-
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, collection, getDocs, doc, setDoc, getDoc, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+import { getFirestore } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import * as Music from './modules/music.js';
+import * as UI from './modules/renderers.js';
+import { FirestoreRepository } from './modules/repository.js';
+import { AudioEngine } from './modules/audio-engine.js';
 
     const appId = typeof __app_id !== 'undefined' ? __app_id : "1:282086325190:web:b3ec1bca510460e87a50c7";
     const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
@@ -483,7 +16,7 @@
       appId: "1:282086325190:web:b3ec1bca510460e87a50c7"
     };
     
-    let app, auth, db, user;
+    let app, auth, db, user, repository;
     let songs = [];
     let currentSong = null;
     let userProgress = {};
@@ -512,8 +45,16 @@
     let trainingTimer = null;
     let trainingBeatIndex = 0;
     const METRONOME_STORAGE_KEY = 'guitartrainer.metronome.settings';
-    const DEFAULT_SETTINGS = { practiceTextSize: 14 };
+    const DEFAULT_SETTINGS = { practiceTextSize: 14, enableStrumDetection: false, enableChordDetection: false };
     let userSettings = { ...DEFAULT_SETTINGS };
+    let practiceStream = null;
+    let practiceAnalyser = null;
+    let practiceSource = null;
+    let practiceValidationStates = [];
+    let lastPracticeTransientTime = 0;
+    let lastPracticeRms = 0;
+    let lastChordValidationState = null;
+    const audioEngine = new AudioEngine();
 
     const CAPO_OPTIONS = ["No capo", "1st fret", "2nd fret", "3rd fret", "4th fret", "5th fret", "6th fret", "7th fret", "8th fret", "9th fret", "10th fret", "11th fret", "12th fret"];
     const TAB_VIEWS = new Set(['home', 'training', 'tuner', 'metronome', 'settings']);
@@ -716,6 +257,7 @@
         app = initializeApp(firebaseConfig);
         auth = getAuth(app);
         db = getFirestore(app);
+        repository = new FirestoreRepository(db);
 
         const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
         if (token) {
@@ -755,14 +297,7 @@
 
     async function loadSongs() {
       try {
-        const songsRef = collection(db, 'songs');
-        const snap = await getDocs(songsRef);
-        if (snap.empty) {
-          await setDoc(doc(songsRef, 'default_song'), MOCK_SONG);
-          songs = [ensureSongFormat({ id: 'default_song', ...MOCK_SONG })];
-        } else {
-          songs = snap.docs.map(d => ensureSongFormat({ id: d.id, ...d.data() }));
-        }
+        songs = await repository.loadSongs({ defaultSong: MOCK_SONG, ensureSongFormat });
         renderHomeList();
       } catch(e) {
         console.error("Failed to load songs", e);
@@ -833,7 +368,7 @@
       }).join('');
     }
 
-    function renderPatternVisualizer(containerId, pattern, beatsPerBar, activeIndex = -1) {
+    function renderPatternVisualizer(containerId, pattern, beatsPerBar, activeIndex = -1, validationStates = []) {
       const container = document.getElementById(containerId);
       if (!container) return;
       const normalized = normalizePatternText(pattern.map(s => s.raw || '.').join(''), beatsPerBar);
@@ -844,7 +379,8 @@
             const rightIdx = leftIdx + 1;
             const buildCell = (char, idx) => {
               const symbol = char === 'D' ? '↓' : (char === 'U' ? '↑' : (char === 'X' ? 'x' : '·'));
-              return `<div class="pattern-cell ${idx === activeIndex ? 'active' : ''}">
+              const validationClass = validationStates[idx] === 'success' ? 'success' : (validationStates[idx] === 'fail' ? 'fail' : '');
+              return `<div class="pattern-cell ${idx === activeIndex ? 'active' : ''} ${validationClass}">
                 <div class="pattern-action ${char === '.' ? 'rest' : ''}">${symbol}</div>
                 <div class="pattern-count">${getPatternCountLabel(idx)}</div>
               </div>`;
@@ -1049,6 +585,141 @@
       updatePracticeAudioButton();
     };
 
+    async function startPracticeDetection() {
+      if (!(userSettings.enableStrumDetection || userSettings.enableChordDetection)) return;
+      try {
+        stopTuner();
+        if (!audioCtx) await ensureAudioReady();
+        practiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        practiceAnalyser = audioCtx.createAnalyser();
+        practiceAnalyser.fftSize = 2048;
+        practiceSource = audioCtx.createMediaStreamSource(practiceStream);
+        practiceSource.connect(practiceAnalyser);
+      } catch (e) {
+        console.error(e);
+        showToast("Microphone access is needed for practice detection.");
+      }
+    }
+
+    function stopPracticeDetection() {
+      if (practiceSource) {
+        try { practiceSource.disconnect(); } catch {}
+        practiceSource = null;
+      }
+      if (practiceStream) {
+        practiceStream.getTracks().forEach(track => track.stop());
+        practiceStream = null;
+      }
+      practiceAnalyser = null;
+      practiceValidationStates = [];
+      lastPracticeTransientTime = 0;
+      lastPracticeRms = 0;
+      lastChordValidationState = null;
+    }
+
+    function chordToPitchClasses(chordName, capoOffset = 0) {
+      const match = String(chordName || '').trim().match(/^([A-G][#b]?)(.*)$/);
+      if (!match) return [];
+      const baseRoot = transposeNoteName(match[1], capoOffset);
+      const quality = (match[2] || '').toLowerCase();
+      const rootIndex = NOTE_INDEX[baseRoot];
+      if (rootIndex === undefined) return [];
+      let intervals = [0, 4, 7];
+      if (/dim/.test(quality)) intervals = [0, 3, 6];
+      else if (/aug/.test(quality)) intervals = [0, 4, 8];
+      else if (/sus2/.test(quality)) intervals = [0, 2, 7];
+      else if (/sus4|sus/.test(quality)) intervals = [0, 5, 7];
+      else if (/m(?!aj)/.test(quality) || /min/.test(quality)) intervals = [0, 3, 7];
+      if (/7/.test(quality) && !/maj7/.test(quality)) intervals.push(10);
+      if (/maj7/.test(quality)) intervals.push(11);
+      return [...new Set(intervals.map(interval => (rootIndex + interval) % 12))];
+    }
+
+    function estimatePitchClassesFromMic() {
+      if (!practiceAnalyser || !audioCtx) return [];
+      const freqData = new Float32Array(practiceAnalyser.frequencyBinCount);
+      practiceAnalyser.getFloatFrequencyData(freqData);
+      const sampleRate = audioCtx.sampleRate;
+      const binWidth = sampleRate / practiceAnalyser.fftSize;
+      const peaks = [];
+      for (let i = 5; i < freqData.length; i++) {
+        const db = freqData[i];
+        const freq = i * binWidth;
+        if (db < -78 || freq < 70 || freq > 1200) continue;
+        peaks.push({ db, freq });
+      }
+      peaks.sort((a, b) => b.db - a.db);
+      return [...new Set(peaks.slice(0, 8).map(p => Math.round(69 + 12 * Math.log2(p.freq / 440)) % 12).map(v => (v + 12) % 12))];
+    }
+
+    function validateChordLoosely(chordName) {
+      const expected = chordToPitchClasses(chordName, getCapoOffset(currentSong?.capo || 'No capo'));
+      const heard = estimatePitchClassesFromMic();
+      if (!expected.length || !heard.length) return null;
+      const matches = expected.filter(pc => heard.includes(pc)).length;
+      return matches >= Math.max(2, Math.ceil(expected.length / 2));
+    }
+
+    function updateActiveChordValidationClass(result) {
+      const active = document.querySelector('.text-active');
+      if (!active) return;
+      active.classList.remove('validation-soft-green', 'validation-soft-red');
+      if (result === true) active.classList.add('validation-soft-green');
+      if (result === false) active.classList.add('validation-soft-red');
+    }
+
+    function detectPracticeTransient() {
+      if (!practiceAnalyser || !audioCtx) return false;
+      const buffer = new Float32Array(1024);
+      practiceAnalyser.getFloatTimeDomainData(buffer);
+      let rms = 0;
+      let peak = 0;
+      for (let i = 0; i < buffer.length; i++) {
+        const v = Math.abs(buffer[i]);
+        rms += buffer[i] * buffer[i];
+        if (v > peak) peak = v;
+      }
+      rms = Math.sqrt(rms / buffer.length);
+      const now = audioCtx.currentTime;
+      const isTransient = peak > 0.22 && rms > 0.035 && (rms - lastPracticeRms) > 0.012 && (now - lastPracticeTransientTime) > 0.12;
+      lastPracticeRms = rms;
+      if (isTransient) {
+        lastPracticeTransientTime = now;
+        return true;
+      }
+      return false;
+    }
+
+    function updatePracticeValidation(beat, activeChord) {
+      if (!(userSettings.enableStrumDetection || userSettings.enableChordDetection)) return;
+      const tolerance = 0.22;
+      activeStrumPattern.forEach((slot, idx) => {
+        if (slot.raw === '.' || practiceValidationStates[idx]) return;
+        if (beat > slot.time + tolerance) practiceValidationStates[idx] = 'fail';
+      });
+
+      if (!detectPracticeTransient()) return;
+
+      let matchIndex = -1;
+      let bestDistance = Infinity;
+      activeStrumPattern.forEach((slot, idx) => {
+        if (slot.raw === '.' || practiceValidationStates[idx] === 'success') return;
+        const dist = Math.abs(beat - slot.time);
+        if (dist <= tolerance && dist < bestDistance) {
+          bestDistance = dist;
+          matchIndex = idx;
+        }
+      });
+
+      if (matchIndex >= 0 && userSettings.enableStrumDetection) {
+        practiceValidationStates[matchIndex] = 'success';
+      }
+
+      if (matchIndex >= 0 && userSettings.enableChordDetection && activeChord && activeStrumPattern[matchIndex]?.raw !== 'X' && currentStepMode !== 2) {
+        lastChordValidationState = validateChordLoosely(activeChord.chord);
+      }
+    }
+
     window.openAddSong = function() {
       editingSongId = null;
       document.getElementById('add-view-title').innerText = "New Song";
@@ -1119,14 +790,8 @@
 
         showLoading(true, "Syncing with Cloud...");
         
-        if (editingSongId) {
-            const songRef = doc(db, 'songs', editingSongId);
-            await setDoc(songRef, newSongData, { merge: true });
-            showToast("Song updated successfully!", true);
-        } else {
-            await addDoc(collection(db, 'songs'), newSongData);
-            showToast("Song added successfully!", true);
-        }
+        await repository.saveSong(newSongData, editingSongId);
+        showToast(editingSongId ? "Song updated successfully!" : "Song added successfully!", true);
         
         await loadSongs();
         
@@ -1160,9 +825,7 @@
         return;
       }
       try {
-        const settingsRef = doc(db, 'users', user.uid, 'settings', 'app');
-        const snap = await getDoc(settingsRef);
-        userSettings = snap.exists() ? { ...DEFAULT_SETTINGS, ...snap.data() } : { ...DEFAULT_SETTINGS };
+        userSettings = await repository.loadUserSettings(user.uid, DEFAULT_SETTINGS);
       } catch (e) {
         console.error("Could not load settings", e);
         userSettings = { ...DEFAULT_SETTINGS };
@@ -1183,6 +846,10 @@
       if (modalSlider) modalSlider.value = size;
       if (settingsLabel) settingsLabel.innerText = `${size} px`;
       if (modalLabel) modalLabel.innerText = `${size} px`;
+      const strumToggle = document.getElementById('settings-strum-detection');
+      const chordToggle = document.getElementById('settings-chord-detection');
+      if (strumToggle) strumToggle.checked = !!userSettings.enableStrumDetection;
+      if (chordToggle) chordToggle.checked = !!userSettings.enableChordDetection;
     }
 
     window.previewTextSize = function(value, fromModal = false) {
@@ -1212,7 +879,12 @@
     window.saveSettings = async function(source = 'page') {
       const sliderId = source === 'modal' ? 'modal-text-size' : 'settings-text-size';
       const size = parseInt(document.getElementById(sliderId).value, 10) || DEFAULT_SETTINGS.practiceTextSize;
-      const nextSettings = { ...userSettings, practiceTextSize: size };
+      const nextSettings = {
+        ...userSettings,
+        practiceTextSize: size,
+        enableStrumDetection: !!document.getElementById('settings-strum-detection')?.checked,
+        enableChordDetection: !!document.getElementById('settings-chord-detection')?.checked
+      };
       applyUserSettings(nextSettings);
       if (!user || user.isAnonymous) {
         showToast("Create an account to save settings to Firebase.");
@@ -1220,8 +892,7 @@
         return;
       }
       try {
-        const settingsRef = doc(db, 'users', user.uid, 'settings', 'app');
-        await setDoc(settingsRef, nextSettings, { merge: true });
+        await repository.saveUserSettings(user.uid, nextSettings);
         userSettings = nextSettings;
         showToast("Settings saved.", true);
         if (source === 'modal') closeTextSettingsModal();
@@ -1240,7 +911,7 @@
       const beatsPerBar = getBeatsPerBarFromSignature(timeSignature);
       const hiddenInput = document.getElementById('add-strum-text');
       hiddenInput.value = normalizePatternText(hiddenInput.value, beatsPerBar);
-      buildPatternEditor('add-strum-editor', hiddenInput.value, beatsPerBar, 'cycleAddPatternBeat');
+      UI.buildPatternEditor('add-strum-editor', hiddenInput.value, beatsPerBar, 'cycleAddPatternBeat');
     }
 
     window.cycleAddPatternBeat = function(index) {
@@ -1260,7 +931,7 @@
       const current = holder.dataset.pattern || '';
       const normalized = normalizePatternText(current, beatsPerBar);
       holder.dataset.pattern = normalized;
-      buildPatternEditor('training-pattern-editor', normalized, beatsPerBar, 'cycleTrainingPatternBeat');
+      UI.buildPatternEditor('training-pattern-editor', normalized, beatsPerBar, 'cycleTrainingPatternBeat');
       renderTrainingPatternPreview();
     };
 
@@ -1281,7 +952,7 @@
       const holder = document.getElementById('training-pattern-editor');
       const pattern = parseStrumPattern(holder.dataset.pattern || '', timeSignature);
       document.getElementById('training-title').innerText = `Chorus ${bpm} bpm`;
-      renderPatternVisualizer('training-pattern-viz', pattern, beatsPerBar, activeIndex);
+      UI.renderPatternVisualizer('training-pattern-viz', pattern, beatsPerBar, activeIndex);
     }
 
     function stopTrainingPlayback() {
@@ -1319,13 +990,7 @@
     };
 
     function renderHomeList() {
-      const list = document.getElementById('song-list');
-      list.innerHTML = songs.map(s => `
-        <div onclick="openSongDetails('${s.id}')" class="bg-surface rounded-xl p-4 flex justify-between items-center border border-gray-800 btn-press hover:border-primary transition-colors cursor-pointer">
-          <div><h3 class="font-bold text-white">${s.title}</h3><p class="text-xs text-gray-500">${s.artist}</p></div>
-          <i class="fas fa-chevron-right text-primary opacity-50"></i>
-        </div>
-      `).join('');
+      UI.renderSongList('song-list', songs);
     }
 
     window.openSongDetails = async function(id) {
@@ -1344,10 +1009,10 @@
           btnEdit.classList.add('hidden');
       }
       
-      renderPatternVisualizer('detail-strum-viz', currentSong.strumming, getBeatsPerBarFromSignature(currentSong.timeSignature || '4/4'));
+      UI.renderPatternVisualizer('detail-strum-viz', currentSong.strumming, getBeatsPerBarFromSignature(currentSong.timeSignature || '4/4'));
       
       const unique = [...new Set(currentSong.chords.map(c => c.chord))];
-      renderChordLibrary('detail-chords', unique);
+      UI.renderChordLibrary('detail-chords', unique);
 
       await loadProgress();
       renderSteps();
@@ -1357,9 +1022,7 @@
     async function loadProgress() {
       if (!user) return;
       try {
-        const progRef = doc(db, 'users', user.uid, 'progress', currentSong.id);
-        const snap = await getDoc(progRef);
-        userProgress = snap.exists() ? snap.data() : { step1: {p:0}, step2: {p:0}, step3: {p:0} };
+        userProgress = await repository.loadProgress(user.uid, currentSong.id);
       } catch(e) {
         console.error("Could not load progress", e);
         userProgress = { step1: {p:0}, step2: {p:0}, step3: {p:0} };
@@ -1367,27 +1030,7 @@
     }
 
     function renderSteps() {
-      const steps = [
-        { id: 1, name: "Chords Mastery", desc: "1 Downstroke per measure" },
-        { id: 2, name: "Rhythm Pattern", desc: "Focus on the strumming visual" },
-        { id: 3, name: "Full Song", desc: "The ultimate performance" }
-      ];
-      document.getElementById('practice-steps-container').innerHTML = steps.map(s => {
-        const p = userProgress[`step${s.id}`]?.p || 0;
-        const isComplete = p >= 100;
-        return `
-          <div onclick="startPractice(${s.id})" class="bg-surface-light rounded-xl p-4 flex justify-between items-center cursor-pointer border border-gray-800 hover:border-gray-600 transition-colors btn-press relative overflow-hidden">
-            <div class="absolute left-0 top-0 bottom-0 w-1 bg-primary opacity-${isComplete ? '100' : '0'}"></div>
-            <div class="flex gap-4 items-center pl-2">
-              <div class="w-8 h-8 rounded-full ${isComplete ? 'bg-active text-black' : 'bg-primary/20 text-primary'} flex items-center justify-center font-bold shadow-sm">
-                ${isComplete ? '<i class="fas fa-check"></i>' : s.id}
-              </div>
-              <div><h4 class="font-bold text-sm ${isComplete ? 'text-white' : ''}">${s.name}</h4><p class="text-[10px] text-gray-500">${s.desc}</p></div>
-            </div>
-            <span class="text-xs font-bold ${isComplete ? 'text-active drop-shadow-[0_0_8px_rgba(3,218,198,0.5)]' : 'text-gray-400'}">${Math.floor(p)}%</span>
-          </div>
-        `;
-      }).join('');
+      UI.renderPracticeSteps('practice-steps-container', userProgress);
     }
 
     window.startPractice = function(step) {
@@ -1398,6 +1041,8 @@
       document.getElementById('practice-step-label').innerText = `Step ${step}`;
       document.getElementById('practice-progress-bar').style.width = `0%`;
       lastPlayedStrumIndex = -1;
+      practiceValidationStates = [];
+      lastChordValidationState = null;
       updatePracticeAudioButton();
       
       const timeline = document.getElementById('practice-timeline');
@@ -1425,9 +1070,9 @@
           chordPanel.classList.remove('hidden');
           timeline.classList.add('hidden');
           const firstChord = currentSong.chords?.[0]?.chord || 'C';
-          renderChordLibrary('practice-current-chord', [firstChord], firstChord);
+          UI.renderChordLibrary('practice-current-chord', [firstChord], firstChord);
           const firstLine = currentSong.parsedLines?.[currentSong.chords?.[0]?.lineIdx || 0] || null;
-          renderPracticeCurrentLine(firstLine, currentSong.chords?.[0]?.globalIdx ?? null);
+          UI.renderPracticeCurrentLine({ containerId: 'practice-current-line', lineData: firstLine, parsedLines: currentSong.parsedLines, activeChordGlobalIdx: currentSong.chords?.[0]?.globalIdx ?? null });
         } else {
           chordPanel.classList.add('hidden');
           timeline.classList.remove('hidden');
@@ -1453,7 +1098,9 @@
         }
       }
 
-      renderPatternVisualizer('practice-rhythm-viz', activeStrumPattern, beatsPerBar);
+      practiceValidationStates = new Array(activeStrumPattern.length).fill(null);
+      UI.renderPatternVisualizer('practice-rhythm-viz', activeStrumPattern, beatsPerBar, -1, practiceValidationStates);
+      startPracticeDetection();
 
       navigate('practice');
     };
@@ -1514,8 +1161,9 @@
       const subBeat = beat % beatsPerBar;
       
       const activeStrumIndex = Math.floor(subBeat * 2) % getPatternSlotCount(beatsPerBar);
-      renderPatternVisualizer('practice-rhythm-viz', activeStrumPattern, beatsPerBar, activeStrumIndex);
+      UI.renderPatternVisualizer('practice-rhythm-viz', activeStrumPattern, beatsPerBar, activeStrumIndex, practiceValidationStates);
       const activeChord = getActiveChordForBeat(beat);
+      updatePracticeValidation(beat, activeChord);
 
       if (activeStrumIndex !== lastPlayedStrumIndex) {
         lastPlayedStrumIndex = activeStrumIndex;
@@ -1536,8 +1184,8 @@
       if(currentStepMode !== 2 && currentSong.chords && currentSong.chords.length > 0) {
         if (activeChord) {
           if (currentStepMode === 1) {
-            renderChordLibrary('practice-current-chord', [activeChord.chord], activeChord.chord);
-            renderPracticeCurrentLine(currentSong.parsedLines?.[activeChord.lineIdx], activeChord.globalIdx);
+            UI.renderChordLibrary('practice-current-chord', [activeChord.chord], activeChord.chord);
+            UI.renderPracticeCurrentLine({ containerId: 'practice-current-line', lineData: currentSong.parsedLines?.[activeChord.lineIdx], parsedLines: currentSong.parsedLines, activeChordGlobalIdx: activeChord.globalIdx });
           }
           const blockEl = document.getElementById(`block-${activeChord.lineIdx}`);
           if(blockEl && !blockEl.classList.contains('active')) {
@@ -1555,6 +1203,7 @@
              chordEl.classList.remove('text-primary');
              chordEl.classList.add('text-active', 'drop-shadow-[0_0_8px_rgba(3,218,198,0.8)]', 'scale-110', 'inline-block');
           }
+          if (userSettings.enableChordDetection) updateActiveChordValidationClass(lastChordValidationState);
         }
       }
 
@@ -1570,8 +1219,7 @@
       if(p > (userProgress[key]?.p || 0)) {
         userProgress[key] = { p };
         try {
-          const progRef = doc(db, 'users', user.uid, 'progress', currentSong.id);
-          await setDoc(progRef, userProgress, { merge: true });
+          await repository.saveProgress(user.uid, currentSong.id, userProgress);
         } catch (e) {
           console.error("Progress save failed invisibly", e);
         }
@@ -1583,6 +1231,7 @@
       cancelAnimationFrame(animationId);
       lastPlayedStrumIndex = -1;
       stopActiveChordPreview(0.03);
+      stopPracticeDetection();
       
       const btn = document.getElementById('btn-play');
       btn.innerHTML = `<i class="fas fa-play mr-2"></i> Start`;
@@ -1850,36 +1499,9 @@
           stopTuner();
           stopStandaloneMetronome();
           stopTrainingPlayback();
+          stopPracticeDetection();
           if (isPlaying) stopPlayback();
         }
       });
       initApp();
     };
-  </script>
-
-  <div id="tabbar-wrap" class="hidden fixed bottom-0 left-0 right-0 z-30 px-3 pb-3 pt-2">
-    <nav class="ios-tabbar max-w-2xl mx-auto border border-gray-800 rounded-[28px] px-2 py-2 flex items-center gap-1">
-      <div id="bottom-tabbar" class="flex items-center w-full"></div>
-    </nav>
-  </div>
-
-  <div id="text-settings-modal" class="fixed inset-0 bg-black/60 z-40 hidden items-center justify-center p-4">
-    <div class="bg-surface border border-gray-800 rounded-3xl w-full max-w-sm p-5 shadow-2xl">
-      <div class="flex items-center justify-between mb-4">
-        <h2 class="font-bold text-lg">Text Settings</h2>
-        <button onclick="closeTextSettingsModal()" class="text-gray-400 btn-press"><i class="fas fa-times"></i></button>
-      </div>
-      <p class="text-sm text-gray-400 mb-3">Adjust the lyric and chord size for practice.</p>
-      <div class="flex items-center justify-between mb-2">
-        <span class="text-xs uppercase tracking-[0.25em] text-gray-500">Size</span>
-        <span id="modal-text-size-label" class="text-primary font-bold">14 px</span>
-      </div>
-      <input id="modal-text-size" type="range" min="11" max="24" value="14" oninput="previewTextSize(this.value, true)" class="w-full accent-[#bb86fc]">
-      <div class="flex justify-end gap-3 mt-5">
-        <button onclick="closeTextSettingsModal()" class="px-4 py-2 rounded-full border border-gray-700 text-gray-300 btn-press">Cancel</button>
-        <button onclick="saveSettingsFromModal()" class="px-5 py-2 rounded-full bg-primary text-black font-bold btn-press">Save</button>
-      </div>
-    </div>
-  </div>
-</body>
-</html>
