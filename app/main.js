@@ -71,6 +71,12 @@ import { FirestoreRepository } from './modules/repository.js';
     let tunerAnalyser = null;
     let tunerSource = null;
     let tunerAnimationId = null;
+    let tunerSmoothedFreq = 0;
+    let tunerSmoothedCents = 0;
+    let tunerStableNote = '';
+    let tunerPendingNote = '';
+    let tunerPendingNoteFrames = 0;
+    let tunerNoSignalFrames = 0;
     let trainingTimer = null;
     let trainingBeatIndex = 0;
     const METRONOME_STORAGE_KEY = 'guitartrainer.metronome.settings';
@@ -3473,6 +3479,19 @@ Rules:
       return STANDARD_TUNING.reduce((best, current) => Math.abs(current.freq - freq) < Math.abs(best.freq - freq) ? current : best);
     }
 
+    function getTuningByNote(note = '') {
+      return STANDARD_TUNING.find(item => item.note === note) || null;
+    }
+
+    function resetTunerStabilityState() {
+      tunerSmoothedFreq = 0;
+      tunerSmoothedCents = 0;
+      tunerStableNote = '';
+      tunerPendingNote = '';
+      tunerPendingNoteFrames = 0;
+      tunerNoSignalFrames = 0;
+    }
+
     function startTunerLoop() {
       if (!tunerAnalyser || !audioCtx) return;
       const buffer = new Float32Array(2048);
@@ -3480,21 +3499,60 @@ Rules:
         tunerAnalyser.getFloatTimeDomainData(buffer);
         const freq = autoCorrelate(buffer, audioCtx.sampleRate);
         if (freq > 0) {
-          const nearest = closestString(freq);
-          const cents = Math.max(-50, Math.min(50, 1200 * Math.log2(freq / nearest.freq)));
-          document.getElementById('tuner-note').innerText = nearest.note;
-          document.getElementById('tuner-frequency').innerText = `${freq.toFixed(2)} Hz detected`;
-          document.getElementById('tuner-status').innerText = Math.abs(cents) < 6 ? 'In tune' : (cents < 0 ? `${Math.abs(cents).toFixed(1)} cents flat` : `${cents.toFixed(1)} cents sharp`);
-          document.getElementById('tuner-cents').innerText = `${cents >= 0 ? '+' : ''}${cents.toFixed(1)} cents`;
-          renderTunerMeter(cents);
-          renderTuningReference(nearest.note);
+          tunerNoSignalFrames = 0;
+          tunerSmoothedFreq = tunerSmoothedFreq > 0
+            ? (tunerSmoothedFreq * 0.84) + (freq * 0.16)
+            : freq;
+
+          const nearest = closestString(tunerSmoothedFreq);
+          if (!tunerStableNote) tunerStableNote = nearest.note;
+          if (nearest.note !== tunerStableNote) {
+            if (tunerPendingNote === nearest.note) tunerPendingNoteFrames += 1;
+            else {
+              tunerPendingNote = nearest.note;
+              tunerPendingNoteFrames = 1;
+            }
+            if (tunerPendingNoteFrames >= 4) {
+              tunerStableNote = nearest.note;
+              tunerPendingNote = '';
+              tunerPendingNoteFrames = 0;
+            }
+          } else {
+            tunerPendingNote = '';
+            tunerPendingNoteFrames = 0;
+          }
+
+          const locked = getTuningByNote(tunerStableNote) || nearest;
+          const rawCents = Math.max(-50, Math.min(50, 1200 * Math.log2(tunerSmoothedFreq / locked.freq)));
+          tunerSmoothedCents = (tunerSmoothedCents * 0.78) + (rawCents * 0.22);
+
+          document.getElementById('tuner-note').innerText = locked.note;
+          document.getElementById('tuner-frequency').innerText = `${tunerSmoothedFreq.toFixed(2)} Hz detected`;
+          document.getElementById('tuner-status').innerText = Math.abs(tunerSmoothedCents) < 6
+            ? 'In tune'
+            : (tunerSmoothedCents < 0
+              ? `${Math.abs(tunerSmoothedCents).toFixed(1)} cents flat`
+              : `${tunerSmoothedCents.toFixed(1)} cents sharp`);
+          document.getElementById('tuner-cents').innerText = `${tunerSmoothedCents >= 0 ? '+' : ''}${tunerSmoothedCents.toFixed(1)} cents`;
+          renderTunerMeter(tunerSmoothedCents);
+          renderTuningReference(locked.note);
         } else {
-          document.getElementById('tuner-note').innerText = '--';
-          document.getElementById('tuner-frequency').innerText = 'Play one string clearly near your microphone.';
-          document.getElementById('tuner-status').innerText = 'Listening...';
-          document.getElementById('tuner-cents').innerText = '0.0 cents';
-          renderTunerMeter(0);
-          renderTuningReference('');
+          tunerNoSignalFrames += 1;
+          tunerSmoothedCents *= 0.9;
+          if (tunerNoSignalFrames >= 12) {
+            document.getElementById('tuner-note').innerText = '--';
+            document.getElementById('tuner-frequency').innerText = 'Play one string clearly near your microphone.';
+            document.getElementById('tuner-status').innerText = 'Listening...';
+            document.getElementById('tuner-cents').innerText = '0.0 cents';
+            renderTunerMeter(0);
+            renderTuningReference('');
+            if (tunerNoSignalFrames >= 30) resetTunerStabilityState();
+          } else {
+            document.getElementById('tuner-status').innerText = 'Hold steady...';
+            document.getElementById('tuner-cents').innerText = `${tunerSmoothedCents >= 0 ? '+' : ''}${tunerSmoothedCents.toFixed(1)} cents`;
+            renderTunerMeter(tunerSmoothedCents);
+            renderTuningReference(tunerStableNote);
+          }
         }
         tunerAnimationId = requestAnimationFrame(tick);
       };
@@ -3504,6 +3562,7 @@ Rules:
     async function startTuner() {
       try {
         if (!audioCtx) audioCtx = new AudioContext();
+        resetTunerStabilityState();
         tunerStream = await navigator.mediaDevices.getUserMedia({ audio: true });
         tunerAnalyser = audioCtx.createAnalyser();
         tunerAnalyser.fftSize = 2048;
@@ -3523,6 +3582,7 @@ Rules:
     function stopTuner() {
       cancelAnimationFrame(tunerAnimationId);
       tunerAnimationId = null;
+      resetTunerStabilityState();
       if (tunerSource) {
         try { tunerSource.disconnect(); } catch {}
         tunerSource = null;
