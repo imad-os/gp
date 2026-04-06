@@ -1,4 +1,4 @@
-const CACHE_NAME = 'guitartrainer-v2';
+const CACHE_NAME = 'guitartrainer-v3';
 const APP_SHELL = [
   '/',
   '/index.html',
@@ -46,6 +46,7 @@ self.addEventListener('fetch', event => {
 
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
+  const isPwaMetaRequest = url.pathname === '/manifest.webmanifest' || url.pathname.startsWith('/assets/pwa/');
 
   if (req.mode === 'navigate') {
     event.respondWith(
@@ -56,6 +57,21 @@ self.addEventListener('fetch', event => {
           return res;
         })
         .catch(() => caches.match('/index.html'))
+    );
+    return;
+  }
+
+  if (isPwaMetaRequest) {
+    event.respondWith(
+      fetch(req)
+        .then(res => {
+          if (res && res.status === 200) {
+            const copy = res.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(req, copy));
+          }
+          return res;
+        })
+        .catch(() => caches.match(req))
     );
     return;
   }
