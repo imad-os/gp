@@ -40,6 +40,10 @@ import { FirestoreRepository } from './modules/repository.js';
     let lastPlayedStrumIndex = -1;
     let addPatternEntries = [];
     let nextAddPatternEntryId = 1;
+    let addPatternPreviewTimer = null;
+    let addPatternPreviewEntryId = null;
+    let addPatternPreviewStepIndex = 0;
+    let addPatternPreviewTotalSteps = 0;
     let practiceChordAudioEnabled = true;
     let activeChordVoices = [];
     let activeTab = 'home';
@@ -1291,6 +1295,90 @@ Rules:
       return pattern;
     }
 
+    function updateAddPatternPreviewButtons() {
+      addPatternEntries.forEach(entry => {
+        const btn = document.getElementById(`add-pattern-preview-btn-${entry.id}`);
+        if (!btn) return;
+        const isActive = addPatternPreviewEntryId === entry.id;
+        btn.innerHTML = isActive
+          ? `<i class="fas fa-stop mr-1"></i> Stop`
+          : `<i class="fas fa-play mr-1"></i> Play`;
+        btn.classList.toggle('bg-danger', isActive);
+        btn.classList.toggle('text-white', true);
+        btn.classList.toggle('btn-soft', !isActive);
+      });
+    }
+
+    function stopAddPatternPreview() {
+      if (addPatternPreviewTimer) {
+        clearInterval(addPatternPreviewTimer);
+        addPatternPreviewTimer = null;
+      }
+      addPatternPreviewEntryId = null;
+      addPatternPreviewStepIndex = 0;
+      addPatternPreviewTotalSteps = 0;
+      updateAddPatternPreviewButtons();
+    }
+
+    async function playAddPatternPulse(raw = '.', isBarStart = false, isBeatStart = false) {
+      const ctx = await ensureAudioReady();
+      if (!ctx) return;
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const char = String(raw || '.').toUpperCase();
+      if (char === 'D') osc.frequency.value = isBarStart ? 980 : 820;
+      else if (char === 'U') osc.frequency.value = isBarStart ? 1120 : 940;
+      else if (char === 'X') osc.frequency.value = 420;
+      else osc.frequency.value = isBeatStart ? (isBarStart ? 1100 : 760) : 560;
+      const attack = 0.003;
+      const decay = char === 'X' ? 0.035 : 0.06;
+      const level = char === '.' ? 0.12 : 0.24;
+      osc.type = char === 'X' ? 'square' : 'triangle';
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.linearRampToValueAtTime(level, now + attack);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + decay);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + decay + 0.01);
+    }
+
+    window.toggleAddPatternPreview = async function(entryId) {
+      if (addPatternPreviewEntryId === entryId) {
+        stopAddPatternPreview();
+        return;
+      }
+      const target = addPatternEntries.find(entry => entry.id === entryId);
+      if (!target) return;
+      const timeSignature = normalizeTimeSignature(target.timeSignature || '4/4');
+      const beatsPerBar = getBeatsPerBarFromSignature(timeSignature);
+      const subdivisionsPerBeat = getSubdivisionsPerBeatFromSignature(timeSignature);
+      const patternText = normalizePatternText(target.patternText || '', timeSignature);
+      const bpm = Math.max(40, Math.min(240, parseInt(document.getElementById('add-bpm')?.value || '80', 10)));
+      const slotMs = (60 / bpm) * 1000 / subdivisionsPerBeat;
+      const totalSlots = getPatternSlotCount(beatsPerBar, subdivisionsPerBeat);
+      const loops = 2;
+      stopAddPatternPreview();
+      addPatternPreviewEntryId = entryId;
+      addPatternPreviewTotalSteps = totalSlots * loops;
+      addPatternPreviewStepIndex = 0;
+      updateAddPatternPreviewButtons();
+      await playAddPatternPulse(patternText[0] || '.', true, true);
+      addPatternPreviewStepIndex = 1;
+      addPatternPreviewTimer = setInterval(() => {
+        if (addPatternPreviewStepIndex >= addPatternPreviewTotalSteps) {
+          stopAddPatternPreview();
+          return;
+        }
+        const idx = addPatternPreviewStepIndex % totalSlots;
+        const isBeatStart = idx % subdivisionsPerBeat === 0;
+        const isBarStart = idx === 0;
+        playAddPatternPulse(patternText[idx] || '.', isBarStart, isBeatStart);
+        addPatternPreviewStepIndex += 1;
+      }, slotMs);
+    };
+
     function buildPatternEditor(containerId, value, beatsPerBar, clickHandlerName, subdivisionsPerBeat = 2) {
       const container = document.getElementById(containerId);
       if (!container) return;
@@ -1838,6 +1926,7 @@ Rules:
         updateToolRecordingUI(false);
       }
       if (id !== 'training') stopTrainingPlayback();
+      if (id !== 'add-song') stopAddPatternPreview();
       if (!skipUrl && !isHandlingRouteChange) {
         pushUrlPath(pathOverride || buildPathForView(id), { replace: replaceUrl });
       }
@@ -2179,6 +2268,15 @@ Rules:
               ${SUPPORTED_TIME_SIGNATURES.map(sig => `<option value="${sig}" ${entry.timeSignature === sig ? 'selected' : ''}>${sig}</option>`).join('')}
             </select>
             <button
+              id="add-pattern-preview-btn-${entry.id}"
+              type="button"
+              onclick="toggleAddPatternPreview(${entry.id})"
+              class="h-9 rounded-lg px-3 text-xs btn-soft btn-press"
+              title="Hear pattern"
+            >
+              <i class="fas fa-play mr-1"></i> Play
+            </button>
+            <button
               type="button"
               onclick="removeAddPattern(${entry.id})"
               class="w-9 h-9 rounded-lg btn-soft btn-press ${addPatternEntries.length === 1 ? 'opacity-40 pointer-events-none' : ''}"
@@ -2197,6 +2295,11 @@ Rules:
         const subdivisionsPerBeat = getSubdivisionsPerBeatFromSignature(timeSignature);
         buildPatternEditor(`add-strum-editor-${entry.id}`, entry.patternText, beatsPerBar, `cycleAddPatternBeat(${entry.id}, __INDEX__)`, subdivisionsPerBeat);
       });
+      if (addPatternPreviewEntryId && !addPatternEntries.some(entry => entry.id === addPatternPreviewEntryId)) {
+        stopAddPatternPreview();
+      } else {
+        updateAddPatternPreviewButtons();
+      }
     }
 
     function syncAddPatternEditor() {
@@ -2205,6 +2308,7 @@ Rules:
     window.syncAddPatternEditor = syncAddPatternEditor;
 
     window.addPatternRow = function() {
+      stopAddPatternPreview();
       const timeSignature = normalizeTimeSignature(addPatternEntries[addPatternEntries.length - 1]?.timeSignature || '4/4');
       const beatsPerBar = getBeatsPerBarFromSignature(timeSignature);
       const subdivisionsPerBeat = getSubdivisionsPerBeatFromSignature(timeSignature);
@@ -2219,6 +2323,7 @@ Rules:
 
     window.removeAddPattern = function(entryId) {
       if (addPatternEntries.length <= 1) return;
+      if (addPatternPreviewEntryId === entryId) stopAddPatternPreview();
       addPatternEntries = addPatternEntries.filter(entry => entry.id !== entryId);
       renderAddPatternEditors();
     };
@@ -2232,6 +2337,7 @@ Rules:
     window.updateAddPatternTimeSignature = function(entryId, value) {
       const target = addPatternEntries.find(entry => entry.id === entryId);
       if (!target) return;
+      if (addPatternPreviewEntryId === entryId) stopAddPatternPreview();
       target.timeSignature = normalizeTimeSignature(value || '4/4');
       const beatsPerBar = getBeatsPerBarFromSignature(target.timeSignature);
       const subdivisionsPerBeat = getSubdivisionsPerBeatFromSignature(target.timeSignature);
@@ -2242,6 +2348,7 @@ Rules:
     window.cycleAddPatternBeat = function(entryId, index) {
       const target = addPatternEntries.find(entry => entry.id === entryId);
       if (!target) return;
+      if (addPatternPreviewEntryId === entryId) stopAddPatternPreview();
       const timeSignature = normalizeTimeSignature(target.timeSignature || '4/4');
       const chars = normalizePatternText(target.patternText, timeSignature).split('');
       const next = chars[index] === 'D' ? 'U' : (chars[index] === 'U' ? 'X' : (chars[index] === 'X' ? '.' : 'D'));
