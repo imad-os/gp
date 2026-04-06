@@ -67,6 +67,7 @@ import { FirestoreRepository } from './modules/repository.js';
     let trainingTimer = null;
     let trainingBeatIndex = 0;
     const METRONOME_STORAGE_KEY = 'guitartrainer.metronome.settings';
+    const GEMINI_API_KEY_STORAGE_KEY = 'guitartrainer.gemini.apiKey';
     const DEFAULT_SETTINGS = {
       practiceTextSize: 14,
       favoriteSongIds: [],
@@ -397,6 +398,7 @@ import { FirestoreRepository } from './modules/repository.js';
        if (!song.rawText && song.chords) {
            song.rawText = song.chords.map(c => `${c.chord}\n${c.lyric}`).join('\n\n');
        }
+       song.youtubeUrl = typeof song.youtubeUrl === 'string' ? song.youtubeUrl : '';
        song.capo = song.capo || "No capo";
        const timeSignature = song.timeSignature || "4/4";
        const beatsPerBar = parseInt(timeSignature.split('/')[0]) || 4;
@@ -410,6 +412,38 @@ import { FirestoreRepository } from './modules/repository.js';
        song.stats = { views: 0, started: 0, completed: 0, ...(song.stats || {}) };
        song.createdAt = song.createdAt || Date.now();
        return song;
+    }
+
+    function normalizeYouTubeUrl(input = '') {
+      const raw = String(input || '').trim();
+      if (!raw) return '';
+      try {
+        const parsed = new URL(raw);
+        if (!/^(www\.)?(youtube\.com|youtu\.be|m\.youtube\.com)$/i.test(parsed.hostname)) return '';
+        if (parsed.hostname.includes('youtu.be')) {
+          const id = parsed.pathname.split('/').filter(Boolean)[0];
+          return id ? `https://www.youtube.com/watch?v=${id}` : '';
+        }
+        if (parsed.pathname.startsWith('/shorts/')) {
+          const id = parsed.pathname.split('/').filter(Boolean)[1];
+          return id ? `https://www.youtube.com/watch?v=${id}` : '';
+        }
+        const id = parsed.searchParams.get('v');
+        return id ? `https://www.youtube.com/watch?v=${id}` : '';
+      } catch {
+        return '';
+      }
+    }
+
+    function getYouTubeEmbedUrl(url = '') {
+      const normalized = normalizeYouTubeUrl(url);
+      if (!normalized) return '';
+      try {
+        const id = new URL(normalized).searchParams.get('v');
+        return id ? `https://www.youtube.com/embed/${id}` : '';
+      } catch {
+        return '';
+      }
     }
 
     async function initApp() {
@@ -716,7 +750,7 @@ import { FirestoreRepository } from './modules/repository.js';
     window.openToolPage = function(tool, options = {}) {
       const { skipUrl = false, replaceUrl = false } = options || {};
       activeToolPage = tool;
-      const pages = ['metronome', 'recorder', 'chords', 'chord-builder', 'songs'];
+      const pages = ['metronome', 'recorder', 'chords', 'chord-builder', 'songs', 'ai-song'];
       document.getElementById('tools-home-panel')?.classList.add('hidden');
       pages.forEach(page => {
         document.getElementById(`tool-page-${page}`)?.classList.toggle('hidden', page !== tool);
@@ -731,8 +765,16 @@ import { FirestoreRepository } from './modules/repository.js';
             ? 'Add new chords to the database.'
             : tool === 'songs'
               ? 'Find a song quickly.'
-              : 'Browse and hear the chord library.';
+              : tool === 'ai-song'
+                ? 'Generate a full song draft with Gemini.'
+                : 'Browse and hear the chord library.';
       if (tool === 'chord-builder') updateChordBuilderPreview();
+      if (tool === 'chords') renderChordExplorer();
+      if (tool === 'songs') renderToolSongsSearch(document.getElementById('tool-song-search')?.value || '');
+      if (tool === 'ai-song') {
+        const keyInput = document.getElementById('ai-gemini-key');
+        if (keyInput) keyInput.value = localStorage.getItem(GEMINI_API_KEY_STORAGE_KEY) || '';
+      }
       if (!skipUrl && !isHandlingRouteChange) {
         pushUrlPath(`/tools/${encodeURIComponent(tool)}`, { replace: replaceUrl });
       }
@@ -742,7 +784,7 @@ import { FirestoreRepository } from './modules/repository.js';
       const { skipUrl = false, replaceUrl = false } = options || {};
       activeToolPage = 'home';
       document.getElementById('tools-home-panel')?.classList.remove('hidden');
-      ['metronome', 'recorder', 'chords', 'chord-builder', 'songs'].forEach(page => {
+      ['metronome', 'recorder', 'chords', 'chord-builder', 'songs', 'ai-song'].forEach(page => {
         document.getElementById(`tool-page-${page}`)?.classList.add('hidden');
       });
       document.getElementById('tools-back-btn')?.classList.add('hidden');
@@ -750,6 +792,124 @@ import { FirestoreRepository } from './modules/repository.js';
       if (subtitle) subtitle.innerText = 'Choose a tool.';
       if (!skipUrl && !isHandlingRouteChange) {
         pushUrlPath('/tools', { replace: replaceUrl });
+      }
+    };
+
+    function extractJsonObject(text = '') {
+      const raw = String(text || '').trim();
+      if (!raw) return null;
+      try {
+        return JSON.parse(raw);
+      } catch {}
+      const start = raw.indexOf('{');
+      const end = raw.lastIndexOf('}');
+      if (start >= 0 && end > start) {
+        try {
+          return JSON.parse(raw.slice(start, end + 1));
+        } catch {}
+      }
+      return null;
+    }
+
+    window.generateSongWithAI = async function() {
+      const btn = document.getElementById('btn-generate-ai-song');
+      const apiKey = (document.getElementById('ai-gemini-key')?.value || '').trim();
+      const youtubeInput = (document.getElementById('ai-youtube-link')?.value || '').trim();
+      const titleInput = (document.getElementById('ai-song-title')?.value || '').trim();
+      const artistInput = (document.getElementById('ai-song-artist')?.value || '').trim();
+      const simpleMode = !!document.getElementById('ai-simple-mode')?.checked;
+
+      if (!apiKey) return showToast("Enter Gemini API key first.");
+      if (!youtubeInput && !titleInput && !artistInput) {
+        return showToast("Provide YouTube link OR title and artist.");
+      }
+
+      const normalizedYoutube = normalizeYouTubeUrl(youtubeInput);
+      localStorage.setItem(GEMINI_API_KEY_STORAGE_KEY, apiKey);
+      if (btn) btn.disabled = true;
+      if (btn) btn.innerHTML = `<i class="fas fa-circle-notch fa-spin mr-2"></i> Generating...`;
+
+      const sourceHint = normalizedYoutube
+        ? `Use this YouTube link as primary reference: ${normalizedYoutube}`
+        : `Use this song identity: title="${titleInput}", artist="${artistInput}"`;
+      const difficultyHint = simpleMode
+        ? 'Use simple mode: easy open-position chords only (avoid barre and complex 4-finger shapes), and an easy strumming pattern.'
+        : 'Use normal mode: keep musically realistic chords and pattern.';
+
+      const prompt = `
+Generate a guitar song draft as strict JSON only, no markdown.
+${sourceHint}
+${difficultyHint}
+
+Output JSON shape:
+{
+  "title": "string",
+  "artist": "string",
+  "youtubeUrl": "string (can be empty)",
+  "bpm": 80,
+  "timeSignature": "4/4",
+  "capo": "No capo",
+  "rawText": "chords and lyrics in app format",
+  "strummingPatterns": [
+    { "tag": "[verse 1]", "patternText": "D.DU.UD." }
+  ]
+}
+
+Rules:
+- timeSignature must be one of: 2/4, 3/4, 4/4, 6/8.
+- patternText must contain only D, U, X, .
+- Use at least one strumming pattern.
+- Keep response compact and valid JSON.
+`.trim();
+
+      try {
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.4,
+              responseMimeType: 'application/json'
+            }
+          })
+        });
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(errorText || `HTTP ${response.status}`);
+        }
+        const payload = await response.json();
+        const text = payload?.candidates?.[0]?.content?.parts?.map(part => part?.text || '').join('\n') || '';
+        const parsed = extractJsonObject(text);
+        if (!parsed || typeof parsed !== 'object') {
+          throw new Error('AI response was not valid JSON.');
+        }
+
+        const draft = {
+          title: parsed.title || titleInput || 'Untitled',
+          artist: parsed.artist || artistInput || 'Unknown Artist',
+          youtubeUrl: normalizeYouTubeUrl(parsed.youtubeUrl || normalizedYoutube || ''),
+          bpm: Math.max(40, Math.min(240, parseInt(parsed.bpm, 10) || 80)),
+          timeSignature: ['2/4', '3/4', '4/4', '6/8'].includes(String(parsed.timeSignature || '4/4')) ? String(parsed.timeSignature) : '4/4',
+          capo: String(parsed.capo || 'No capo'),
+          rawText: String(parsed.rawText || 'C\nEmpty'),
+          strummingPatterns: Array.isArray(parsed.strummingPatterns) && parsed.strummingPatterns.length
+            ? parsed.strummingPatterns.map(entry => ({
+                tag: String(entry?.tag || ''),
+                patternText: String(entry?.patternText || '')
+              }))
+            : [{ tag: '', patternText: '' }]
+        };
+
+        openAddSong({ draft });
+        showToast("Draft generated. Review and save.", true);
+      } catch (err) {
+        console.error('AI generation failed', err);
+        showToast("AI generation failed. Check inputs/API key.");
+      } finally {
+        if (btn) btn.disabled = false;
+        if (btn) btn.innerHTML = `<i class="fas fa-sparkles mr-2"></i> Generate Song Draft`;
       }
     };
 
@@ -1287,6 +1447,33 @@ import { FirestoreRepository } from './modules/repository.js';
       updatePracticeAudioButton();
     };
 
+    function applySongDraftToAddForm(draft = {}) {
+      const title = String(draft.title || '').trim();
+      const artist = String(draft.artist || '').trim();
+      const youtubeUrl = normalizeYouTubeUrl(draft.youtubeUrl || '');
+      const bpm = Math.max(40, Math.min(240, parseInt(draft.bpm, 10) || 80));
+      const timeSignature = ['2/4', '3/4', '4/4', '6/8'].includes(String(draft.timeSignature || '4/4')) ? String(draft.timeSignature) : '4/4';
+      const capo = String(draft.capo || 'No capo').trim() || 'No capo';
+      const rawText = String(draft.rawText || '').trim();
+
+      document.getElementById('add-title').value = title || 'Untitled';
+      document.getElementById('add-artist').value = artist || 'Unknown Artist';
+      document.getElementById('add-youtube-url').value = youtubeUrl;
+      document.getElementById('add-bpm').value = String(bpm);
+      document.getElementById('add-time-sig').value = timeSignature;
+      document.getElementById('add-capo').value = capo;
+      document.getElementById('add-chords-text').value = rawText || 'C\nEmpty';
+
+      const beatsPerBar = getBeatsPerBarFromSignature(timeSignature);
+      const patterns = Array.isArray(draft.strummingPatterns) ? draft.strummingPatterns : [];
+      addPatternEntries = (patterns.length ? patterns : [{ tag: '', patternText: '' }]).map(entry => ({
+        id: nextAddPatternEntryId++,
+        tag: String(entry?.tag || ''),
+        patternText: normalizePatternText(String(entry?.patternText || ''), beatsPerBar)
+      }));
+      syncAddPatternEditor();
+    }
+
     async function startPracticeDetection() {
       return;
     }
@@ -1298,19 +1485,21 @@ import { FirestoreRepository } from './modules/repository.js';
     function updatePracticeValidation() {}
 
     window.openAddSong = function(options = {}) {
-      const { skipUrl = false, replaceUrl = false } = options || {};
+      const { skipUrl = false, replaceUrl = false, draft = null } = options || {};
       editingSongId = null;
       document.getElementById('add-view-title').innerText = "New Song";
       document.getElementById('btn-save-song').innerHTML = '<i class="fas fa-save mr-2"></i> Save to Library';
       
       document.getElementById('add-title').value = '';
       document.getElementById('add-artist').value = '';
+      document.getElementById('add-youtube-url').value = '';
       document.getElementById('add-bpm').value = '';
       document.getElementById('add-time-sig').value = '4/4';
       document.getElementById('add-capo').value = 'No capo';
       document.getElementById('add-chords-text').value = '';
       addPatternEntries = [{ id: nextAddPatternEntryId++, tag: '', patternText: normalizePatternText('', 4) }];
       syncAddPatternEditor();
+      if (draft) applySongDraftToAddForm(draft);
       
       navigate('add-song', { skipUrl, replaceUrl, pathOverride: '/songs/new' });
     };
@@ -1325,6 +1514,7 @@ import { FirestoreRepository } from './modules/repository.js';
       
       document.getElementById('add-title').value = currentSong.title;
       document.getElementById('add-artist').value = currentSong.artist;
+      document.getElementById('add-youtube-url').value = currentSong.youtubeUrl || '';
       document.getElementById('add-bpm').value = currentSong.bpm;
       document.getElementById('add-time-sig').value = currentSong.timeSignature || '4/4';
       document.getElementById('add-capo').value = currentSong.capo || 'No capo';
@@ -1359,6 +1549,7 @@ import { FirestoreRepository } from './modules/repository.js';
       try {
         const title = document.getElementById('add-title').value || "Untitled";
         const artist = document.getElementById('add-artist').value || "Unknown Artist";
+        const youtubeUrl = normalizeYouTubeUrl(document.getElementById('add-youtube-url').value || '');
         const bpm = parseInt(document.getElementById('add-bpm').value) || 80;
         const timeSignature = document.getElementById('add-time-sig').value || "4/4";
         const capo = document.getElementById('add-capo').value || "No capo";
@@ -1388,7 +1579,7 @@ import { FirestoreRepository } from './modules/repository.js';
         const primaryPattern = normalizedPatterns[0];
 
         const newSongData = {
-          title, artist, bpm, timeSignature, capo, rawText,
+          title, artist, youtubeUrl, bpm, timeSignature, capo, rawText,
           strumming: primaryPattern.strumming,
           strummingPatterns: normalizedPatterns.map(entry => ({
             tag: entry.tag,
@@ -1527,7 +1718,7 @@ import { FirestoreRepository } from './modules/repository.js';
         if (parts[0] === 'tools') {
           navigate('tools', { skipUrl: true });
           const tool = decodeURIComponent(parts[1] || '');
-          const allowed = new Set(['metronome', 'recorder', 'chords', 'chord-builder', 'songs']);
+          const allowed = new Set(['metronome', 'recorder', 'chords', 'chord-builder', 'songs', 'ai-song']);
           if (tool && allowed.has(tool)) openToolPage(tool, { skipUrl: true });
           else showToolsHome({ skipUrl: true });
           return;
@@ -2008,6 +2199,26 @@ import { FirestoreRepository } from './modules/repository.js';
       summary.innerText = `${avg.toFixed(1)} / 5 (${currentSongRatings.length})`;
     }
 
+    function renderSongYouTube() {
+      const section = document.getElementById('detail-youtube-section');
+      const linkEl = document.getElementById('detail-youtube-link');
+      const embedEl = document.getElementById('detail-youtube-embed');
+      if (!section || !linkEl || !embedEl) return;
+      const url = normalizeYouTubeUrl(currentSong?.youtubeUrl || '');
+      const embed = getYouTubeEmbedUrl(url);
+      if (!url || !embed) {
+        section.classList.add('hidden');
+        linkEl.href = '#';
+        linkEl.innerText = '';
+        embedEl.src = '';
+        return;
+      }
+      section.classList.remove('hidden');
+      linkEl.href = url;
+      linkEl.innerText = url;
+      embedEl.src = embed;
+    }
+
     async function loadSongSocialData() {
       if (!currentSong) return;
       try {
@@ -2092,6 +2303,7 @@ import { FirestoreRepository } from './modules/repository.js';
       const unique = [...new Set(currentSong.chords.map(c => c.chord))];
       renderChordLibrary('detail-chords', unique);
       updateFavoriteButton();
+      renderSongYouTube();
 
       navigate('details', { skipUrl, replaceUrl, pathOverride: `/songs/${encodeURIComponent(currentSong.id)}` });
       renderSteps();

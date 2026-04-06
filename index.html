@@ -419,6 +419,11 @@
             <div class="font-bold text-lg mb-1">Songs</div>
             <p class="text-sm text-gray-400">Search songs quickly and jump straight into the song page.</p>
           </button>
+          <button onclick="openToolPage('ai-song')" class="tool-nav-card btn-press sm:col-span-2">
+            <span class="tool-nav-icon"><i class="fas fa-wand-magic-sparkles text-lg"></i></span>
+            <div class="font-bold text-lg mb-1">AI Song Generator</div>
+            <p class="text-sm text-gray-400">Generate complete song draft (lyrics/chords/pattern/BPM) from YouTube link or title + artist.</p>
+          </button>
         </div>
 
         <div id="tool-page-metronome" class="hidden bg-surface rounded-2xl p-5 border border-gray-800 text-center">
@@ -552,6 +557,32 @@
           <input id="tool-song-search" type="text" oninput="renderToolSongsSearch(this.value)" placeholder="Search by title or artist" class="w-full bg-black/30 border border-gray-800 rounded-xl px-4 py-3 outline-none text-white mb-4">
           <div id="tool-songs-results" class="space-y-3"></div>
         </div>
+
+        <div id="tool-page-ai-song" class="hidden bg-surface rounded-2xl p-5 border border-gray-800">
+          <div class="flex items-center justify-between gap-3 mb-3">
+            <div>
+              <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-1">Tool</p>
+              <h2 class="font-bold text-lg">AI Song Generator</h2>
+              <p class="text-sm text-gray-400">Uses Gemini to generate a full song draft, then opens Add Song with fields pre-filled.</p>
+            </div>
+          </div>
+          <div class="space-y-3">
+            <input id="ai-gemini-key" type="password" placeholder="Gemini API key" class="w-full bg-black/30 border border-gray-800 rounded-xl px-4 py-3 outline-none text-white">
+            <input id="ai-youtube-link" type="url" placeholder="YouTube link (optional)" class="w-full bg-black/30 border border-gray-800 rounded-xl px-4 py-3 outline-none text-white">
+            <div class="grid sm:grid-cols-2 gap-3">
+              <input id="ai-song-title" type="text" placeholder="Song title (optional)" class="w-full bg-black/30 border border-gray-800 rounded-xl px-4 py-3 outline-none text-white">
+              <input id="ai-song-artist" type="text" placeholder="Artist name (optional)" class="w-full bg-black/30 border border-gray-800 rounded-xl px-4 py-3 outline-none text-white">
+            </div>
+            <label class="flex items-center gap-2 text-sm text-gray-300">
+              <input id="ai-simple-mode" type="checkbox" class="accent-[#bb86fc]">
+              Simple mode (easy chords + simple pattern)
+            </label>
+            <button id="btn-generate-ai-song" onclick="generateSongWithAI()" class="w-full bg-primary text-black font-bold py-3 rounded-xl btn-press shadow-[0_0_20px_rgba(187,134,252,0.25)]">
+              <i class="fas fa-sparkles mr-2"></i> Generate Song Draft
+            </button>
+            <p class="text-[11px] text-gray-500">Provide YouTube link OR title + artist. Then review/edit in Add Song before saving.</p>
+          </div>
+        </div>
       </div>
     </main>
   </div>
@@ -593,6 +624,7 @@
       <div class="space-y-5 max-w-lg mx-auto pb-10">
         <input type="text" id="add-title" placeholder="Song Title" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 focus:border-primary focus:outline-none">
         <input type="text" id="add-artist" placeholder="Artist" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 focus:border-primary focus:outline-none">
+        <input type="url" id="add-youtube-url" placeholder="YouTube Link (optional)" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 focus:border-primary focus:outline-none">
         
         <div class="flex gap-4">
           <input type="number" id="add-bpm" placeholder="Default BPM (e.g., 80)" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 focus:border-primary focus:outline-none">
@@ -662,6 +694,22 @@
         <div class="mb-4">
           <p class="text-[10px] text-gray-500 uppercase mb-2">Strumming Pattern</p>
           <div id="detail-strum-viz" class="pattern-card"></div>
+        </div>
+        <div id="detail-youtube-section" class="mb-4 hidden">
+          <p class="text-[10px] text-gray-500 uppercase mb-2">YouTube</p>
+          <a id="detail-youtube-link" href="#" target="_blank" rel="noopener noreferrer" class="text-sm text-primary underline break-all mb-3 inline-block"></a>
+          <div class="rounded-xl overflow-hidden border border-gray-800 bg-black/40">
+            <iframe
+              id="detail-youtube-embed"
+              class="w-full aspect-video"
+              src=""
+              title="YouTube video player"
+              frameborder="0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              referrerpolicy="strict-origin-when-cross-origin"
+              allowfullscreen>
+            </iframe>
+          </div>
         </div>
         <div>
           <p class="text-[10px] text-gray-500 uppercase mb-2">Chords Found</p>
