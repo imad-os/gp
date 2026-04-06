@@ -2258,6 +2258,25 @@ Rules:
       if (textBtn) textBtn.classList.remove('hidden');
     }
 
+    function updatePreviewPlayButton() {
+      const btn = document.getElementById('btn-preview-play');
+      if (!btn) return;
+      if (currentStepMode !== 0) {
+        btn.classList.add('hidden');
+        return;
+      }
+      btn.classList.remove('hidden');
+      if (isPlaying) {
+        btn.innerHTML = `<i class="fas fa-stop mr-2"></i> Stop Preview`;
+        btn.classList.add('bg-danger', 'text-white');
+        btn.classList.remove('bg-primary', 'text-black');
+      } else {
+        btn.innerHTML = `<i class="fas fa-play mr-2"></i> Play Preview`;
+        btn.classList.add('bg-primary', 'text-black');
+        btn.classList.remove('bg-danger', 'text-white');
+      }
+    }
+
     window.updatePracticeBpmLabel = function(value) {
       const safe = Math.max(40, Math.min(240, parseInt(value, 10) || 80));
       const label = document.getElementById('practice-bpm-value');
@@ -2576,7 +2595,10 @@ Rules:
                 <div><div class="text-[10px] uppercase tracking-[0.2em] text-gray-500 mb-1">Time</div><div class="text-white font-semibold">${currentSong.timeSignature || '4/4'}</div></div>
                 <div><div class="text-[10px] uppercase tracking-[0.2em] text-gray-500 mb-1">Capo</div><div class="text-white font-semibold">${currentSong.capo || 'No capo'}</div></div>
               </div>
-              <div class="mt-4 flex justify-end">
+              <div class="mt-4 flex items-center justify-end gap-2">
+                <button id="btn-preview-play" onclick="togglePlay()" class="bg-primary text-black rounded-full px-5 py-2 text-sm font-bold btn-press">
+                  <i class="fas fa-play mr-2"></i> Play Preview
+                </button>
                 <button onclick="openSongDetails('${currentSong.id}')" class="btn-soft rounded-full px-5 py-2 text-sm btn-press">
                   <i class="fas fa-file-lines mr-2"></i> Open Song Details
                 </button>
@@ -2596,6 +2618,10 @@ Rules:
             </div>
           </div>`;
         const normalizedPreview = currentSong.strumming.map(s => ({ ...s, raw: s.raw || '.' }));
+        activeStrumPattern = normalizedPreview;
+        practicePatternAssignments = [{ startBeat: 0, pattern: normalizedPreview, tagKey: '' }];
+        practiceValidationStates = new Array(activeStrumPattern.length).fill(null);
+        updatePreviewPlayButton();
         UI.renderPatternVisualizer('practice-preview-pattern', normalizedPreview, beatsPerBar, -1, []);
         const previewFab = document.getElementById('btn-start-step1-fab');
         if (previewFab) previewFab.onclick = () => startPractice(1);
@@ -2696,8 +2722,12 @@ Rules:
         document.getElementById('btn-play').classList.replace('bg-primary', 'bg-danger');
         document.getElementById('btn-play').classList.add('text-white');
         document.getElementById('btn-play').classList.replace('shadow-[0_0_20px_rgba(187,134,252,0.4)]', 'shadow-[0_0_20px_rgba(207,102,121,0.4)]');
+        updatePreviewPlayButton();
         scheduler();
-      } else { stopPlayback(); }
+      } else { 
+        stopPlayback();
+      }
+      updatePreviewPlayButton();
     };
 
     function scheduler() {
@@ -2731,7 +2761,7 @@ Rules:
       setPracticeProgressDisplay(percent);
 
       const nowMs = Date.now();
-      if (nowMs - lastProgressSaveAtMs >= 5000) {
+      if (currentStepMode > 0 && nowMs - lastProgressSaveAtMs >= 5000) {
         lastProgressSaveAtMs = nowMs;
         const snapshot = Math.round(percent);
         if (snapshot > lastSavedPercent) {
@@ -2798,8 +2828,8 @@ Rules:
       }
 
       if(beat >= currentSong.totalBeats) {
-        saveProg(100);
-        if (user && !user.isAnonymous) {
+        if (currentStepMode > 0) saveProg(100);
+        if (currentStepMode > 0 && user && !user.isAnonymous) {
           bumpSongStat('completed').then(() => {
             const completedEl = document.getElementById('detail-stat-completed');
             if (completedEl) completedEl.innerText = String(currentSong.stats?.completed || 0);
@@ -2812,6 +2842,7 @@ Rules:
 
     async function saveProg(p) {
       if (!currentSong) return;
+      if (currentStepMode === 0) return;
       if (userProgressSongId !== currentSong.id) {
         userProgress = getRecentProgressForSong(currentSong.id) || getEmptyProgress();
         userProgressSongId = currentSong.id;
@@ -2837,7 +2868,7 @@ Rules:
       pausedPracticeBeat = beat;
       const percent = Math.min(100, (beat / (currentSong?.totalBeats || 1)) * 100);
       const snapshot = Math.round(percent);
-      if (snapshot > lastSavedPercent) {
+      if (currentStepMode > 0 && snapshot > lastSavedPercent) {
         lastSavedPercent = snapshot;
         saveProg(snapshot);
       }
@@ -2852,10 +2883,11 @@ Rules:
         btn.classList.add('text-white');
         btn.classList.replace('shadow-[0_0_20px_rgba(207,102,121,0.4)]', 'shadow-[0_0_20px_rgba(187,134,252,0.4)]');
       }
+      updatePreviewPlayButton();
     }
 
     function stopPlayback() {
-      if (isPlaying && audioCtx && currentSong?.totalBeats) {
+      if (currentStepMode > 0 && isPlaying && audioCtx && currentSong?.totalBeats) {
         const beat = Math.max(0, (audioCtx.currentTime - startTime) / (60 / currentBpm));
         const percent = Math.min(100, (beat / currentSong.totalBeats) * 100);
         const snapshot = Math.round(percent);
@@ -2886,6 +2918,7 @@ Rules:
          c.classList.remove('text-active', 'drop-shadow-[0_0_8px_rgba(3,218,198,0.8)]', 'scale-110', 'inline-block');
          c.classList.add('text-primary');
       });
+      updatePreviewPlayButton();
     }
 
     window.stopAndExitPractice = () => { 
