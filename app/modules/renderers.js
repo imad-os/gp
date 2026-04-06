@@ -1,54 +1,58 @@
-import { getPatternCountLabel, getPatternSlotCount, normalizePatternText, getChordDiagramData } from './music.js';
+import { getPatternCountLabel, normalizePatternText, getChordDiagramData } from './music.js';
 
-export function buildPatternEditor(containerId, value, beatsPerBar, clickHandlerName) {
+export function buildPatternEditor(containerId, value, beatsPerBar, clickHandlerName, subdivisionsPerBeat = 2) {
   const container = document.getElementById(containerId);
   if (!container) return;
   container.style.gridTemplateColumns = `repeat(${beatsPerBar}, minmax(0, 1fr))`;
-  const normalized = normalizePatternText(value, beatsPerBar);
+  const normalized = normalizePatternText(value, beatsPerBar, subdivisionsPerBeat);
   container.innerHTML = Array.from({ length: beatsPerBar }, (_, beatIdx) => {
-    const leftIdx = beatIdx * 2;
-    const rightIdx = leftIdx + 1;
     const buildCell = (char, idx) => {
-      const symbol = char === 'D' ? '↓' : (char === 'U' ? '↑' : (char === 'X' ? 'x' : '·'));
+      const symbol = char === 'D' ? '&#8595;' : (char === 'U' ? '&#8593;' : (char === 'X' ? 'x' : '&middot;'));
       return `
         <button type="button" onclick="${clickHandlerName}(${idx})" class="pattern-cell ${char !== '.' ? 'active' : ''}">
           <div class="pattern-action ${char === '.' ? 'rest opacity-40' : ''}">${symbol}</div>
-          <div class="pattern-count">${getPatternCountLabel(idx)}</div>
+          <div class="pattern-count">${getPatternCountLabel(idx, subdivisionsPerBeat)}</div>
         </button>
       `;
     };
+    const slotStart = beatIdx * subdivisionsPerBeat;
+    const cells = Array.from({ length: subdivisionsPerBeat }, (_, slot) => {
+      const idx = slotStart + slot;
+      return buildCell(normalized[idx], idx);
+    }).join('');
     return `
-      <div class="pattern-group">
-        ${buildCell(normalized[leftIdx], leftIdx)}
-        ${buildCell(normalized[rightIdx], rightIdx)}
-        <div class="pattern-pair-bracket"><span></span></div>
+      <div class="pattern-group" style="grid-template-columns: repeat(${subdivisionsPerBeat}, minmax(0, 1fr));">
+        ${cells}
+        ${subdivisionsPerBeat === 2 ? '<div class="pattern-pair-bracket"><span></span></div>' : ''}
       </div>
     `;
   }).join('');
 }
 
-export function renderPatternVisualizer(containerId, pattern, beatsPerBar, activeIndex = -1, validationStates = []) {
+export function renderPatternVisualizer(containerId, pattern, beatsPerBar, activeIndex = -1, validationStates = [], subdivisionsPerBeat = 2) {
   const container = document.getElementById(containerId);
   if (!container) return;
-  const normalized = normalizePatternText(pattern.map(s => s.raw || '.').join(''), beatsPerBar);
+  const normalized = normalizePatternText(pattern.map(s => s.raw || '.').join(''), beatsPerBar, subdivisionsPerBeat);
   container.innerHTML = `
     <div class="pattern-editor-grid" style="grid-template-columns: repeat(${beatsPerBar}, minmax(0, 1fr));">
       ${Array.from({ length: beatsPerBar }, (_, beatIdx) => {
-        const leftIdx = beatIdx * 2;
-        const rightIdx = leftIdx + 1;
         const buildCell = (char, idx) => {
-          const symbol = char === 'D' ? '↓' : (char === 'U' ? '↑' : (char === 'X' ? 'x' : '·'));
+          const symbol = char === 'D' ? '&#8595;' : (char === 'U' ? '&#8593;' : (char === 'X' ? 'x' : '&middot;'));
           const validationClass = validationStates[idx] === 'success' ? 'success' : (validationStates[idx] === 'fail' ? 'fail' : '');
           return `<div class="pattern-cell ${idx === activeIndex ? 'active' : ''} ${validationClass}">
             <div class="pattern-action ${char === '.' ? 'rest' : ''}">${symbol}</div>
-            <div class="pattern-count">${getPatternCountLabel(idx)}</div>
+            <div class="pattern-count">${getPatternCountLabel(idx, subdivisionsPerBeat)}</div>
           </div>`;
         };
+        const slotStart = beatIdx * subdivisionsPerBeat;
+        const cells = Array.from({ length: subdivisionsPerBeat }, (_, slot) => {
+          const idx = slotStart + slot;
+          return buildCell(normalized[idx], idx);
+        }).join('');
         return `
-          <div class="pattern-group">
-            ${buildCell(normalized[leftIdx], leftIdx)}
-            ${buildCell(normalized[rightIdx], rightIdx)}
-            <div class="pattern-pair-bracket"><span></span></div>
+          <div class="pattern-group" style="grid-template-columns: repeat(${subdivisionsPerBeat}, minmax(0, 1fr));">
+            ${cells}
+            ${subdivisionsPerBeat === 2 ? '<div class="pattern-pair-bracket"><span></span></div>' : ''}
           </div>
         `;
       }).join('')}

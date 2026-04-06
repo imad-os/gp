@@ -92,7 +92,7 @@ import { FirestoreRepository } from './modules/repository.js';
       { note: 'B3', freq: 246.94 },
       { note: 'E4', freq: 329.63 }
     ];
-    const SUPPORTED_TIME_SIGNATURES = ['2/4', '3/4', '4/4', '6/8'];
+    const SUPPORTED_TIME_SIGNATURES = ['2/4', '3/4', '4/4', '6/8', '2/16', '3/16', '4/16', '6/16'];
     const DEFAULT_CHORD_LIBRARY = {
       C: { baseFret: 1, strings: ['x', 3, 2, 0, 1, 0], fingers: [0, 3, 2, 0, 1, 0] },
       Cm: { baseFret: 3, strings: ['x', 3, 5, 5, 4, 3], fingers: [0, 1, 3, 4, 2, 1] },
@@ -244,6 +244,20 @@ import { FirestoreRepository } from './modules/repository.js';
       return SUPPORTED_TIME_SIGNATURES.includes(fallback) ? fallback : '4/4';
     }
 
+    function getTimeSignatureParts(timeSignature = '4/4') {
+      const normalized = normalizeTimeSignature(timeSignature);
+      const [numRaw, denRaw] = normalized.split('/');
+      const beatsPerBar = parseInt(numRaw, 10) || 4;
+      const denominator = parseInt(denRaw, 10) || 4;
+      return { beatsPerBar, denominator, normalized };
+    }
+
+    function getSubdivisionsPerBeatFromSignature(timeSignature = '4/4') {
+      const { denominator } = getTimeSignatureParts(timeSignature);
+      if (denominator === 16) return 4;
+      return 2;
+    }
+
     function strumTypeToRaw(type = '') {
       const normalized = String(type || '');
       if (normalized === 'D' || normalized === '↓' || normalized === 'â†“') return 'D';
@@ -334,7 +348,7 @@ import { FirestoreRepository } from './modules/repository.js';
       return candidateEntries.map((entry, idx) => {
         const entryTimeSignature = normalizeTimeSignature(entry?.timeSignature || song?.timeSignature || '4/4');
         const beatsPerBar = getBeatsPerBarFromSignature(entryTimeSignature);
-        const rawText = normalizePatternText(extractRawPatternFromEntry(entry), beatsPerBar);
+        const rawText = normalizePatternText(extractRawPatternFromEntry(entry), entryTimeSignature);
         return {
           id: `song-pattern-${idx}`,
           tag: String(entry?.tag || ''),
@@ -436,7 +450,7 @@ import { FirestoreRepository } from './modules/repository.js';
            tag: '',
            tagKey: '',
            timeSignature: fallbackTimeSignature,
-           patternText: normalizePatternText('', getBeatsPerBarFromSignature(fallbackTimeSignature)),
+           patternText: normalizePatternText('', fallbackTimeSignature),
            strumming: parseStrumPattern('', fallbackTimeSignature)
          }];
        }
@@ -858,16 +872,13 @@ import { FirestoreRepository } from './modules/repository.js';
       const cleaned = (Array.isArray(patterns) ? patterns : []).map(entry => ({
         tag: String(entry?.tag || '').trim(),
         timeSignature: normalizeTimeSignature(entry?.timeSignature || fallbackTimeSignature, fallbackTimeSignature),
-        patternText: normalizePatternText(
-          String(entry?.patternText || ''),
-          getBeatsPerBarFromSignature(normalizeTimeSignature(entry?.timeSignature || fallbackTimeSignature, fallbackTimeSignature))
-        )
+        patternText: normalizePatternText(String(entry?.patternText || ''), normalizeTimeSignature(entry?.timeSignature || fallbackTimeSignature, fallbackTimeSignature))
       })).filter(entry => !!entry.patternText);
       if (!cleaned.length) {
         return [{
           tag: '',
           timeSignature: fallbackTimeSignature,
-          patternText: normalizePatternText('', getBeatsPerBarFromSignature(fallbackTimeSignature))
+          patternText: normalizePatternText('', fallbackTimeSignature)
         }];
       }
       const uniquePatternCount = new Set(cleaned.map(entry => entry.patternText)).size;
@@ -987,7 +998,7 @@ Output JSON shape:
 }
 
 Rules:
-- timeSignature must be one of: 2/4, 3/4, 4/4, 6/8.
+- timeSignature must be one of: 2/4, 3/4, 4/4, 6/8, 2/16, 3/16, 4/16, 6/16.
 - Each strumming pattern may define its own timeSignature. If missing, use the top-level timeSignature.
 - patternText must contain only D, U, X, .
 - 'X' : chuck , '.' : rest
@@ -1232,19 +1243,31 @@ Rules:
     };
 
     function getBeatsPerBarFromSignature(timeSignature = "4/4") {
-      return parseInt((timeSignature || "4/4").split('/')[0], 10) || 4;
+      return getTimeSignatureParts(timeSignature).beatsPerBar;
     }
 
-    function getPatternSlotCount(beatsPerBar) {
-      return beatsPerBar * 2;
+    function getPatternSlotCount(beatsPerBar, subdivisionsPerBeat = 2) {
+      return beatsPerBar * subdivisionsPerBeat;
     }
 
-    function getPatternCountLabel(idx) {
-      return idx % 2 === 0 ? String((idx / 2) + 1) : '&';
+    function getPatternCountLabel(idx, subdivisionsPerBeat = 2) {
+      const beat = Math.floor(idx / subdivisionsPerBeat) + 1;
+      const slot = idx % subdivisionsPerBeat;
+      if (subdivisionsPerBeat === 4) {
+        return ['' + beat, 'e', '&', 'a'][slot] || '';
+      }
+      return slot === 0 ? String(beat) : '&';
     }
 
-    function normalizePatternText(strText, beatsPerBar) {
-      const totalSlots = getPatternSlotCount(beatsPerBar);
+    function normalizePatternText(strText, beatsPerBarOrTimeSignature, subdivisionsPerBeat = null) {
+      const isSignature = typeof beatsPerBarOrTimeSignature === 'string';
+      const beatsPerBar = isSignature
+        ? getBeatsPerBarFromSignature(beatsPerBarOrTimeSignature || '4/4')
+        : (parseInt(beatsPerBarOrTimeSignature, 10) || 4);
+      const subdivisions = isSignature
+        ? getSubdivisionsPerBeatFromSignature(beatsPerBarOrTimeSignature || '4/4')
+        : (subdivisionsPerBeat || 2);
+      const totalSlots = getPatternSlotCount(beatsPerBar, subdivisions);
       const cleanText = (strText || '').replace(/\s+/g, '').toUpperCase();
       return Array.from({ length: totalSlots }, (_, i) => {
         const char = cleanText[i] || '.';
@@ -1254,26 +1277,26 @@ Rules:
 
     function parseStrumPattern(strText, timeSignature = "4/4") {
       const beatsPerBar = getBeatsPerBarFromSignature(timeSignature);
-      const cleanText = normalizePatternText(strText, beatsPerBar);
+      const subdivisionsPerBeat = getSubdivisionsPerBeatFromSignature(timeSignature);
+      const slotDurationBeats = 1 / subdivisionsPerBeat;
+      const cleanText = normalizePatternText(strText, timeSignature);
       const pattern = [];
-      const totalSlots = getPatternSlotCount(beatsPerBar);
+      const totalSlots = getPatternSlotCount(beatsPerBar, subdivisionsPerBeat);
       for(let i=0; i < totalSlots; i++) {
         const char = cleanText[i] || '.';
-        const time = i * 0.5;
+        const time = i * slotDurationBeats;
         const type = char === 'D' ? '↓' : (char === 'U' ? '↑' : (char === 'X' ? 'x' : '.'));
         pattern.push({ time, type, raw: char });
       }
       return pattern;
     }
 
-    function buildPatternEditor(containerId, value, beatsPerBar, clickHandlerName) {
+    function buildPatternEditor(containerId, value, beatsPerBar, clickHandlerName, subdivisionsPerBeat = 2) {
       const container = document.getElementById(containerId);
       if (!container) return;
       container.style.gridTemplateColumns = `repeat(${beatsPerBar}, minmax(0, 1fr))`;
-      const normalized = normalizePatternText(value, beatsPerBar);
+      const normalized = normalizePatternText(value, beatsPerBar, subdivisionsPerBeat);
       container.innerHTML = Array.from({ length: beatsPerBar }, (_, beatIdx) => {
-        const leftIdx = beatIdx * 2;
-        const rightIdx = leftIdx + 1;
         const buildCell = (char, idx) => {
           const symbol = char === 'D' ? '&#8595;' : (char === 'U' ? '&#8593;' : (char === 'X' ? 'x' : '&middot;'));
           const clickExpr = String(clickHandlerName || '').includes('__INDEX__')
@@ -1282,42 +1305,48 @@ Rules:
           return `
             <button type="button" onclick="${clickExpr}" class="pattern-cell ${char !== '.' ? 'active' : ''}">
               <div class="pattern-action ${char === '.' ? 'rest opacity-40' : ''}">${symbol}</div>
-              <div class="pattern-count">${getPatternCountLabel(idx)}</div>
+              <div class="pattern-count">${getPatternCountLabel(idx, subdivisionsPerBeat)}</div>
             </button>
           `;
         };
+        const slotStart = beatIdx * subdivisionsPerBeat;
+        const cells = Array.from({ length: subdivisionsPerBeat }, (_, slot) => {
+          const idx = slotStart + slot;
+          return buildCell(normalized[idx], idx);
+        }).join('');
         return `
-          <div class="pattern-group">
-            ${buildCell(normalized[leftIdx], leftIdx)}
-            ${buildCell(normalized[rightIdx], rightIdx)}
-            <div class="pattern-pair-bracket"><span></span></div>
+          <div class="pattern-group" style="grid-template-columns: repeat(${subdivisionsPerBeat}, minmax(0, 1fr));">
+            ${cells}
+            ${subdivisionsPerBeat === 2 ? '<div class="pattern-pair-bracket"><span></span></div>' : ''}
           </div>
         `;
       }).join('');
     }
 
-    function renderPatternVisualizer(containerId, pattern, beatsPerBar, activeIndex = -1, validationStates = []) {
+    function renderPatternVisualizer(containerId, pattern, beatsPerBar, activeIndex = -1, validationStates = [], subdivisionsPerBeat = 2) {
       const container = document.getElementById(containerId);
       if (!container) return;
-      const normalized = normalizePatternText(pattern.map(s => s.raw || '.').join(''), beatsPerBar);
+      const normalized = normalizePatternText(pattern.map(s => s.raw || '.').join(''), beatsPerBar, subdivisionsPerBeat);
       container.innerHTML = `
         <div class="pattern-editor-grid" style="grid-template-columns: repeat(${beatsPerBar}, minmax(0, 1fr));">
           ${Array.from({ length: beatsPerBar }, (_, beatIdx) => {
-            const leftIdx = beatIdx * 2;
-            const rightIdx = leftIdx + 1;
             const buildCell = (char, idx) => {
               const symbol = char === 'D' ? '&#8595;' : (char === 'U' ? '&#8593;' : (char === 'X' ? 'x' : '&middot;'));
               const validationClass = validationStates[idx] === 'success' ? 'success' : (validationStates[idx] === 'fail' ? 'fail' : '');
               return `<div class="pattern-cell ${idx === activeIndex ? 'active' : ''} ${validationClass}">
                 <div class="pattern-action ${char === '.' ? 'rest' : ''}">${symbol}</div>
-                <div class="pattern-count">${getPatternCountLabel(idx)}</div>
+                <div class="pattern-count">${getPatternCountLabel(idx, subdivisionsPerBeat)}</div>
               </div>`;
             };
+            const slotStart = beatIdx * subdivisionsPerBeat;
+            const cells = Array.from({ length: subdivisionsPerBeat }, (_, slot) => {
+              const idx = slotStart + slot;
+              return buildCell(normalized[idx], idx);
+            }).join('');
             return `
-              <div class="pattern-group">
-                ${buildCell(normalized[leftIdx], leftIdx)}
-                ${buildCell(normalized[rightIdx], rightIdx)}
-                <div class="pattern-pair-bracket"><span></span></div>
+              <div class="pattern-group" style="grid-template-columns: repeat(${subdivisionsPerBeat}, minmax(0, 1fr));">
+                ${cells}
+                ${subdivisionsPerBeat === 2 ? '<div class="pattern-pair-bracket"><span></span></div>' : ''}
               </div>
             `;
           }).join('')}
@@ -1593,10 +1622,7 @@ Rules:
         id: nextAddPatternEntryId++,
         tag: String(entry?.tag || ''),
         timeSignature: normalizeTimeSignature(entry?.timeSignature || defaultTimeSignature, defaultTimeSignature),
-        patternText: normalizePatternText(
-          String(entry?.patternText || ''),
-          getBeatsPerBarFromSignature(normalizeTimeSignature(entry?.timeSignature || defaultTimeSignature, defaultTimeSignature))
-        )
+        patternText: normalizePatternText(String(entry?.patternText || ''), normalizeTimeSignature(entry?.timeSignature || defaultTimeSignature, defaultTimeSignature))
       }));
       syncAddPatternEditor();
     }
@@ -1652,10 +1678,7 @@ Rules:
         id: nextAddPatternEntryId++,
         tag: String(entry.tag || ''),
         timeSignature: normalizeTimeSignature(entry.timeSignature || defaultTimeSignature, defaultTimeSignature),
-        patternText: normalizePatternText(
-          extractRawPatternFromEntry(entry),
-          getBeatsPerBarFromSignature(normalizeTimeSignature(entry.timeSignature || defaultTimeSignature, defaultTimeSignature))
-        )
+        patternText: normalizePatternText(extractRawPatternFromEntry(entry), normalizeTimeSignature(entry.timeSignature || defaultTimeSignature, defaultTimeSignature))
       }));
       syncAddPatternEditor();
       
@@ -1684,8 +1707,7 @@ Rules:
         
         const preparedPatterns = addPatternEntries.map((entry, idx) => {
           const timeSignature = normalizeTimeSignature(entry.timeSignature || '4/4');
-          const beatsPerBar = getBeatsPerBarFromSignature(timeSignature);
-          const patternText = normalizePatternText(entry.patternText || "", beatsPerBar);
+          const patternText = normalizePatternText(entry.patternText || "", timeSignature);
           const tag = String(entry.tag || '').trim();
           return {
             tag,
@@ -1700,7 +1722,7 @@ Rules:
           tag: '',
           tagKey: '',
           timeSignature: '4/4',
-          patternText: normalizePatternText("", getBeatsPerBarFromSignature('4/4')),
+          patternText: normalizePatternText("", '4/4'),
           strumming: parseStrumPattern("", '4/4'),
           index: 0
         };
@@ -2137,7 +2159,7 @@ Rules:
         ...entry,
         tag: String(entry.tag || ''),
         timeSignature: normalizeTimeSignature(entry.timeSignature || '4/4'),
-        patternText: normalizePatternText(entry.patternText || '', getBeatsPerBarFromSignature(normalizeTimeSignature(entry.timeSignature || '4/4')))
+        patternText: normalizePatternText(entry.patternText || '', normalizeTimeSignature(entry.timeSignature || '4/4'))
       }));
       holder.innerHTML = addPatternEntries.map((entry, idx) => `
         <div class="bg-surface border border-gray-700 rounded-xl p-3 mb-3">
@@ -2170,8 +2192,10 @@ Rules:
         </div>
       `).join('');
       addPatternEntries.forEach(entry => {
-        const beatsPerBar = getBeatsPerBarFromSignature(entry.timeSignature || '4/4');
-        buildPatternEditor(`add-strum-editor-${entry.id}`, entry.patternText, beatsPerBar, `cycleAddPatternBeat(${entry.id}, __INDEX__)`);
+        const timeSignature = normalizeTimeSignature(entry.timeSignature || '4/4');
+        const beatsPerBar = getBeatsPerBarFromSignature(timeSignature);
+        const subdivisionsPerBeat = getSubdivisionsPerBeatFromSignature(timeSignature);
+        buildPatternEditor(`add-strum-editor-${entry.id}`, entry.patternText, beatsPerBar, `cycleAddPatternBeat(${entry.id}, __INDEX__)`, subdivisionsPerBeat);
       });
     }
 
@@ -2183,11 +2207,12 @@ Rules:
     window.addPatternRow = function() {
       const timeSignature = normalizeTimeSignature(addPatternEntries[addPatternEntries.length - 1]?.timeSignature || '4/4');
       const beatsPerBar = getBeatsPerBarFromSignature(timeSignature);
+      const subdivisionsPerBeat = getSubdivisionsPerBeatFromSignature(timeSignature);
       addPatternEntries.push({
         id: nextAddPatternEntryId++,
         tag: '',
         timeSignature,
-        patternText: normalizePatternText('', beatsPerBar)
+        patternText: normalizePatternText('', beatsPerBar, subdivisionsPerBeat)
       });
       renderAddPatternEditors();
     };
@@ -2209,15 +2234,16 @@ Rules:
       if (!target) return;
       target.timeSignature = normalizeTimeSignature(value || '4/4');
       const beatsPerBar = getBeatsPerBarFromSignature(target.timeSignature);
-      target.patternText = normalizePatternText(target.patternText || '', beatsPerBar);
+      const subdivisionsPerBeat = getSubdivisionsPerBeatFromSignature(target.timeSignature);
+      target.patternText = normalizePatternText(target.patternText || '', beatsPerBar, subdivisionsPerBeat);
       renderAddPatternEditors();
     };
 
     window.cycleAddPatternBeat = function(entryId, index) {
       const target = addPatternEntries.find(entry => entry.id === entryId);
       if (!target) return;
-      const beatsPerBar = getBeatsPerBarFromSignature(target.timeSignature || '4/4');
-      const chars = normalizePatternText(target.patternText, beatsPerBar).split('');
+      const timeSignature = normalizeTimeSignature(target.timeSignature || '4/4');
+      const chars = normalizePatternText(target.patternText, timeSignature).split('');
       const next = chars[index] === 'D' ? 'U' : (chars[index] === 'U' ? 'X' : (chars[index] === 'X' ? '.' : 'D'));
       chars[index] = next;
       target.patternText = chars.join('');
@@ -2227,19 +2253,19 @@ Rules:
     window.updateTrainingPatternEditor = function() {
       const timeSignature = document.getElementById('training-time-sig')?.value || '4/4';
       const beatsPerBar = getBeatsPerBarFromSignature(timeSignature);
+      const subdivisionsPerBeat = getSubdivisionsPerBeatFromSignature(timeSignature);
       const holder = document.getElementById('training-pattern-editor');
       const current = holder.dataset.pattern || '';
-      const normalized = normalizePatternText(current, beatsPerBar);
+      const normalized = normalizePatternText(current, beatsPerBar, subdivisionsPerBeat);
       holder.dataset.pattern = normalized;
-      UI.buildPatternEditor('training-pattern-editor', normalized, beatsPerBar, 'cycleTrainingPatternBeat');
+      UI.buildPatternEditor('training-pattern-editor', normalized, beatsPerBar, 'cycleTrainingPatternBeat', subdivisionsPerBeat);
       renderTrainingPatternPreview();
     };
 
     window.cycleTrainingPatternBeat = function(index) {
       const timeSignature = document.getElementById('training-time-sig').value || '4/4';
-      const beatsPerBar = getBeatsPerBarFromSignature(timeSignature);
       const holder = document.getElementById('training-pattern-editor');
-      const chars = normalizePatternText(holder.dataset.pattern || '', beatsPerBar).split('');
+      const chars = normalizePatternText(holder.dataset.pattern || '', timeSignature).split('');
       chars[index] = chars[index] === 'D' ? 'U' : (chars[index] === 'U' ? 'X' : (chars[index] === 'X' ? '.' : 'D'));
       holder.dataset.pattern = chars.join('');
       updateTrainingPatternEditor();
@@ -2248,11 +2274,12 @@ Rules:
     function renderTrainingPatternPreview(activeIndex = -1) {
       const timeSignature = document.getElementById('training-time-sig')?.value || '4/4';
       const beatsPerBar = getBeatsPerBarFromSignature(timeSignature);
+      const subdivisionsPerBeat = getSubdivisionsPerBeatFromSignature(timeSignature);
       const bpm = parseInt(document.getElementById('training-bpm')?.value || '126', 10);
       const holder = document.getElementById('training-pattern-editor');
       const pattern = parseStrumPattern(holder.dataset.pattern || '', timeSignature);
       document.getElementById('training-title').innerText = `Chorus ${bpm} bpm`;
-      UI.renderPatternVisualizer('training-pattern-viz', pattern, beatsPerBar, activeIndex);
+      UI.renderPatternVisualizer('training-pattern-viz', pattern, beatsPerBar, activeIndex, [], subdivisionsPerBeat);
     }
 
     function stopTrainingPlayback() {
@@ -2268,7 +2295,8 @@ Rules:
     function startTrainingPlayback() {
       const timeSignature = document.getElementById('training-time-sig').value || '4/4';
       const beatsPerBar = getBeatsPerBarFromSignature(timeSignature);
-      const totalSlots = getPatternSlotCount(beatsPerBar);
+      const subdivisionsPerBeat = getSubdivisionsPerBeatFromSignature(timeSignature);
+      const totalSlots = getPatternSlotCount(beatsPerBar, subdivisionsPerBeat);
       const bpm = Math.max(40, Math.min(240, parseInt(document.getElementById('training-bpm').value || '126', 10)));
       trainingBeatIndex = 0;
       document.getElementById('training-status').innerText = 'Playing';
@@ -2607,7 +2635,15 @@ Rules:
           btnEdit.classList.add('hidden');
       }
       
-      UI.renderPatternVisualizer('detail-strum-viz', currentSong.strumming, getBeatsPerBarFromSignature(currentSong.strummingPatterns?.[0]?.timeSignature || currentSong.timeSignature || '4/4'));
+      const detailPatternTimeSignature = normalizeTimeSignature(currentSong.strummingPatterns?.[0]?.timeSignature || currentSong.timeSignature || '4/4');
+      UI.renderPatternVisualizer(
+        'detail-strum-viz',
+        currentSong.strumming,
+        getBeatsPerBarFromSignature(detailPatternTimeSignature),
+        -1,
+        [],
+        getSubdivisionsPerBeatFromSignature(detailPatternTimeSignature)
+      );
       
       const unique = [...new Set(currentSong.chords.map(c => c.chord))];
       renderChordLibrary('detail-chords', unique);
@@ -2769,7 +2805,9 @@ Rules:
       const focus = document.getElementById('step2-focus');
       const rhythmViz = document.getElementById('practice-rhythm-viz');
       const chordPanel = document.getElementById('practice-current-chord-panel');
-      const beatsPerBar = parseInt((currentSong.timeSignature || "4/4").split('/')[0]) || 4;
+      const activeTimeSignature = normalizeTimeSignature(currentSong.timeSignature || "4/4");
+      const beatsPerBar = getBeatsPerBarFromSignature(activeTimeSignature);
+      const subdivisionsPerBeat = getSubdivisionsPerBeatFromSignature(activeTimeSignature);
       
       timeline.innerHTML = '';
       rhythmViz.innerHTML = '';
@@ -2816,7 +2854,7 @@ Rules:
         practicePatternAssignments = [{ startBeat: 0, pattern: normalizedPreview, timeSignature: normalizeTimeSignature(currentSong.timeSignature || '4/4'), tagKey: '' }];
         practiceValidationStates = new Array(activeStrumPattern.length).fill(null);
         updatePreviewPlayButton();
-        UI.renderPatternVisualizer('practice-preview-pattern', normalizedPreview, beatsPerBar, -1, []);
+        UI.renderPatternVisualizer('practice-preview-pattern', normalizedPreview, beatsPerBar, -1, [], subdivisionsPerBeat);
         const previewFab = document.getElementById('btn-start-step1-fab');
         if (previewFab) previewFab.onclick = () => startPractice(1);
         navigate('practice', {
@@ -2880,8 +2918,8 @@ Rules:
         // For Step 1, create a pattern dynamically based on the Time Signature
         if (step === 1) {
             activeStrumPattern = [];
-            for(let i=0; i<getPatternSlotCount(beatsPerBar); i++) {
-                activeStrumPattern.push({ time: i * 0.5, type: i === 0 ? "↓" : ".", raw: i === 0 ? "D" : "." });
+            for(let i=0; i<getPatternSlotCount(beatsPerBar, subdivisionsPerBeat); i++) {
+                activeStrumPattern.push({ time: i * (1 / subdivisionsPerBeat), type: i === 0 ? "↓" : ".", raw: i === 0 ? "D" : "." });
             }
             practicePatternAssignments = [{ startBeat: 0, pattern: activeStrumPattern, timeSignature: normalizeTimeSignature(currentSong.timeSignature || '4/4'), tagKey: '' }];
         } else {
@@ -2891,7 +2929,7 @@ Rules:
       }
 
       practiceValidationStates = new Array(activeStrumPattern.length).fill(null);
-      UI.renderPatternVisualizer('practice-rhythm-viz', activeStrumPattern, beatsPerBar, -1, practiceValidationStates);
+      UI.renderPatternVisualizer('practice-rhythm-viz', activeStrumPattern, beatsPerBar, -1, practiceValidationStates, subdivisionsPerBeat);
 
       const footerButton = document.getElementById('btn-play');
       footerButton.innerHTML = `<i class="fas fa-play mr-2"></i> Start`;
@@ -2911,7 +2949,7 @@ Rules:
         isPlaying = true;
         startTime = audioCtx.currentTime - ((pausedPracticeBeat || 0) * (60 / currentBpm));
         nextNoteTime = audioCtx.currentTime + 0.05;
-        const beatsPerBar = parseInt((currentSong.timeSignature || "4/4").split('/')[0]) || 4;
+        const beatsPerBar = getBeatsPerBarFromSignature(currentSong.timeSignature || "4/4");
         currentBeatInBar = Math.floor((pausedPracticeBeat || 0) % beatsPerBar);
         lastSavedPercent = -1;
         lastProgressSaveAtMs = Date.now();
@@ -2930,7 +2968,7 @@ Rules:
     };
 
     function scheduler() {
-      const beatsPerBar = parseInt((currentSong.timeSignature || "4/4").split('/')[0]) || 4;
+      const beatsPerBar = getBeatsPerBarFromSignature(currentSong.timeSignature || "4/4");
       
       while (nextNoteTime < audioCtx.currentTime + 0.1) {
         const osc = audioCtx.createOscillator();
@@ -2970,7 +3008,9 @@ Rules:
       }
 
       const { index: assignmentIndex, pattern: selectedPattern, timeSignature: selectedTimeSignature } = getPracticePatternForBeat(beat);
-      const beatsPerBar = getBeatsPerBarFromSignature(selectedTimeSignature || currentSong.timeSignature || '4/4');
+      const effectiveTimeSignature = normalizeTimeSignature(selectedTimeSignature || currentSong.timeSignature || '4/4');
+      const beatsPerBar = getBeatsPerBarFromSignature(effectiveTimeSignature);
+      const subdivisionsPerBeat = getSubdivisionsPerBeatFromSignature(effectiveTimeSignature);
       const subBeat = beat % beatsPerBar;
       if (selectedPattern && selectedPattern !== activeStrumPattern) {
         activeStrumPattern = selectedPattern;
@@ -2980,8 +3020,8 @@ Rules:
         practiceValidationStates = new Array(activeStrumPattern.length).fill(null);
         lastPlayedStrumIndex = -1;
       }
-      const activeStrumIndex = Math.floor(subBeat * 2) % getPatternSlotCount(beatsPerBar);
-      UI.renderPatternVisualizer('practice-rhythm-viz', activeStrumPattern, beatsPerBar, activeStrumIndex, practiceValidationStates);
+      const activeStrumIndex = Math.floor(subBeat * subdivisionsPerBeat) % getPatternSlotCount(beatsPerBar, subdivisionsPerBeat);
+      UI.renderPatternVisualizer('practice-rhythm-viz', activeStrumPattern, beatsPerBar, activeStrumIndex, practiceValidationStates, subdivisionsPerBeat);
       const activeChord = getActiveChordForBeat(beat);
       updatePracticeValidation();
 

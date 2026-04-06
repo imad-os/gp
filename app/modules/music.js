@@ -1,5 +1,6 @@
 export const NOTE_INDEX = { C: 0, 'B#': 0, 'C#': 1, Db: 1, D: 2, 'D#': 3, Eb: 3, E: 4, Fb: 4, F: 5, 'E#': 5, 'F#': 6, Gb: 6, G: 7, 'G#': 8, Ab: 8, A: 9, 'A#': 10, Bb: 10, B: 11, Cb: 11 };
 export const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+export const SUPPORTED_TIME_SIGNATURES = ['2/4', '3/4', '4/4', '6/8', '2/16', '3/16', '4/16', '6/16'];
 
 export const CHORD_LIBRARY = {
   C: { baseFret: 1, strings: ['x', 3, 2, 0, 1, 0], fingers: [0, 3, 2, 0, 1, 0] },
@@ -32,20 +33,50 @@ export const MOCK_SONG = {
   ]
 };
 
+export function normalizeTimeSignature(value = '', fallback = '4/4') {
+  const normalized = String(value || '').trim();
+  if (SUPPORTED_TIME_SIGNATURES.includes(normalized)) return normalized;
+  return SUPPORTED_TIME_SIGNATURES.includes(fallback) ? fallback : '4/4';
+}
+
+export function getTimeSignatureParts(timeSignature = '4/4') {
+  const normalized = normalizeTimeSignature(timeSignature);
+  const [numRaw, denRaw] = normalized.split('/');
+  const beatsPerBar = parseInt(numRaw, 10) || 4;
+  const denominator = parseInt(denRaw, 10) || 4;
+  return { beatsPerBar, denominator, normalized };
+}
+
 export function getBeatsPerBarFromSignature(timeSignature = "4/4") {
-  return parseInt((timeSignature || "4/4").split('/')[0], 10) || 4;
+  return getTimeSignatureParts(timeSignature).beatsPerBar;
 }
 
-export function getPatternSlotCount(beatsPerBar) {
-  return beatsPerBar * 2;
+export function getSubdivisionsPerBeatFromSignature(timeSignature = '4/4') {
+  const { denominator } = getTimeSignatureParts(timeSignature);
+  if (denominator === 16) return 4;
+  return 2;
 }
 
-export function getPatternCountLabel(idx) {
-  return idx % 2 === 0 ? String((idx / 2) + 1) : '&';
+export function getPatternSlotCount(beatsPerBar, subdivisionsPerBeat = 2) {
+  return beatsPerBar * subdivisionsPerBeat;
 }
 
-export function normalizePatternText(strText, beatsPerBar) {
-  const totalSlots = getPatternSlotCount(beatsPerBar);
+export function getPatternCountLabel(idx, subdivisionsPerBeat = 2) {
+  const beat = Math.floor(idx / subdivisionsPerBeat) + 1;
+  const slot = idx % subdivisionsPerBeat;
+  if (subdivisionsPerBeat === 4) return [String(beat), 'e', '&', 'a'][slot] || '';
+  return slot === 0 ? String(beat) : '&';
+}
+
+export function normalizePatternText(strText, beatsPerBarOrTimeSignature, subdivisionsPerBeat = null) {
+  const isSignature = typeof beatsPerBarOrTimeSignature === 'string';
+  const beatsPerBar = isSignature
+    ? getBeatsPerBarFromSignature(beatsPerBarOrTimeSignature || '4/4')
+    : (parseInt(beatsPerBarOrTimeSignature, 10) || 4);
+  const subdivisions = isSignature
+    ? getSubdivisionsPerBeatFromSignature(beatsPerBarOrTimeSignature || '4/4')
+    : (subdivisionsPerBeat || 2);
+  const totalSlots = getPatternSlotCount(beatsPerBar, subdivisions);
   const cleanText = (strText || '').replace(/\s+/g, '').toUpperCase();
   return Array.from({ length: totalSlots }, (_, i) => {
     const char = cleanText[i] || '.';
@@ -55,12 +86,14 @@ export function normalizePatternText(strText, beatsPerBar) {
 
 export function parseStrumPattern(strText, timeSignature = "4/4") {
   const beatsPerBar = getBeatsPerBarFromSignature(timeSignature);
-  const cleanText = normalizePatternText(strText, beatsPerBar);
+  const subdivisionsPerBeat = getSubdivisionsPerBeatFromSignature(timeSignature);
+  const slotDurationBeats = 1 / subdivisionsPerBeat;
+  const cleanText = normalizePatternText(strText, timeSignature);
   const pattern = [];
-  const totalSlots = getPatternSlotCount(beatsPerBar);
+  const totalSlots = getPatternSlotCount(beatsPerBar, subdivisionsPerBeat);
   for (let i = 0; i < totalSlots; i++) {
     const char = cleanText[i] || '.';
-    const time = i * 0.5;
+    const time = i * slotDurationBeats;
     const type = char === 'D' ? '↓' : (char === 'U' ? '↑' : (char === 'X' ? 'x' : '.'));
     pattern.push({ time, type, raw: char });
   }
