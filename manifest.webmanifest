@@ -32,7 +32,7 @@
     },
     {
       "src": "/assets/pwa/screenshot-phone.png",
-      "sizes": "289x634",
+      "sizes": "339x753",
       "type": "image/png",
       "form_factor": "narrow",
       "label": "Phone view"
