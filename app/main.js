@@ -48,6 +48,8 @@ import { FirestoreRepository } from './modules/repository.js';
     let toolRecordings = [];
     let toolAudioPlayers = new Map();
     let activeToolAudioId = null;
+    let toolSongsSearchResults = [];
+    let lastToolSongsQuery = '';
     let toolRecorder = null;
     let toolRecordingStream = null;
     let toolRecordingChunks = [];
@@ -70,8 +72,8 @@ import { FirestoreRepository } from './modules/repository.js';
     const METRONOME_STORAGE_KEY = 'guitartrainer.metronome.settings';
     const GEMINI_API_KEY_STORAGE_KEY = 'guitartrainer.gemini.apiKey';
     const APP_BUILD = {
-      version: 'v2026.04.06.1',
-      updatedAt: '2026-04-06 16:34 (Africa/Lagos)'
+      version: 'v2026.04.06.2',
+      updatedAt: '2026-04-06 17:05 (Africa/Lagos)'
     };
     const DEFAULT_SETTINGS = {
       practiceTextSize: 14,
@@ -1733,6 +1735,7 @@ Rules:
 
     window.navigate = function(id, options = {}) {
       const { skipUrl = false, replaceUrl = false, pathOverride = null } = options || {};
+      if (id !== 'practice' && isPlaying) stopPlayback();
       document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
       document.getElementById(`view-${id}`).classList.add('active');
       if (TAB_VIEWS.has(id)) activeTab = id;
@@ -2295,30 +2298,49 @@ Rules:
       const input = document.getElementById('home-song-search');
       const query = String(input?.value || '').trim();
       if (!query) return;
-      try {
-        songs = await repository.loadSongs({ defaultSong: MOCK_SONG, ensureSongFormat });
-      } catch (e) {
-        console.error("Home search refresh failed", e);
-      }
       navigate('tools', { pathOverride: '/tools/songs' });
       const toolInput = document.getElementById('tool-song-search');
       if (toolInput) toolInput.value = query;
-      renderToolSongsSearch(query);
+      submitToolSongsSearch();
     };
 
     function renderToolSongsSearch(query = '') {
       const container = document.getElementById('tool-songs-results');
       if (!container) return;
       const q = (query || '').trim().toLowerCase();
-      const filtered = songs.filter(song => !q || song.title?.toLowerCase().includes(q) || song.artist?.toLowerCase().includes(q));
+      if (!q) {
+        container.innerHTML = `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">Enter a title or artist, then press search.</div>`;
+        return;
+      }
+      const filtered = toolSongsSearchResults || [];
       if (!filtered.length) {
-        container.innerHTML = `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No songs found.</div>`;
+        container.innerHTML = `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No songs found for "${escapeHtml(query)}".</div>`;
         return;
       }
       container.innerHTML = filtered.map(song => renderArtistSongCard(song)).join('');
     }
 
     window.renderToolSongsSearch = renderToolSongsSearch;
+
+    window.submitToolSongsSearch = async function(event) {
+      if (event) event.preventDefault();
+      const input = document.getElementById('tool-song-search');
+      const query = String(input?.value || '').trim();
+      lastToolSongsQuery = query;
+      if (!query) {
+        toolSongsSearchResults = [];
+        renderToolSongsSearch('');
+        return;
+      }
+      try {
+        toolSongsSearchResults = await repository.searchSongs(query, { ensureSongFormat, max: 40 });
+      } catch (err) {
+        console.error('Tool songs online search failed', err);
+        toolSongsSearchResults = [];
+        showToast("Online search failed.");
+      }
+      renderToolSongsSearch(query);
+    };
 
     function setPracticeProgressDisplay(percent = 0) {
       const safe = Math.max(0, Math.min(100, percent));

@@ -561,7 +561,10 @@
               <p class="text-sm text-gray-400">Search the library and open a song page quickly.</p>
             </div>
           </div>
-          <input id="tool-song-search" type="text" oninput="renderToolSongsSearch(this.value)" placeholder="Search by title or artist" class="w-full bg-black/30 border border-gray-800 rounded-xl px-4 py-3 outline-none text-white mb-4">
+          <form onsubmit="submitToolSongsSearch(event)" class="flex items-center gap-2 mb-4">
+            <input id="tool-song-search" type="search" placeholder="Search by title or artist" class="flex-1 bg-black/30 border border-gray-800 rounded-xl px-4 py-3 outline-none text-white">
+            <button type="submit" class="w-11 h-11 rounded-xl btn-soft btn-press"><i class="fas fa-search"></i></button>
+          </form>
           <div id="tool-songs-results" class="space-y-3"></div>
         </div>
 

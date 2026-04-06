@@ -1,4 +1,4 @@
-import { collection, getDocs, doc, setDoc, getDoc, addDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { collection, getDocs, doc, setDoc, getDoc, addDoc, deleteDoc, query, where, limit } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
 export class FirestoreRepository {
   constructor(db) {
@@ -16,17 +16,58 @@ export class FirestoreRepository {
   }
 
   async saveSong(songData, editingSongId = null) {
+    const titleLc = String(songData?.title || '').trim().toLowerCase();
+    const artistLc = String(songData?.artist || '').trim().toLowerCase();
+    const searchTokens = Array.from(new Set(
+      `${titleLc} ${artistLc}`
+        .split(/[^a-z0-9]+/i)
+        .map(token => token.trim())
+        .filter(token => token.length >= 2)
+    ));
+    const payload = {
+      ...songData,
+      titleLc,
+      artistLc,
+      searchTokens
+    };
     if (editingSongId) {
       const songRef = doc(this.db, 'songs', editingSongId);
-      await setDoc(songRef, songData, { merge: true });
+      await setDoc(songRef, payload, { merge: true });
       return editingSongId;
     }
     const created = await addDoc(collection(this.db, 'songs'), {
-      ...songData,
-      createdAt: songData.createdAt || Date.now(),
-      stats: songData.stats || { views: 0, started: 0, completed: 0 }
+      ...payload,
+      createdAt: payload.createdAt || Date.now(),
+      stats: payload.stats || { views: 0, started: 0, completed: 0 }
     });
     return created.id;
+  }
+
+  async searchSongs(queryText, { ensureSongFormat, max = 30 } = {}) {
+    const term = String(queryText || '').trim().toLowerCase();
+    if (!term) return [];
+    const songsRef = collection(this.db, 'songs');
+    const token = term.split(/\s+/)[0];
+    const snapshots = [];
+    snapshots.push(await getDocs(query(songsRef, where('searchTokens', 'array-contains', token), limit(max))));
+    if (term !== token) {
+      snapshots.push(await getDocs(query(songsRef, where('searchTokens', 'array-contains', term), limit(max))));
+    }
+    const merged = [];
+    const seen = new Set();
+    for (const snap of snapshots) {
+      snap.docs.forEach(d => {
+        if (seen.has(d.id)) return;
+        seen.add(d.id);
+        merged.push({ id: d.id, ...d.data() });
+      });
+    }
+    const filtered = merged.filter(song => {
+      const title = String(song.title || '').toLowerCase();
+      const artist = String(song.artist || '').toLowerCase();
+      return title.includes(term) || artist.includes(term);
+    });
+    return (ensureSongFormat ? filtered.map(ensureSongFormat) : filtered).slice(0, max);
   }
 
   async loadUserSettings(userId, defaults) {
