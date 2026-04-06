@@ -56,7 +56,6 @@ import { FirestoreRepository } from './modules/repository.js';
     let toolRecordingVizAnimationId = null;
     let selectedChordReference = 'C';
     let activeToolPage = 'home';
-    let aiSongDraftCandidates = [];
     let currentSongComments = [];
     let currentSongRatings = [];
     let pendingSongRating = 0;
@@ -846,124 +845,6 @@ import { FirestoreRepository } from './modules/repository.js';
       };
     }
 
-    function isLikelyChordLine(line = '') {
-      const text = String(line || '').trim();
-      if (!text) return false;
-      const tokens = text.split(/\s+/).filter(Boolean);
-      if (!tokens.length) return false;
-      const chordToken = /^[A-G](#|b)?(m|maj|min|sus|dim|aug|add)?\d*(\/[A-G](#|b)?)?$/i;
-      return tokens.every(token => chordToken.test(token));
-    }
-
-    function getFirstLyricLine(rawText = '') {
-      const lines = String(rawText || '').replace(/\r/g, '').split('\n');
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        if (/^\[[^\]]+\]$/.test(trimmed)) continue;
-        if (isLikelyChordLine(trimmed)) continue;
-        return trimmed;
-      }
-      return '';
-    }
-
-    function buildSongPayloadFromDraft(draft = {}) {
-      const timeSignature = ['2/4', '3/4', '4/4', '6/8'].includes(String(draft.timeSignature || '4/4')) ? String(draft.timeSignature) : '4/4';
-      const bpm = Math.max(40, Math.min(240, parseInt(draft.bpm, 10) || 80));
-      const capo = String(draft.capo || 'No capo').trim() || 'No capo';
-      const title = String(draft.title || 'Untitled').trim() || 'Untitled';
-      const artist = String(draft.artist || 'Unknown Artist').trim() || 'Unknown Artist';
-      const youtubeUrl = normalizeYouTubeUrl(draft.youtubeUrl || '');
-      const rawText = normalizeAiRawText(draft.rawText || 'C\nEmpty');
-      const beatsPerBar = getBeatsPerBarFromSignature(timeSignature);
-      const normalizedPatterns = normalizeAiPatterns(draft.strummingPatterns, timeSignature).map((entry, idx) => {
-        const patternText = normalizePatternText(String(entry?.patternText || ''), beatsPerBar);
-        return {
-          tag: String(entry?.tag || ''),
-          tagKey: normalizeTagKey(String(entry?.tag || '')),
-          patternText,
-          strumming: parseStrumPattern(patternText, timeSignature),
-          index: idx
-        };
-      }).filter((entry, idx) => idx === 0 || entry.tagKey);
-      const primaryPattern = normalizedPatterns[0] || {
-        tag: '',
-        tagKey: '',
-        patternText: normalizePatternText('', beatsPerBar),
-        strumming: parseStrumPattern('', timeSignature),
-        index: 0
-      };
-      return {
-        title,
-        artist,
-        youtubeUrl,
-        bpm,
-        timeSignature,
-        capo,
-        rawText,
-        strumming: primaryPattern.strumming,
-        strummingPatterns: normalizedPatterns.map(entry => ({
-          tag: entry.tag,
-          patternText: entry.patternText,
-          strumming: entry.strumming
-        })),
-        postedBy: user?.email ? user.email.split('@')[0] : 'AI',
-        ownerId: user?.uid || 'ai'
-      };
-    }
-
-    function renderAiSongCandidates() {
-      const container = document.getElementById('ai-song-candidates');
-      if (!container) return;
-      if (!aiSongDraftCandidates.length) {
-        container.innerHTML = '';
-        return;
-      }
-      container.innerHTML = aiSongDraftCandidates.map((draft, idx) => `
-        <div class="bg-black/30 border border-gray-800 rounded-xl p-3">
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <p class="text-xs text-gray-500 uppercase tracking-[0.2em] mb-1">Candidate ${idx + 1}</p>
-              <p class="font-bold text-white">${escapeHtml(draft.title)}</p>
-              <p class="text-xs text-gray-400 mt-1">${escapeHtml(draft.artist)} • ${draft.bpm} BPM • ${escapeHtml(draft.timeSignature)}</p>
-              <p class="text-xs text-gray-300 mt-2 italic">${escapeHtml(getFirstLyricLine(draft.rawText) || 'No lyric preview')}</p>
-            </div>
-            <div class="flex items-center gap-2">
-              <button onclick="saveAiSongCandidate(${idx})" class="bg-active text-black rounded-full px-4 py-2 text-xs font-bold btn-press">Save</button>
-              <button onclick="useAiSongCandidate(${idx})" class="btn-soft rounded-full px-4 py-2 text-xs btn-press">Edit</button>
-            </div>
-          </div>
-        </div>
-      `).join('');
-    }
-
-    window.useAiSongCandidate = function(index) {
-      const draft = aiSongDraftCandidates[index];
-      if (!draft) return;
-      openAddSong({ draft });
-      showToast("Draft loaded in Add Song.", true);
-    };
-
-    window.saveAiSongCandidate = async function(index) {
-      const draft = aiSongDraftCandidates[index];
-      if (!draft) return;
-      if (!user) return navigate('auth');
-      if (user.isAnonymous) return showToast("Create an account to save songs.");
-      const payload = buildSongPayloadFromDraft(draft);
-      try {
-        showLoading(true, "Saving AI song...");
-        await repository.saveSong(payload, null);
-        await loadSongs();
-        showToast("Song saved from AI candidate.", true);
-        navigate('home');
-      } catch (err) {
-        console.error('Save AI candidate failed', err);
-        showToast("Could not save AI candidate.");
-      } finally {
-        showLoading(false);
-      }
-    };
-
     async function fetchYouTubeMetadata(url = '') {
       const normalized = normalizeYouTubeUrl(url);
       if (!normalized) return null;
@@ -979,39 +860,6 @@ import { FirestoreRepository } from './modules/repository.js';
       } catch {
         return null;
       }
-    }
-
-    async function fetchSongCatalogHints(title = '', artist = '') {
-      const query = [title, artist].filter(Boolean).join(' ').trim();
-      if (!query) return [];
-      try {
-        const endpoint = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=8`;
-        const response = await fetch(endpoint);
-        if (!response.ok) return [];
-        const data = await response.json();
-        return (Array.isArray(data?.results) ? data.results : []).map(item => ({
-          title: String(item?.trackName || '').trim(),
-          artist: String(item?.artistName || '').trim()
-        })).filter(item => item.title && item.artist);
-      } catch {
-        return [];
-      }
-    }
-
-    function candidateIdentityKey(item = {}) {
-      return `${String(item.title || '').trim().toLowerCase()}::${String(item.artist || '').trim().toLowerCase()}`;
-    }
-
-    function distinctCandidates(items = []) {
-      const out = [];
-      const seen = new Set();
-      for (const item of items) {
-        const key = candidateIdentityKey(item);
-        if (!key || seen.has(key)) continue;
-        seen.add(key);
-        out.push(item);
-      }
-      return out;
     }
 
     async function callGeminiJson(apiKey, prompt) {
@@ -1053,56 +901,45 @@ import { FirestoreRepository } from './modules/repository.js';
 
       const normalizedYoutube = normalizeYouTubeUrl(youtubeInput);
       localStorage.setItem(GEMINI_API_KEY_STORAGE_KEY, apiKey);
-      aiSongDraftCandidates = [];
-      renderAiSongCandidates();
       if (btn) btn.disabled = true;
       if (btn) btn.innerHTML = `<i class="fas fa-circle-notch fa-spin mr-2"></i> Generating...`;
 
       const ytMeta = normalizedYoutube ? await fetchYouTubeMetadata(normalizedYoutube) : null;
-      const catalogHints = !normalizedYoutube ? await fetchSongCatalogHints(titleInput, artistInput) : [];
-      const catalogHintText = catalogHints.length
-        ? `Catalog hints (prefer these exact identities first):\n${catalogHints.map((h, i) => `${i + 1}. ${h.title} — ${h.artist}`).join('\n')}`
-        : '';
       const sourceHint = normalizedYoutube
-        ? `Use this YouTube link as primary reference: ${normalizedYoutube}. Exact YouTube metadata: title="${ytMeta?.title || ''}", artist/channel="${ytMeta?.authorName || ''}".`
-        : `Use this song identity: title="${titleInput}", artist="${artistInput}"`;
+        ? `youtube link: ${normalizedYoutube}`
+        : `title: "${titleInput}" by artist: "${artistInput}"`;
       const difficultyHint = simpleMode
         ? 'Use simple mode: easy open-position chords only (avoid barre and complex 4-finger shapes), and an easy strumming pattern.'
         : 'Use normal mode: keep musically realistic chords and pattern.';
 
       const prompt = `
-Generate exactly 3 possible guitar song drafts as strict JSON only, no markdown.
+Generate one guitar song draft as strict JSON only, no markdown.
+Song identity input (must keep exact identity, no alternatives):
 ${sourceHint}
-${catalogHintText}
+YouTube metadata hint (if available): title="${ytMeta?.title || ''}", artist/channel="${ytMeta?.authorName || ''}".
 ${difficultyHint}
 
 Output JSON shape:
 {
-  "candidates": [
-    {
-      "title": "string",
-      "artist": "string",
-      "youtubeUrl": "string (can be empty)",
-      "bpm": 80,
-      "timeSignature": "4/4",
-      "capo": "No capo",
-      "rawText": "chords and lyrics in app format",
-      "strummingPatterns": [
-        { "tag": "[verse 1]", "patternText": "D.DU.UD." }
-      ]
-    }
+  "title": "string",
+  "artist": "string",
+  "youtubeUrl": "string (can be empty)",
+  "bpm": 80,
+  "timeSignature": "4/4",
+  "capo": "No capo",
+  "rawText": "chords and lyrics in app format",
+  "strummingPatterns": [
+    { "tag": "[verse 1]", "patternText": "D.DU.UD." }
   ]
 }
 
 Rules:
 - timeSignature must be one of: 2/4, 3/4, 4/4, 6/8.
 - patternText must contain only D, U, X, .
-- Return exactly 3 candidate objects.
-- Use at least one strumming pattern per candidate.
+- Return one song only.
+- Use at least one strumming pattern.
 - If all sections use the same strumming, return only one pattern entry without repeated copies.
-- Keep candidates focused on the same song identity, not unrelated songs.
-- Candidates must be 3 different songs (different title or different artist), not difficulty variants of same song.
-- Do not return "normal/simple/beginner" versions of one song.
+- Do not return any alternatives, variants, or other artists.
 - rawText must use two-line block style only:
   1) one full chords line
   2) next full lyrics line
@@ -1113,50 +950,14 @@ Rules:
 
       try {
         const parsed = await callGeminiJson(apiKey, prompt);
-        const rawCandidates = Array.isArray(parsed.candidates)
-          ? parsed.candidates
-          : Array.isArray(parsed.songs)
-            ? parsed.songs
-            : Array.isArray(parsed.options)
-              ? parsed.options
-              : parsed.title || parsed.rawText
-                ? [parsed]
-                : [];
-        if (!rawCandidates.length) throw new Error('No candidates returned by AI.');
-        const fallback = { title: titleInput || 'Untitled', artist: artistInput || 'Unknown Artist', youtubeUrl: normalizedYoutube || '' };
-        aiSongDraftCandidates = distinctCandidates(rawCandidates.map(item => normalizeAiDraft(item, fallback)));
-
-        if (aiSongDraftCandidates.length < 3) {
-          const used = aiSongDraftCandidates.map(item => `${item.title} — ${item.artist}`).join('; ');
-          const retryPrompt = `
-Return only additional candidates to fill up to 3 distinct songs.
-Already used identities (must NOT repeat): ${used || 'none'}
-${sourceHint}
-${catalogHintText}
-Return JSON only:
-{
-  "candidates": [
-    { "title":"string", "artist":"string", "youtubeUrl":"string", "bpm":80, "timeSignature":"4/4", "capo":"No capo", "rawText":"...", "strummingPatterns":[{"tag":"", "patternText":"D.DU.UD."}] }
-  ]
-}
-Rules:
-- Only new song identities (different title or artist from used list).
-- No normal/simple/beginner variants.
-- rawText chord/lyric two-line style only.
-`.trim();
-          const retryParsed = await callGeminiJson(apiKey, retryPrompt);
-          const retryRaw = Array.isArray(retryParsed?.candidates) ? retryParsed.candidates : [];
-          if (retryRaw.length) {
-            aiSongDraftCandidates = distinctCandidates([
-              ...aiSongDraftCandidates,
-              ...retryRaw.map(item => normalizeAiDraft(item, fallback))
-            ]);
-          }
-        }
-        aiSongDraftCandidates = aiSongDraftCandidates.slice(0, 3);
-        renderAiSongCandidates();
-        if (aiSongDraftCandidates.length < 3) showToast("Showing available distinct matches.", true);
-        else showToast("3 different candidates ready. Choose one.", true);
+        if (!parsed || typeof parsed !== 'object') throw new Error('No song returned by AI.');
+        const fallback = { title: titleInput || ytMeta?.title || 'Untitled', artist: artistInput || ytMeta?.authorName || 'Unknown Artist', youtubeUrl: normalizedYoutube || '' };
+        const draft = normalizeAiDraft(parsed, fallback);
+        if (artistInput) draft.artist = artistInput;
+        if (titleInput) draft.title = titleInput;
+        if (normalizedYoutube) draft.youtubeUrl = normalizedYoutube;
+        openAddSong({ draft });
+        showToast("AI draft generated. Review and save.", true);
       } catch (err) {
         console.error('AI generation failed', err);
         showToast("AI generation failed. Check inputs/API key.");
