@@ -1,10 +1,8 @@
 ﻿import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 import { getFirestore } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-import * as Music from './modules/music.js';
 import * as UI from './modules/renderers.js';
 import { FirestoreRepository } from './modules/repository.js';
-import { AudioEngine } from './modules/audio-engine.js';
 
     const appId = typeof __app_id !== 'undefined' ? __app_id : "1:282086325190:web:b3ec1bca510460e87a50c7";
     const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
@@ -20,6 +18,7 @@ import { AudioEngine } from './modules/audio-engine.js';
     let songs = [];
     let currentSong = null;
     let userProgress = {};
+    let userProgressSongId = null;
     let editingSongId = null; 
     
     let audioCtx = null;
@@ -29,6 +28,7 @@ import { AudioEngine } from './modules/audio-engine.js';
     let nextNoteTime = 0;
     let currentBeatInBar = 0;
     let animationId;
+    let lastProgressSaveAtMs = 0;
     let currentStepMode = 1;
     let activeStrumPattern = [];
     let practicePatternAssignments = [];
@@ -68,20 +68,11 @@ import { AudioEngine } from './modules/audio-engine.js';
     const METRONOME_STORAGE_KEY = 'guitartrainer.metronome.settings';
     const DEFAULT_SETTINGS = {
       practiceTextSize: 14,
-      enableStrumDetection: false,
-      enableChordDetection: false,
       favoriteSongIds: [],
       recentPractice: []
     };
     let userSettings = { ...DEFAULT_SETTINGS };
-    let practiceStream = null;
-    let practiceAnalyser = null;
-    let practiceSource = null;
     let practiceValidationStates = [];
-    let lastPracticeTransientTime = 0;
-    let lastPracticeRms = 0;
-    let lastChordValidationState = null;
-    const audioEngine = new AudioEngine();
 
     const CAPO_OPTIONS = ["No capo", "1st fret", "2nd fret", "3rd fret", "4th fret", "5th fret", "6th fret", "7th fret", "8th fret", "9th fret", "10th fret", "11th fret", "12th fret"];
     const TAB_VIEWS = new Set(['home', 'training', 'tuner', 'tools', 'settings']);
@@ -1296,139 +1287,14 @@ import { AudioEngine } from './modules/audio-engine.js';
     };
 
     async function startPracticeDetection() {
-      if (!(userSettings.enableStrumDetection || userSettings.enableChordDetection)) return;
-      try {
-        stopTuner();
-        if (!audioCtx) await ensureAudioReady();
-        practiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        practiceAnalyser = audioCtx.createAnalyser();
-        practiceAnalyser.fftSize = 2048;
-        practiceSource = audioCtx.createMediaStreamSource(practiceStream);
-        practiceSource.connect(practiceAnalyser);
-      } catch (e) {
-        console.error(e);
-        showToast("Microphone access is needed for practice detection.");
-      }
+      return;
     }
 
     function stopPracticeDetection() {
-      if (practiceSource) {
-        try { practiceSource.disconnect(); } catch {}
-        practiceSource = null;
-      }
-      if (practiceStream) {
-        practiceStream.getTracks().forEach(track => track.stop());
-        practiceStream = null;
-      }
-      practiceAnalyser = null;
       practiceValidationStates = [];
-      lastPracticeTransientTime = 0;
-      lastPracticeRms = 0;
-      lastChordValidationState = null;
     }
 
-    function chordToPitchClasses(chordName, capoOffset = 0) {
-      const match = String(chordName || '').trim().match(/^([A-G][#b]?)(.*)$/);
-      if (!match) return [];
-      const baseRoot = transposeNoteName(match[1], capoOffset);
-      const quality = (match[2] || '').toLowerCase();
-      const rootIndex = NOTE_INDEX[baseRoot];
-      if (rootIndex === undefined) return [];
-      let intervals = [0, 4, 7];
-      if (/dim/.test(quality)) intervals = [0, 3, 6];
-      else if (/aug/.test(quality)) intervals = [0, 4, 8];
-      else if (/sus2/.test(quality)) intervals = [0, 2, 7];
-      else if (/sus4|sus/.test(quality)) intervals = [0, 5, 7];
-      else if (/m(?!aj)/.test(quality) || /min/.test(quality)) intervals = [0, 3, 7];
-      if (/7/.test(quality) && !/maj7/.test(quality)) intervals.push(10);
-      if (/maj7/.test(quality)) intervals.push(11);
-      return [...new Set(intervals.map(interval => (rootIndex + interval) % 12))];
-    }
-
-    function estimatePitchClassesFromMic() {
-      if (!practiceAnalyser || !audioCtx) return [];
-      const freqData = new Float32Array(practiceAnalyser.frequencyBinCount);
-      practiceAnalyser.getFloatFrequencyData(freqData);
-      const sampleRate = audioCtx.sampleRate;
-      const binWidth = sampleRate / practiceAnalyser.fftSize;
-      const peaks = [];
-      for (let i = 5; i < freqData.length; i++) {
-        const db = freqData[i];
-        const freq = i * binWidth;
-        if (db < -78 || freq < 70 || freq > 1200) continue;
-        peaks.push({ db, freq });
-      }
-      peaks.sort((a, b) => b.db - a.db);
-      return [...new Set(peaks.slice(0, 8).map(p => Math.round(69 + 12 * Math.log2(p.freq / 440)) % 12).map(v => (v + 12) % 12))];
-    }
-
-    function validateChordLoosely(chordName) {
-      const expected = chordToPitchClasses(chordName, getCapoOffset(currentSong?.capo || 'No capo'));
-      const heard = estimatePitchClassesFromMic();
-      if (!expected.length || !heard.length) return null;
-      const matches = expected.filter(pc => heard.includes(pc)).length;
-      return matches >= Math.max(2, Math.ceil(expected.length / 2));
-    }
-
-    function updateActiveChordValidationClass(result) {
-      const active = document.querySelector('.text-active');
-      if (!active) return;
-      active.classList.remove('validation-soft-green', 'validation-soft-red');
-      if (result === true) active.classList.add('validation-soft-green');
-      if (result === false) active.classList.add('validation-soft-red');
-    }
-
-    function detectPracticeTransient() {
-      if (!practiceAnalyser || !audioCtx) return false;
-      const buffer = new Float32Array(1024);
-      practiceAnalyser.getFloatTimeDomainData(buffer);
-      let rms = 0;
-      let peak = 0;
-      for (let i = 0; i < buffer.length; i++) {
-        const v = Math.abs(buffer[i]);
-        rms += buffer[i] * buffer[i];
-        if (v > peak) peak = v;
-      }
-      rms = Math.sqrt(rms / buffer.length);
-      const now = audioCtx.currentTime;
-      const isTransient = peak > 0.22 && rms > 0.035 && (rms - lastPracticeRms) > 0.012 && (now - lastPracticeTransientTime) > 0.12;
-      lastPracticeRms = rms;
-      if (isTransient) {
-        lastPracticeTransientTime = now;
-        return true;
-      }
-      return false;
-    }
-
-    function updatePracticeValidation(beat, activeChord) {
-      if (!(userSettings.enableStrumDetection || userSettings.enableChordDetection)) return;
-      const tolerance = 0.22;
-      activeStrumPattern.forEach((slot, idx) => {
-        if (slot.raw === '.' || practiceValidationStates[idx]) return;
-        if (beat > slot.time + tolerance) practiceValidationStates[idx] = 'fail';
-      });
-
-      if (!detectPracticeTransient()) return;
-
-      let matchIndex = -1;
-      let bestDistance = Infinity;
-      activeStrumPattern.forEach((slot, idx) => {
-        if (slot.raw === '.' || practiceValidationStates[idx] === 'success') return;
-        const dist = Math.abs(beat - slot.time);
-        if (dist <= tolerance && dist < bestDistance) {
-          bestDistance = dist;
-          matchIndex = idx;
-        }
-      });
-
-      if (matchIndex >= 0 && userSettings.enableStrumDetection) {
-        practiceValidationStates[matchIndex] = 'success';
-      }
-
-      if (matchIndex >= 0 && userSettings.enableChordDetection && activeChord && activeStrumPattern[matchIndex]?.raw !== 'X' && currentStepMode !== 2) {
-        lastChordValidationState = validateChordLoosely(activeChord.chord);
-      }
-    }
+    function updatePracticeValidation() {}
 
     window.openAddSong = function(options = {}) {
       const { skipUrl = false, replaceUrl = false } = options || {};
@@ -1748,10 +1614,6 @@ import { AudioEngine } from './modules/audio-engine.js';
       if (modalSlider) modalSlider.value = size;
       if (settingsLabel) settingsLabel.innerText = `${size} px`;
       if (modalLabel) modalLabel.innerText = `${size} px`;
-      const strumToggle = document.getElementById('settings-strum-detection');
-      const chordToggle = document.getElementById('settings-chord-detection');
-      if (strumToggle) strumToggle.checked = !!userSettings.enableStrumDetection;
-      if (chordToggle) chordToggle.checked = !!userSettings.enableChordDetection;
     }
 
     window.previewTextSize = function(value, fromModal = false) {
@@ -1783,9 +1645,7 @@ import { AudioEngine } from './modules/audio-engine.js';
       const size = parseInt(document.getElementById(sliderId).value, 10) || DEFAULT_SETTINGS.practiceTextSize;
       const nextSettings = {
         ...userSettings,
-        practiceTextSize: size,
-        enableStrumDetection: !!document.getElementById('settings-strum-detection')?.checked,
-        enableChordDetection: !!document.getElementById('settings-chord-detection')?.checked
+        practiceTextSize: size
       };
       applyUserSettings(nextSettings);
       if (!user || user.isAnonymous) {
@@ -2016,9 +1876,25 @@ import { AudioEngine } from './modules/audio-engine.js';
       const p1w = p1 > 0 ? Math.max(4, p1) : 0;
       const p2w = p2 > 0 ? Math.max(4, p2) : 0;
       const p3w = p3 > 0 ? Math.max(4, p3) : 0;
-      const gw = global > 0 ? Math.max(4, global) : 0;
+      const visibleSteps = [
+        p1 > 0 ? `<div>
+              <div class="flex justify-between text-gray-300 mb-1"><span>S1</span><span>${Math.round(p1)}%</span></div>
+              <div class="h-3 rounded-full bg-black/80 overflow-hidden border" style="border-color:rgba(187,134,252,0.7)"><div class="h-full rounded-full bg-gradient-to-r from-[#d9b8ff] to-[#bb86fc] shadow-[0_0_12px_rgba(187,134,252,0.9)]" style="width:${p1w}%"></div></div>
+            </div>` : '',
+        p2 > 0 ? `<div>
+              <div class="flex justify-between text-gray-300 mb-1"><span>S2</span><span>${Math.round(p2)}%</span></div>
+              <div class="h-3 rounded-full bg-black/80 overflow-hidden border" style="border-color:rgba(3,218,198,0.75)"><div class="h-full rounded-full bg-gradient-to-r from-[#6ffff0] to-[#03dac6] shadow-[0_0_12px_rgba(3,218,198,0.95)]" style="width:${p2w}%"></div></div>
+            </div>` : '',
+        p3 > 0 ? `<div>
+              <div class="flex justify-between text-gray-300 mb-1"><span>S3</span><span>${Math.round(p3)}%</span></div>
+              <div class="h-3 rounded-full bg-black/80 overflow-hidden border" style="border-color:rgba(207,102,121,0.75)"><div class="h-full rounded-full bg-gradient-to-r from-[#ffb3c2] to-[#cf6679] shadow-[0_0_12px_rgba(207,102,121,0.95)]" style="width:${p3w}%"></div></div>
+            </div>` : ''
+      ].filter(Boolean);
+      const stepsBlock = visibleSteps.length
+        ? `<div class="grid gap-2 mt-3 text-[10px]" style="grid-template-columns:repeat(${visibleSteps.length},minmax(0,1fr));">${visibleSteps.join('')}</div>`
+        : '';
       return `
-        <button onclick="openSongDetails('${song.id}')" class="w-full text-left tool-nav-card btn-press">
+        <button onclick="openSongPreviewFromList('${song.id}')" class="w-full text-left tool-nav-card btn-press">
           <div class="flex items-start justify-between gap-3">
             <div>
               <div class="font-bold text-white">${song.title}</div>
@@ -2030,29 +1906,7 @@ import { AudioEngine } from './modules/audio-engine.js';
               <i class="fas fa-chevron-right text-primary text-xs"></i>
             </div>
           </div>
-          <div class="mt-3">
-            <div class="flex justify-between items-center text-[10px] uppercase tracking-[0.18em] text-gray-400 mb-1">
-              <span>Overall</span>
-              <span class="text-white font-bold">${global}%</span>
-            </div>
-            <div class="h-3.5 rounded-full bg-black/80 overflow-hidden border border-gray-600">
-              <div class="h-full rounded-full bg-gradient-to-r from-[#06ffe3] to-[#03dac6] shadow-[0_0_16px_rgba(3,218,198,0.95)]" style="width:${gw}%"></div>
-            </div>
-          </div>
-          <div class="grid grid-cols-3 gap-2 mt-3 text-[10px]">
-            <div>
-              <div class="flex justify-between text-gray-300 mb-1"><span>S1</span><span>${Math.round(p1)}%</span></div>
-              <div class="h-3 rounded-full bg-black/80 overflow-hidden border" style="border-color:rgba(187,134,252,0.7)"><div class="h-full rounded-full bg-gradient-to-r from-[#d9b8ff] to-[#bb86fc] shadow-[0_0_12px_rgba(187,134,252,0.9)]" style="width:${p1w}%"></div></div>
-            </div>
-            <div>
-              <div class="flex justify-between text-gray-300 mb-1"><span>S2</span><span>${Math.round(p2)}%</span></div>
-              <div class="h-3 rounded-full bg-black/80 overflow-hidden border" style="border-color:rgba(3,218,198,0.75)"><div class="h-full rounded-full bg-gradient-to-r from-[#6ffff0] to-[#03dac6] shadow-[0_0_12px_rgba(3,218,198,0.95)]" style="width:${p2w}%"></div></div>
-            </div>
-            <div>
-              <div class="flex justify-between text-gray-300 mb-1"><span>S3</span><span>${Math.round(p3)}%</span></div>
-              <div class="h-3 rounded-full bg-black/80 overflow-hidden border" style="border-color:rgba(207,102,121,0.75)"><div class="h-full rounded-full bg-gradient-to-r from-[#ffb3c2] to-[#cf6679] shadow-[0_0_12px_rgba(207,102,121,0.95)]" style="width:${p3w}%"></div></div>
-            </div>
-          </div>
+          ${stepsBlock}
         </button>
       `;
     }
@@ -2083,7 +1937,7 @@ import { AudioEngine } from './modules/audio-engine.js';
         return;
       }
       container.innerHTML = filtered.map(song => `
-        <button onclick="openSongDetails('${song.id}')" class="w-full text-left tool-nav-card btn-press">
+        <button onclick="openSongPreviewFromList('${song.id}')" class="w-full text-left tool-nav-card btn-press">
           <div class="flex items-center justify-between gap-3">
             <div>
               <div class="font-bold text-white">${song.title}</div>
@@ -2106,6 +1960,19 @@ import { AudioEngine } from './modules/audio-engine.js';
       if (bar) bar.style.width = `${visible}%`;
       if (text) text.innerText = `${Math.round(safe)}%`;
     }
+
+    function setPracticePreviewControls(isPreview) {
+      const footer = document.getElementById('practice-footer');
+      const fab = document.getElementById('btn-start-step1-fab');
+      if (footer) footer.classList.toggle('hidden', !!isPreview);
+      if (fab) fab.classList.toggle('hidden', !isPreview);
+    }
+
+    window.updatePracticeBpmLabel = function(value) {
+      const safe = Math.max(40, Math.min(240, parseInt(value, 10) || 80));
+      const label = document.getElementById('practice-bpm-value');
+      if (label) label.innerText = String(safe);
+    };
 
     function renderSongComments() {
       const list = document.getElementById('detail-comments-list');
@@ -2166,6 +2033,27 @@ import { AudioEngine } from './modules/audio-engine.js';
       await repository.updateSongMeta(currentSong.id, { stats: nextStats });
     }
 
+    window.openSongPreviewFromList = function(songId) {
+      const song = songs.find(s => s.id === songId);
+      if (!song) {
+        showToast("Song not found.");
+        return;
+      }
+      currentSong = song;
+      userProgress = getRecentProgressForSong(songId) || getEmptyProgress();
+      userProgressSongId = songId;
+      startPractice(0);
+      if (user && !user.isAnonymous) {
+        repository.loadProgress(user.uid, songId)
+          .then(remote => {
+            if (currentSong?.id !== songId) return;
+            userProgress = mergeProgressKeepingMax(userProgress, remote);
+            userProgressSongId = songId;
+          })
+          .catch(err => console.error("Background progress load failed", err));
+      }
+    };
+
     window.openSongDetails = async function(id, options = {}) {
       const { skipUrl = false, replaceUrl = false } = options || {};
       currentSong = songs.find(s => s.id === id);
@@ -2175,6 +2063,8 @@ import { AudioEngine } from './modules/audio-engine.js';
         if (skipUrl || isHandlingRouteChange) pushUrlPath('/songs', { replace: true });
         return;
       }
+      userProgress = getRecentProgressForSong(currentSong.id) || getEmptyProgress();
+      userProgressSongId = currentSong.id;
       renderToolSongsSearch(document.getElementById('tool-song-search')?.value || '');
       document.getElementById('detail-title').innerText = currentSong.title;
       document.getElementById('detail-artist').innerText = currentSong.artist;
@@ -2200,26 +2090,50 @@ import { AudioEngine } from './modules/audio-engine.js';
       renderChordLibrary('detail-chords', unique);
       updateFavoriteButton();
 
-      await loadProgress();
-      await loadSongSocialData();
-      try {
-        await bumpSongStat('views');
-        document.getElementById('detail-stat-views').innerText = String(currentSong.stats?.views || 0);
-      } catch (e) {
-        console.error("Could not update views", e);
-      }
-      renderSteps();
       navigate('details', { skipUrl, replaceUrl, pathOverride: `/songs/${encodeURIComponent(currentSong.id)}` });
+      renderSteps();
+      loadProgress()
+        .then(() => renderSteps())
+        .catch(err => console.error("Could not load progress", err));
+      loadSongSocialData().catch(err => console.error("Could not load social data", err));
+      bumpSongStat('views')
+        .then(() => {
+          const viewEl = document.getElementById('detail-stat-views');
+          if (viewEl) viewEl.innerText = String(currentSong.stats?.views || 0);
+        })
+        .catch(err => console.error("Could not update views", err));
     };
 
     async function loadProgress() {
       if (!user) return;
       try {
-        userProgress = await repository.loadProgress(user.uid, currentSong.id);
+        const remote = await repository.loadProgress(user.uid, currentSong.id);
+        userProgress = mergeProgressKeepingMax(userProgress, remote);
+        userProgressSongId = currentSong.id;
       } catch(e) {
         console.error("Could not load progress", e);
-        userProgress = { step1: {p:0}, step2: {p:0}, step3: {p:0} };
+        userProgress = userProgressSongId === currentSong?.id && userProgress ? userProgress : getEmptyProgress();
+        userProgressSongId = currentSong?.id || null;
       }
+    }
+
+    function getEmptyProgress() {
+      return { step1: { p: 0 }, step2: { p: 0 }, step3: { p: 0 } };
+    }
+
+    function mergeProgressKeepingMax(current = null, incoming = null) {
+      const base = current || getEmptyProgress();
+      const next = incoming || getEmptyProgress();
+      return {
+        step1: { p: Math.max(base.step1?.p || 0, next.step1?.p || 0) },
+        step2: { p: Math.max(base.step2?.p || 0, next.step2?.p || 0) },
+        step3: { p: Math.max(base.step3?.p || 0, next.step3?.p || 0) }
+      };
+    }
+
+    function getRecentProgressForSong(songId) {
+      const recent = (userSettings.recentPractice || []).find(entry => entry.songId === songId);
+      return recent?.progress || null;
     }
 
     function renderSteps() {
@@ -2307,9 +2221,15 @@ import { AudioEngine } from './modules/audio-engine.js';
 
     window.startPractice = function(step, options = {}) {
       const { skipUrl = false, replaceUrl = false } = options || {};
+      if (!currentSong) return;
+      if (userProgressSongId !== currentSong.id || !userProgress?.step1 || !userProgress?.step2 || !userProgress?.step3) {
+        userProgress = getRecentProgressForSong(currentSong.id) || getEmptyProgress();
+        userProgressSongId = currentSong.id;
+      }
       currentStepMode = step;
       currentBpm = currentSong.bpm;
       document.getElementById('practice-bpm').value = currentBpm;
+      updatePracticeBpmLabel(currentBpm);
       document.getElementById('practice-title').innerText = currentSong.title;
       document.getElementById('practice-step-label').innerText = `Step ${step}`;
       setPracticeProgressDisplay(0);
@@ -2319,7 +2239,6 @@ import { AudioEngine } from './modules/audio-engine.js';
       practiceValidationStates = [];
       practicePatternAssignments = [];
       activePatternAssignmentIndex = -1;
-      lastChordValidationState = null;
       updatePracticeAudioButton();
       
       const timeline = document.getElementById('practice-timeline');
@@ -2332,6 +2251,7 @@ import { AudioEngine } from './modules/audio-engine.js';
       rhythmViz.innerHTML = '';
 
       if (step === 0) {
+        setPracticePreviewControls(true);
         document.getElementById('practice-step-label').innerText = `Preview`;
         timeline.classList.remove('hidden');
         focus.classList.add('hidden');
@@ -2360,11 +2280,9 @@ import { AudioEngine } from './modules/audio-engine.js';
             </div>
           </div>`;
         const normalizedPreview = currentSong.strumming.map(s => ({ ...s, raw: s.raw || '.' }));
-        UI.renderPatternVisualizer('practice-rhythm-viz', normalizedPreview, beatsPerBar, -1, []);
         UI.renderPatternVisualizer('practice-preview-pattern', normalizedPreview, beatsPerBar, -1, []);
-        const footerButton = document.getElementById('btn-play');
-        footerButton.innerHTML = `<i class="fas fa-play mr-2"></i> Start Step 1`;
-        footerButton.onclick = () => startPractice(1);
+        const previewFab = document.getElementById('btn-start-step1-fab');
+        if (previewFab) previewFab.onclick = () => startPractice(1);
         navigate('practice', {
           skipUrl,
           replaceUrl,
@@ -2372,6 +2290,7 @@ import { AudioEngine } from './modules/audio-engine.js';
         });
         return;
       }
+      setPracticePreviewControls(false);
 
       const normalizedStrumming = currentSong.strumming.map(s => ({
         ...s, raw: s.raw || strumTypeToRaw(s.type)
@@ -2432,7 +2351,6 @@ import { AudioEngine } from './modules/audio-engine.js';
 
       practiceValidationStates = new Array(activeStrumPattern.length).fill(null);
       UI.renderPatternVisualizer('practice-rhythm-viz', activeStrumPattern, beatsPerBar, -1, practiceValidationStates);
-      startPracticeDetection();
 
       const footerButton = document.getElementById('btn-play');
       footerButton.innerHTML = `<i class="fas fa-play mr-2"></i> Start`;
@@ -2455,13 +2373,13 @@ import { AudioEngine } from './modules/audio-engine.js';
         const beatsPerBar = parseInt((currentSong.timeSignature || "4/4").split('/')[0]) || 4;
         currentBeatInBar = Math.floor((pausedPracticeBeat || 0) % beatsPerBar);
         lastSavedPercent = -1;
+        lastProgressSaveAtMs = Date.now();
         pausedPracticeBeat = null;
         practicePausedByBlur = false;
         document.getElementById('btn-play').innerHTML = `<i class="fas fa-stop"></i> Stop`;
         document.getElementById('btn-play').classList.replace('bg-primary', 'bg-danger');
         document.getElementById('btn-play').classList.add('text-white');
         document.getElementById('btn-play').classList.replace('shadow-[0_0_20px_rgba(187,134,252,0.4)]', 'shadow-[0_0_20px_rgba(207,102,121,0.4)]');
-        if (resumingFromPause) startPracticeDetection();
         scheduler();
       } else { stopPlayback(); }
     };
@@ -2496,10 +2414,14 @@ import { AudioEngine } from './modules/audio-engine.js';
       const percent = Math.min(100, (beat / currentSong.totalBeats) * 100);
       setPracticeProgressDisplay(percent);
 
-      const decile = Math.floor(percent / 10) * 10;
-      if(decile > lastSavedPercent) {
-        lastSavedPercent = decile;
-        saveProg(decile);
+      const nowMs = Date.now();
+      if (nowMs - lastProgressSaveAtMs >= 5000) {
+        lastProgressSaveAtMs = nowMs;
+        const snapshot = Math.round(percent);
+        if (snapshot > lastSavedPercent) {
+          lastSavedPercent = snapshot;
+          saveProg(snapshot);
+        }
       }
 
       const beatsPerBar = parseInt((currentSong.timeSignature || "4/4").split('/')[0]) || 4;
@@ -2516,7 +2438,7 @@ import { AudioEngine } from './modules/audio-engine.js';
       const activeStrumIndex = Math.floor(subBeat * 2) % getPatternSlotCount(beatsPerBar);
       UI.renderPatternVisualizer('practice-rhythm-viz', activeStrumPattern, beatsPerBar, activeStrumIndex, practiceValidationStates);
       const activeChord = getActiveChordForBeat(beat);
-      updatePracticeValidation(beat, activeChord);
+      updatePracticeValidation();
 
       if (activeStrumIndex !== lastPlayedStrumIndex) {
         lastPlayedStrumIndex = activeStrumIndex;
@@ -2556,7 +2478,6 @@ import { AudioEngine } from './modules/audio-engine.js';
              chordEl.classList.remove('text-primary');
              chordEl.classList.add('text-active', 'drop-shadow-[0_0_8px_rgba(3,218,198,0.8)]', 'scale-110', 'inline-block');
           }
-          if (userSettings.enableChordDetection) updateActiveChordValidationClass(lastChordValidationState);
         }
       }
 
@@ -2574,15 +2495,22 @@ import { AudioEngine } from './modules/audio-engine.js';
     }
 
     async function saveProg(p) {
-      if (!user) return; 
+      if (!currentSong) return;
+      if (userProgressSongId !== currentSong.id) {
+        userProgress = getRecentProgressForSong(currentSong.id) || getEmptyProgress();
+        userProgressSongId = currentSong.id;
+      }
       const key = `step${currentStepMode}`;
+      if (!userProgress[key]) userProgress[key] = { p: 0 };
       if(p > (userProgress[key]?.p || 0)) {
         userProgress[key] = { p };
         rememberRecentPractice(currentSong.id, userProgress).catch(err => console.error('Recent practice update failed', err));
-        try {
-          await repository.saveProgress(user.uid, currentSong.id, userProgress);
-        } catch (e) {
-          console.error("Progress save failed invisibly", e);
+        if (user && !user.isAnonymous) {
+          try {
+            await repository.saveProgress(user.uid, currentSong.id, userProgress);
+          } catch (e) {
+            console.error("Progress save failed invisibly", e);
+          }
         }
       }
     }
@@ -2591,6 +2519,12 @@ import { AudioEngine } from './modules/audio-engine.js';
       if (!isPlaying) return;
       const beat = Math.max(0, (audioCtx.currentTime - startTime) / (60 / currentBpm));
       pausedPracticeBeat = beat;
+      const percent = Math.min(100, (beat / (currentSong?.totalBeats || 1)) * 100);
+      const snapshot = Math.round(percent);
+      if (snapshot > lastSavedPercent) {
+        lastSavedPercent = snapshot;
+        saveProg(snapshot);
+      }
       isPlaying = false;
       cancelAnimationFrame(animationId);
       stopActiveChordPreview(0.03);
@@ -2605,6 +2539,15 @@ import { AudioEngine } from './modules/audio-engine.js';
     }
 
     function stopPlayback() {
+      if (isPlaying && audioCtx && currentSong?.totalBeats) {
+        const beat = Math.max(0, (audioCtx.currentTime - startTime) / (60 / currentBpm));
+        const percent = Math.min(100, (beat / currentSong.totalBeats) * 100);
+        const snapshot = Math.round(percent);
+        if (snapshot > lastSavedPercent) {
+          lastSavedPercent = snapshot;
+          saveProg(snapshot);
+        }
+      }
       isPlaying = false;
       pausedPracticeBeat = null;
       practicePausedByBlur = false;
@@ -2736,15 +2679,33 @@ import { AudioEngine } from './modules/audio-engine.js';
 
     function renderTunerMeter(cents = 0) {
       const meter = document.getElementById('tuner-meter');
+      if (!meter) return;
       const bars = [];
-      for (let i = -6; i <= 6; i++) {
+      for (let i = -8; i <= 8; i++) {
         const distance = Math.abs(i - (cents / 10));
-        const active = distance < 1 ? 1 - distance : 0.18;
+        const active = distance < 1 ? 1 - distance : 0.16;
         const center = i === 0;
-        const height = center ? 58 : 36 - Math.min(Math.abs(i) * 3, 18);
-        bars.push(`<div class="meter-bar w-3 rounded-full ${center ? 'bg-primary' : 'bg-gray-700'}" style="height:${height}px;opacity:${Math.max(active, 0.2)}"></div>`);
+        const height = center ? 62 : 40 - Math.min(Math.abs(i) * 2.6, 22);
+        bars.push(`<div class="meter-bar w-[10px] rounded-full ${center ? 'bg-primary' : 'bg-gray-700'}" style="height:${height}px;opacity:${Math.max(active, 0.2)}"></div>`);
       }
-      meter.innerHTML = bars.join('');
+      const pointerOffset = Math.max(-48, Math.min(48, (cents / 50) * 48));
+      meter.innerHTML = `
+        <div class="absolute inset-x-0 top-0 flex justify-center pointer-events-none">
+          <div class="w-0 h-0 border-l-[7px] border-r-[7px] border-b-[11px] border-l-transparent border-r-transparent border-b-active drop-shadow-[0_0_6px_rgba(3,218,198,0.8)]" style="transform:translateX(${pointerOffset}px)"></div>
+        </div>
+        ${bars.join('')}
+      `;
+    }
+
+    function renderTuningReference(activeNote = '') {
+      const container = document.getElementById('tuner-reference-list');
+      if (!container) return;
+      container.innerHTML = STANDARD_TUNING.map(item => `
+        <div class="tuning-chip ${activeNote === item.note ? 'active' : ''}">
+          <p class="text-primary font-bold">${item.note}</p>
+          <p class="text-gray-500 mt-1">${item.freq.toFixed(2)}</p>
+        </div>
+      `).join('');
     }
 
     function autoCorrelate(buffer, sampleRate) {
@@ -2792,12 +2753,16 @@ import { AudioEngine } from './modules/audio-engine.js';
           document.getElementById('tuner-note').innerText = nearest.note;
           document.getElementById('tuner-frequency').innerText = `${freq.toFixed(2)} Hz detected`;
           document.getElementById('tuner-status').innerText = Math.abs(cents) < 6 ? 'In tune' : (cents < 0 ? `${Math.abs(cents).toFixed(1)} cents flat` : `${cents.toFixed(1)} cents sharp`);
+          document.getElementById('tuner-cents').innerText = `${cents >= 0 ? '+' : ''}${cents.toFixed(1)} cents`;
           renderTunerMeter(cents);
+          renderTuningReference(nearest.note);
         } else {
           document.getElementById('tuner-note').innerText = '--';
           document.getElementById('tuner-frequency').innerText = 'Play one string clearly near your microphone.';
           document.getElementById('tuner-status').innerText = 'Listening...';
+          document.getElementById('tuner-cents').innerText = '0.0 cents';
           renderTunerMeter(0);
+          renderTuningReference('');
         }
         tunerAnimationId = requestAnimationFrame(tick);
       };
@@ -2843,6 +2808,9 @@ import { AudioEngine } from './modules/audio-engine.js';
       }
       const status = document.getElementById('tuner-status');
       if (status && activeTab !== 'tuner') status.innerText = 'Idle';
+      const cents = document.getElementById('tuner-cents');
+      if (cents) cents.innerText = '0.0 cents';
+      renderTuningReference('');
     }
 
     window.toggleTuner = function() {
@@ -2871,6 +2839,7 @@ import { AudioEngine } from './modules/audio-engine.js';
       renderBottomTabs();
       applyUserSettings(DEFAULT_SETTINGS);
       renderTunerMeter(0);
+      renderTuningReference('');
       renderToolRecordings();
       setToolRecordingVizIdle();
       renderChordExplorer();

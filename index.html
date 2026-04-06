@@ -99,8 +99,8 @@
     .favorite-btn.active { background: rgba(187,134,252,0.24); border: 1px solid rgba(187,134,252,0.9); color: #f5e9ff; box-shadow: 0 0 18px rgba(187,134,252,0.2); }
     .favorite-btn.active i { color: #bb86fc; }
     .favorite-btn.idle i { color: #f4f4f5; }
-    .validation-soft-green { color: #84f0ba !important; text-shadow: 0 0 10px rgba(71, 197, 135, 0.35); }
-    .validation-soft-red { color: #ffb1c1 !important; text-shadow: 0 0 10px rgba(212, 94, 126, 0.28); }
+    .tuning-chip { background: rgba(0,0,0,0.3); border: 1px solid #2f2f2f; border-radius: 0.75rem; padding: 0.7rem 0.4rem; text-align: center; transition: all 0.15s ease; }
+    .tuning-chip.active { border-color: rgba(3,218,198,0.9); box-shadow: 0 0 0 1px rgba(3,218,198,0.35), 0 0 16px rgba(3,218,198,0.22); background: rgba(3,218,198,0.08); }
     .tool-nav-card {
       position: relative;
       overflow: hidden;
@@ -331,6 +331,7 @@
           <p id="tuner-note" class="text-6xl font-black text-primary">--</p>
           <p id="tuner-frequency" class="text-sm text-gray-400 mt-2">Allow microphone access to start tuning.</p>
           <p id="tuner-status" class="text-xs text-gray-500 mt-3">Idle</p>
+          <p id="tuner-cents" class="text-xs text-active mt-1">0.0 cents</p>
           <div class="mt-5">
             <button id="btn-tuner-toggle" onclick="toggleTuner()" class="bg-primary text-black font-bold py-3 px-8 rounded-full btn-press shadow-[0_0_20px_rgba(187,134,252,0.35)]">
               <i class="fas fa-microphone mr-2"></i> Start Tuner
@@ -344,14 +345,7 @@
             <span>Sharp</span>
           </div>
           <div class="relative h-20 flex items-end justify-center gap-1" id="tuner-meter"></div>
-          <div class="mt-4 grid grid-cols-3 sm:grid-cols-6 gap-2 text-center text-xs">
-            <div class="bg-black/30 border border-gray-800 rounded-xl py-3"><p class="text-primary font-bold">E2</p><p class="text-gray-500 mt-1">82.41</p></div>
-            <div class="bg-black/30 border border-gray-800 rounded-xl py-3"><p class="text-primary font-bold">A2</p><p class="text-gray-500 mt-1">110.00</p></div>
-            <div class="bg-black/30 border border-gray-800 rounded-xl py-3"><p class="text-primary font-bold">D3</p><p class="text-gray-500 mt-1">146.83</p></div>
-            <div class="bg-black/30 border border-gray-800 rounded-xl py-3"><p class="text-primary font-bold">G3</p><p class="text-gray-500 mt-1">196.00</p></div>
-            <div class="bg-black/30 border border-gray-800 rounded-xl py-3"><p class="text-primary font-bold">B3</p><p class="text-gray-500 mt-1">246.94</p></div>
-            <div class="bg-black/30 border border-gray-800 rounded-xl py-3"><p class="text-primary font-bold">E4</p><p class="text-gray-500 mt-1">329.63</p></div>
-          </div>
+          <div id="tuner-reference-list" class="mt-4 grid grid-cols-3 sm:grid-cols-6 gap-2 text-center text-xs"></div>
         </div>
       </div>
     </main>
@@ -559,26 +553,6 @@
             <i class="fas fa-save mr-2"></i> Save Settings
           </button>
         </div>
-        <div class="settings-card rounded-2xl p-5">
-          <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-3">Practice Detection</p>
-          <label class="flex items-start justify-between gap-4 py-2">
-            <div>
-              <p class="font-semibold">Strumming Timing</p>
-              <p class="text-sm text-gray-400">Detect if the user strummed on beat and color the pattern softly red or green.</p>
-            </div>
-            <input id="settings-strum-detection" type="checkbox" class="mt-1 h-5 w-5 accent-[#bb86fc]">
-          </label>
-          <label class="flex items-start justify-between gap-4 py-2">
-            <div>
-              <p class="font-semibold">Loose Chord Validation</p>
-              <p class="text-sm text-gray-400">Check if the detected sound is roughly close to the expected chord.</p>
-            </div>
-            <input id="settings-chord-detection" type="checkbox" class="mt-1 h-5 w-5 accent-[#bb86fc]">
-          </label>
-          <button onclick="saveSettings()" class="mt-4 bg-primary text-black font-bold py-3 px-6 rounded-full btn-press shadow-[0_0_20px_rgba(187,134,252,0.35)]">
-            <i class="fas fa-save mr-2"></i> Save Detection
-          </button>
-        </div>
       </div>
     </main>
   </div>
@@ -690,7 +664,7 @@
 
   <!-- VIEW 3: Practice -->
   <div id="view-practice" class="view">
-    <header class="bg-surface p-4 border-b border-gray-800 flex justify-between items-center z-20">
+    <header class="bg-surface p-4 border-b border-gray-800 flex justify-between items-center z-20 relative overflow-hidden">
       <button onclick="stopAndExitPractice()" class="text-gray-400 btn-press"><i class="fas fa-times text-xl"></i></button>
       <div class="text-center">
         <p id="practice-step-label" class="text-[10px] text-primary font-bold uppercase tracking-widest"></p>
@@ -703,19 +677,18 @@
 <button onclick="openTextSettingsModal()" class="w-9 h-9 rounded-lg btn-soft btn-press" title="Text Settings">
           <i class="fas fa-text-height text-sm"></i>
         </button>
-        <input type="number" id="practice-bpm" class="w-14 bg-black/50 text-white rounded text-center border border-gray-700 focus:border-primary focus:outline-none py-1">
+        <div class="w-36">
+          <div class="flex items-center justify-between text-[10px] text-gray-400 mb-1">
+            <span>BPM</span>
+            <span id="practice-bpm-value" class="text-primary font-bold">80</span>
+          </div>
+          <input type="range" min="40" max="240" id="practice-bpm" oninput="updatePracticeBpmLabel(this.value)" class="w-full accent-[#bb86fc]">
+        </div>
+      </div>
+      <div class="absolute left-0 right-0 bottom-0 h-[3px] bg-black/70">
+        <div id="practice-progress-bar" class="h-full bg-[#00F5D4] w-0 transition-all duration-300 shadow-[0_0_14px_rgba(0,245,212,1)]"></div>
       </div>
     </header>
-
-    <div class="bg-black/40 border-y border-gray-800 px-4 py-2">
-      <div class="flex items-center justify-between text-[11px] mb-1">
-        <span class="uppercase tracking-[0.18em] text-gray-400">Progress</span>
-        <span id="practice-progress-text" class="font-bold text-active">0%</span>
-      </div>
-      <div class="h-2.5 bg-gray-800/90 rounded-full overflow-hidden border border-gray-700">
-        <div id="practice-progress-bar" class="h-full bg-active w-0 transition-all duration-300 shadow-[0_0_14px_rgba(3,218,198,0.85)]"></div>
-      </div>
-    </div>
 
     <div id="practice-current-chord-panel" class="hidden practice-chord-panel p-4">
       <div class="max-w-md mx-auto">
@@ -733,7 +706,7 @@
       <p class="text-gray-400 max-w-[250px]">Ignore the lyrics and chords. Focus strictly on mastering the right hand strumming timing.</p>
     </div>
 
-    <footer class="bg-surface border-t border-gray-800 p-4 pb-8 absolute bottom-0 w-full z-20 shadow-[0_-10px_30px_rgba(0,0,0,0.5)]">
+    <footer id="practice-footer" class="bg-surface border-t border-gray-800 p-4 pb-8 absolute bottom-0 w-full z-20 shadow-[0_-10px_30px_rgba(0,0,0,0.5)]">
       <!-- Decoupled Rhythm Visualizer: Separate dots and strumming layers -->
       <div id="practice-rhythm-viz" class="pattern-card mb-6">
         <!-- Generated Dynamically -->
@@ -744,6 +717,9 @@
         </button>
       </div>
     </footer>
+    <button id="btn-start-step1-fab" class="hidden fixed bottom-24 right-6 bg-primary text-black font-bold py-3 px-6 rounded-full text-base btn-press shadow-[0_0_24px_rgba(187,134,252,0.6)] z-30">
+      <i class="fas fa-play mr-2"></i> Start Step 1
+    </button>
   </div>
 
   <script type="module" src="app/main.js"></script>

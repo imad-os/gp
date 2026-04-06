@@ -145,10 +145,10 @@ export function renderSongList(containerId, songs) {
 
 export function renderPracticeSteps(containerId, userProgress) {
   const steps = [
-    { id: 0, name: "Preview", desc: "See lyrics, chords, capo, and pattern before you play" },
-    { id: 1, name: "Chords Mastery", desc: "1 Downstroke per measure" },
-    { id: 2, name: "Rhythm Pattern", desc: "Focus on the strumming visual" },
-    { id: 3, name: "Full Song", desc: "The ultimate performance" }
+    { id: 0, name: "Preview", desc: "See lyrics, chords, capo, and pattern before you play", icon: "fa-eye" },
+    { id: 1, name: "Chords Mastery", desc: "1 Downstroke per measure", icon: "fa-guitar" },
+    { id: 2, name: "Rhythm Pattern", desc: "Focus on the strumming visual", icon: "fa-drum" },
+    { id: 3, name: "Full Song", desc: "The ultimate performance", icon: "fa-music" }
   ];
   const container = document.getElementById(containerId);
   if (!container) return;
@@ -173,7 +173,7 @@ export function renderPracticeSteps(containerId, userProgress) {
         <div class="absolute left-0 top-0 bottom-0 w-1 bg-primary opacity-${isComplete ? '100' : '0'}"></div>
         <div class="flex gap-4 items-center pl-2">
           <div class="w-8 h-8 rounded-full ${isComplete ? 'bg-active text-black' : 'bg-primary/20 text-primary'} flex items-center justify-center font-bold shadow-sm">
-            ${isComplete ? '<i class="fas fa-check"></i>' : s.id}
+            ${isComplete ? '<i class="fas fa-check"></i>' : `<i class="fas ${s.icon || 'fa-circle'}"></i>`}
           </div>
           <div><h4 class="font-bold text-sm ${isComplete ? 'text-white' : ''}">${s.name}</h4><p class="text-[10px] text-gray-500">${s.desc}</p></div>
         </div>
