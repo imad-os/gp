@@ -1872,27 +1872,25 @@ import { FirestoreRepository } from './modules/repository.js';
       const p1 = Math.min(100, progress.step1?.p || 0);
       const p2 = Math.min(100, progress.step2?.p || 0);
       const p3 = Math.min(100, progress.step3?.p || 0);
-      const global = Math.round((p1 + p2 + p3) / 3);
-      const hasProgress = global > 0;
+      const hasProgress = p1 > 0 || p2 > 0 || p3 > 0;
       const p1w = p1 > 0 ? Math.max(4, p1) : 0;
       const p2w = p2 > 0 ? Math.max(4, p2) : 0;
       const p3w = p3 > 0 ? Math.max(4, p3) : 0;
-      const visibleSteps = [
-        p1 > 0 ? `<div>
+      const stepsBlock = hasProgress
+        ? `<div class="grid gap-2 mt-3 text-[10px]" style="grid-template-columns:repeat(3,minmax(0,1fr));">
+            <div>
               <div class="flex justify-between text-gray-300 mb-1"><span>S1</span><span>${Math.round(p1)}%</span></div>
               <div class="h-3 rounded-full bg-black/80 overflow-hidden border" style="border-color:rgba(187,134,252,0.7)"><div class="h-full rounded-full bg-gradient-to-r from-[#d9b8ff] to-[#bb86fc] shadow-[0_0_12px_rgba(187,134,252,0.9)]" style="width:${p1w}%"></div></div>
-            </div>` : '',
-        p2 > 0 ? `<div>
+            </div>
+            <div>
               <div class="flex justify-between text-gray-300 mb-1"><span>S2</span><span>${Math.round(p2)}%</span></div>
               <div class="h-3 rounded-full bg-black/80 overflow-hidden border" style="border-color:rgba(3,218,198,0.75)"><div class="h-full rounded-full bg-gradient-to-r from-[#6ffff0] to-[#03dac6] shadow-[0_0_12px_rgba(3,218,198,0.95)]" style="width:${p2w}%"></div></div>
-            </div>` : '',
-        p3 > 0 ? `<div>
+            </div>
+            <div>
               <div class="flex justify-between text-gray-300 mb-1"><span>S3</span><span>${Math.round(p3)}%</span></div>
               <div class="h-3 rounded-full bg-black/80 overflow-hidden border" style="border-color:rgba(207,102,121,0.75)"><div class="h-full rounded-full bg-gradient-to-r from-[#ffb3c2] to-[#cf6679] shadow-[0_0_12px_rgba(207,102,121,0.95)]" style="width:${p3w}%"></div></div>
-            </div>` : ''
-      ].filter(Boolean);
-      const stepsBlock = hasProgress && visibleSteps.length
-        ? `<div class="grid gap-2 mt-3 text-[10px]" style="grid-template-columns:repeat(${visibleSteps.length},minmax(0,1fr));">${visibleSteps.join('')}</div>`
+            </div>
+          </div>`
         : '';
       return `
         <button onclick="openSongPreviewFromList('${song.id}')" class="w-full text-left tool-nav-card btn-press">
@@ -1903,7 +1901,6 @@ import { FirestoreRepository } from './modules/repository.js';
               <div class="mt-2">${renderStars(getSongRatingAverage(song))}</div>
             </div>
             <div class="flex items-center gap-2">
-              ${hasProgress ? `<span class="text-xs text-gray-300 font-semibold">${global}%</span>` : ''}
               <i class="fas fa-chevron-right text-primary text-xs"></i>
             </div>
           </div>
