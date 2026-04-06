@@ -2209,6 +2209,12 @@ Rules:
 
     window.renderHomeSongsSearch = renderHomeSongsSearch;
 
+    window.submitHomeSongsSearch = function(event) {
+      if (event) event.preventDefault();
+      const input = document.getElementById('home-song-search');
+      renderHomeSongsSearch(input?.value || '');
+    };
+
     function renderToolSongsSearch(query = '') {
       const container = document.getElementById('tool-songs-results');
       if (!container) return;
@@ -2246,12 +2252,14 @@ Rules:
     function setPracticePreviewControls(isPreview) {
       const footer = document.getElementById('practice-footer');
       const fab = document.getElementById('btn-start-step1-fab');
+      const previewFab = document.getElementById('btn-preview-play-fab');
       const liveControls = document.getElementById('practice-header-live-controls');
       const audioBtn = document.getElementById('btn-practice-audio');
       const bpmWrap = document.getElementById('practice-bpm-wrap');
       const textBtn = document.getElementById('btn-practice-text-settings');
       if (footer) footer.classList.toggle('hidden', !!isPreview);
       if (fab) fab.classList.toggle('hidden', !isPreview);
+      if (previewFab) previewFab.classList.toggle('hidden', !isPreview);
       if (liveControls) liveControls.classList.toggle('hidden', !!isPreview);
       if (audioBtn) audioBtn.classList.toggle('hidden', !!isPreview);
       if (bpmWrap) bpmWrap.classList.toggle('hidden', !!isPreview);
@@ -2259,7 +2267,7 @@ Rules:
     }
 
     function updatePreviewPlayButton() {
-      const btn = document.getElementById('btn-preview-play');
+      const btn = document.getElementById('btn-preview-play-fab');
       if (!btn) return;
       if (currentStepMode !== 0) {
         btn.classList.add('hidden');
@@ -2596,9 +2604,6 @@ Rules:
                 <div><div class="text-[10px] uppercase tracking-[0.2em] text-gray-500 mb-1">Capo</div><div class="text-white font-semibold">${currentSong.capo || 'No capo'}</div></div>
               </div>
               <div class="mt-4 flex items-center justify-end gap-2">
-                <button id="btn-preview-play" onclick="togglePlay()" class="bg-primary text-black rounded-full px-5 py-2 text-sm font-bold btn-press">
-                  <i class="fas fa-play mr-2"></i> Play Preview
-                </button>
                 <button onclick="openSongDetails('${currentSong.id}')" class="btn-soft rounded-full px-5 py-2 text-sm btn-press">
                   <i class="fas fa-file-lines mr-2"></i> Open Song Details
                 </button>
