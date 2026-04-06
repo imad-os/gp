@@ -2177,7 +2177,37 @@ Rules:
 
       const practiceShortcuts = document.getElementById('training-practice-shortcuts');
       if (practiceShortcuts) practiceShortcuts.innerHTML = recentSongs.length ? recentSongs.slice(0, 4).map(({ song, progress }) => buildSongDashboardCard(song, { progress })).join('') : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">Start from a song on Home to see it here.</div>`;
+
+      const homeSearch = document.getElementById('home-song-search');
+      renderHomeSongsSearch(homeSearch?.value || '');
     }
+
+    function renderHomeSongsSearch(query = '') {
+      const container = document.getElementById('home-song-search-results');
+      if (!container) return;
+      const q = String(query || '').trim().toLowerCase();
+      const filtered = songs
+        .filter(song => !q || song.title?.toLowerCase().includes(q) || song.artist?.toLowerCase().includes(q))
+        .slice(0, 24);
+      if (!filtered.length) {
+        container.innerHTML = `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No songs match your search.</div>`;
+        return;
+      }
+      container.innerHTML = filtered.map(song => `
+        <button onclick="openSongPreviewFromList('${song.id}')" class="w-full text-left tool-nav-card btn-press">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <div class="font-bold text-white">${song.title}</div>
+              <div class="text-xs text-gray-400 mt-1">${song.artist || 'Unknown artist'}</div>
+              <div class="mt-2">${renderStars(getSongRatingAverage(song))}</div>
+            </div>
+            <i class="fas fa-chevron-right text-primary"></i>
+          </div>
+        </button>
+      `).join('');
+    }
+
+    window.renderHomeSongsSearch = renderHomeSongsSearch;
 
     function renderToolSongsSearch(query = '') {
       const container = document.getElementById('tool-songs-results');
@@ -3180,4 +3210,3 @@ Rules:
       });
       initApp();
     };
-
