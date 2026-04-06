@@ -1873,6 +1873,7 @@ import { FirestoreRepository } from './modules/repository.js';
       const p2 = Math.min(100, progress.step2?.p || 0);
       const p3 = Math.min(100, progress.step3?.p || 0);
       const global = Math.round((p1 + p2 + p3) / 3);
+      const hasProgress = global > 0;
       const p1w = p1 > 0 ? Math.max(4, p1) : 0;
       const p2w = p2 > 0 ? Math.max(4, p2) : 0;
       const p3w = p3 > 0 ? Math.max(4, p3) : 0;
@@ -1890,7 +1891,7 @@ import { FirestoreRepository } from './modules/repository.js';
               <div class="h-3 rounded-full bg-black/80 overflow-hidden border" style="border-color:rgba(207,102,121,0.75)"><div class="h-full rounded-full bg-gradient-to-r from-[#ffb3c2] to-[#cf6679] shadow-[0_0_12px_rgba(207,102,121,0.95)]" style="width:${p3w}%"></div></div>
             </div>` : ''
       ].filter(Boolean);
-      const stepsBlock = visibleSteps.length
+      const stepsBlock = hasProgress && visibleSteps.length
         ? `<div class="grid gap-2 mt-3 text-[10px]" style="grid-template-columns:repeat(${visibleSteps.length},minmax(0,1fr));">${visibleSteps.join('')}</div>`
         : '';
       return `
@@ -1902,7 +1903,7 @@ import { FirestoreRepository } from './modules/repository.js';
               <div class="mt-2">${renderStars(getSongRatingAverage(song))}</div>
             </div>
             <div class="flex items-center gap-2">
-              <span class="text-xs text-gray-300 font-semibold">${global}%</span>
+              ${hasProgress ? `<span class="text-xs text-gray-300 font-semibold">${global}%</span>` : ''}
               <i class="fas fa-chevron-right text-primary text-xs"></i>
             </div>
           </div>
