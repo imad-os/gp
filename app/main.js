@@ -2839,7 +2839,17 @@ import { FirestoreRepository } from './modules/repository.js';
 
     window.updateMetronomeSettings = updateMetronomeSettings;
 
+    async function registerServiceWorker() {
+      if (!('serviceWorker' in navigator)) return;
+      try {
+        await navigator.serviceWorker.register('/sw.js');
+      } catch (err) {
+        console.error('Service worker registration failed', err);
+      }
+    }
+
     window.onload = () => {
+      registerServiceWorker();
       restoreRedirectedRouteFromQuery();
       populateCapoOptions();
       renderBottomTabs();
