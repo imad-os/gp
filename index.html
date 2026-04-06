@@ -745,19 +745,21 @@
         <p id="practice-title" class="text-sm font-medium"></p>
       </div>
       <div class="flex items-center gap-2">
-        <button id="btn-practice-audio" onclick="togglePracticeChordAudio()" class="w-9 h-9 rounded-lg bg-primary/20 border border-primary/40 text-primary btn-press" title="Chord Audio">
-          <i class="fas fa-volume-up text-sm"></i>
-        </button>
-<button onclick="openTextSettingsModal()" class="w-9 h-9 rounded-lg btn-soft btn-press" title="Text Settings">
+        <div id="practice-header-live-controls" class="flex items-center gap-2">
+          <button id="btn-practice-audio" onclick="togglePracticeChordAudio()" class="w-9 h-9 rounded-lg bg-primary/20 border border-primary/40 text-primary btn-press" title="Chord Audio">
+            <i class="fas fa-volume-up text-sm"></i>
+          </button>
+          <div id="practice-bpm-wrap" class="w-36">
+            <div class="flex items-center justify-between text-[10px] text-gray-400 mb-1">
+              <span>BPM</span>
+              <span id="practice-bpm-value" class="text-primary font-bold">80</span>
+            </div>
+            <input type="range" min="40" max="240" id="practice-bpm" oninput="updatePracticeBpmLabel(this.value)" class="w-full accent-[#bb86fc]">
+          </div>
+        </div>
+<button id="btn-practice-text-settings" onclick="openTextSettingsModal()" class="w-9 h-9 rounded-lg btn-soft btn-press" title="Text Settings">
           <i class="fas fa-text-height text-sm"></i>
         </button>
-        <div id="practice-bpm-wrap" class="w-36">
-          <div class="flex items-center justify-between text-[10px] text-gray-400 mb-1">
-            <span>BPM</span>
-            <span id="practice-bpm-value" class="text-primary font-bold">80</span>
-          </div>
-          <input type="range" min="40" max="240" id="practice-bpm" oninput="updatePracticeBpmLabel(this.value)" class="w-full accent-[#bb86fc]">
-        </div>
       </div>
       <div class="absolute left-0 right-0 bottom-0 h-[3px] bg-black/70">
         <div id="practice-progress-bar" class="h-full bg-[#00F5D4] w-0 transition-all duration-300 shadow-[0_0_14px_rgba(0,245,212,1)]"></div>
