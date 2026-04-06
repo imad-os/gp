@@ -59,6 +59,7 @@ import { FirestoreRepository } from './modules/repository.js';
     let currentSongComments = [];
     let currentSongRatings = [];
     let pendingSongRating = 0;
+    let lastNonPracticePath = '/';
     let tunerStream = null;
     let tunerAnalyser = null;
     let tunerSource = null;
@@ -1439,6 +1440,9 @@ import { FirestoreRepository } from './modules/repository.js';
       const normalized = normalizePathname(path);
       const current = normalizePathname(window.location.pathname || '/');
       if (normalized === current) return;
+      if (!current.startsWith('/practice')) {
+        lastNonPracticePath = current;
+      }
       const method = replace ? 'replaceState' : 'pushState';
       window.history[method]({ path: normalized }, '', normalized);
     }
@@ -2568,8 +2572,15 @@ import { FirestoreRepository } from './modules/repository.js';
     }
 
     window.stopAndExitPractice = () => { 
-      stopPlayback(); 
-      openSongDetails(currentSong.id); 
+      stopPlayback();
+      const fallbackPath = currentSong?.id ? `/songs/${encodeURIComponent(currentSong.id)}` : (lastNonPracticePath || '/');
+      const canGoBack = window.history.length > 1;
+      if (canGoBack) {
+        window.history.back();
+      } else {
+        pushUrlPath(fallbackPath, { replace: true });
+        applyRouteFromLocation({ replaceUnknown: true }).catch(err => console.error('Route fallback failed', err));
+      }
     };
 
     function renderBottomTabs() {
