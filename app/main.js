@@ -69,6 +69,10 @@ import { FirestoreRepository } from './modules/repository.js';
     let trainingBeatIndex = 0;
     const METRONOME_STORAGE_KEY = 'guitartrainer.metronome.settings';
     const GEMINI_API_KEY_STORAGE_KEY = 'guitartrainer.gemini.apiKey';
+    const APP_BUILD = {
+      version: 'v2026.04.06.1',
+      updatedAt: '2026-04-06 16:34 (Africa/Lagos)'
+    };
     const DEFAULT_SETTINGS = {
       practiceTextSize: 14,
       favoriteSongIds: [],
@@ -3271,6 +3275,12 @@ Rules:
 
     window.updateMetronomeSettings = updateMetronomeSettings;
 
+    function renderBuildInfo() {
+      const el = document.getElementById('settings-build-info');
+      if (!el) return;
+      el.innerText = `Version ${APP_BUILD.version} • Updated ${APP_BUILD.updatedAt}`;
+    }
+
     async function registerServiceWorker() {
       if (!('serviceWorker' in navigator)) return;
       try {
@@ -3292,6 +3302,7 @@ Rules:
       setToolRecordingVizIdle();
       renderChordExplorer();
       renderToolSongsSearch();
+      renderBuildInfo();
       showToolsHome({ skipUrl: true });
       syncAddPatternEditor();
       updateTrainingPatternEditor();
