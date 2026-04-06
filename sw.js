@@ -1,4 +1,4 @@
-const CACHE_NAME = 'guitartrainer-v1';
+const CACHE_NAME = 'guitartrainer-v2';
 const APP_SHELL = [
   '/',
   '/index.html',
@@ -15,7 +15,15 @@ const APP_SHELL = [
   '/assets/icons/apple-touch-icon.png',
   '/assets/icons/ms-tile-150.png',
   '/assets/icons/favicon-32.png',
-  '/assets/icons/favicon-16.png'
+  '/assets/icons/favicon-16.png',
+  '/assets/pwa/icon-192.png',
+  '/assets/pwa/icon-512.png',
+  '/assets/pwa/apple-touch-icon.png',
+  '/assets/pwa/ms-tile-150.png',
+  '/assets/pwa/favicon-32.png',
+  '/assets/pwa/favicon-16.png',
+  '/assets/pwa/screenshot-desktop.png',
+  '/assets/pwa/screenshot-phone.png'
 ];
 
 self.addEventListener('install', event => {

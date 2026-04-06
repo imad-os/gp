@@ -9,12 +9,12 @@
   <meta name="apple-mobile-web-app-title" content="GuitarTrainer">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="msapplication-TileColor" content="#121212">
-  <meta name="msapplication-TileImage" content="/assets/icons/ms-tile-150.png">
+  <meta name="msapplication-TileImage" content="/assets/pwa/ms-tile-150.png">
   <meta name="msapplication-config" content="/browserconfig.xml">
   <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="apple-touch-icon" sizes="180x180" href="/assets/icons/apple-touch-icon.png">
-  <link rel="icon" type="image/png" sizes="32x32" href="/assets/icons/favicon-32.png">
-  <link rel="icon" type="image/png" sizes="16x16" href="/assets/icons/favicon-16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/pwa/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/pwa/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/assets/pwa/favicon-16.png">
   <title>GuitarTrainer - Master Any Song</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
@@ -141,6 +141,20 @@
       color: var(--primary);
       margin-bottom: 0.9rem;
     }
+    .brand-logo {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      box-shadow: 0 0 20px rgba(187, 134, 252, 0.25);
+      object-fit: cover;
+    }
+    .brand-logo-sm {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      object-fit: cover;
+      box-shadow: 0 0 8px rgba(187, 134, 252, 0.25);
+    }
     button { color: #f3f4f6; }
     button.bg-primary,
     button.bg-active { color: #ffffff; }
@@ -181,7 +195,7 @@
   <div id="view-auth" class="view active items-center justify-center p-6 bg-[#121212] z-50">
     <div class="w-full max-w-sm bg-surface p-8 rounded-2xl border border-gray-800 shadow-2xl">
       <div class="text-center mb-8">
-        <i class="fas fa-guitar text-5xl text-primary mb-4"></i>
+        <img src="/assets/pwa/icon-192.png" alt="GuitarTrainer logo" class="brand-logo mx-auto mb-4">
         <h1 class="text-2xl font-bold">GuitarTrainer</h1>
         <p class="text-gray-400 mt-2 text-sm">Login or practice as a guest</p>
       </div>
@@ -210,7 +224,7 @@
 
   <!-- Loading Overlay -->
   <div id="loading-overlay" class="absolute inset-0 bg-[#121212] z-[60] flex-col items-center justify-center hidden">
-    <i class="fas fa-circle-notch fa-spin text-4xl text-primary mb-4"></i>
+    <img src="/assets/pwa/icon-192.png" alt="GuitarTrainer logo" class="brand-logo mb-4 animate-pulse">
     <p id="loading-text" class="text-gray-400 font-mono text-sm tracking-widest uppercase">Connecting...</p>
   </div>
 
@@ -218,7 +232,7 @@
   <div id="view-home" class="view">
     <header class="bg-surface p-4 border-b border-gray-800 flex justify-between items-center shadow-md">
       <h1 class="text-xl font-bold text-primary flex items-center gap-2">
-        <i class="fas fa-house"></i> Home
+        <img src="/assets/pwa/icon-192.png" alt="" class="brand-logo-sm"> Home
       </h1>
       <div class="flex items-center gap-3">
         <span id="display-username" class="text-xs text-gray-500 max-w-[100px] truncate"></span>
@@ -251,7 +265,7 @@
   <div id="view-training" class="view">
     <header class="bg-surface p-4 border-b border-gray-800 shadow-md">
       <h1 class="text-xl font-bold text-primary flex items-center gap-2">
-        <i class="fas fa-dumbbell"></i> Training
+        <img src="/assets/pwa/icon-192.png" alt="" class="brand-logo-sm"> Training
       </h1>
       <div class="flex items-center justify-between gap-3 mt-1">
         <p id="training-header-subtitle" class="text-xs text-gray-500">Choose a training page.</p>
@@ -264,7 +278,7 @@
       <div class="max-w-xl mx-auto">
         <div id="training-home-panel" class="grid sm:grid-cols-2 gap-4">
           <button onclick="openTrainingPage('practice')" class="tool-nav-card btn-press">
-            <span class="tool-nav-icon"><i class="fas fa-guitar text-lg"></i></span>
+            <span class="tool-nav-icon"><img src="/assets/pwa/icon-192.png" alt="" class="w-8 h-8 rounded-full object-cover"></span>
             <div class="font-bold text-lg mb-1">Practice</div>
             <p class="text-sm text-gray-400">Start from a song preview and work through the steps.</p>
           </button>
@@ -332,7 +346,7 @@
   <div id="view-tuner" class="view">
     <header class="bg-surface p-4 border-b border-gray-800 shadow-md">
       <h1 class="text-xl font-bold text-primary flex items-center gap-2">
-        <i class="fas fa-microphone"></i> Tuner
+        <img src="/assets/pwa/icon-192.png" alt="" class="brand-logo-sm"> Tuner
       </h1>
       <p class="text-xs text-gray-500 mt-1">Use your microphone to tune standard guitar strings.</p>
     </header>
@@ -368,7 +382,7 @@
       <div class="flex items-center justify-between gap-3">
         <div>
           <h1 class="text-xl font-bold text-primary flex items-center gap-2">
-            <i class="fas fa-toolbox"></i> Tools
+            <img src="/assets/pwa/icon-192.png" alt="" class="brand-logo-sm"> Tools
           </h1>
           <p id="tools-header-subtitle" class="text-xs text-gray-500 mt-1">Choose a tool.</p>
         </div>
@@ -391,7 +405,7 @@
             <p class="text-sm text-gray-400">Record short clips, save them to Firebase, and replay them later.</p>
           </button>
           <button onclick="openToolPage('chords')" class="tool-nav-card btn-press">
-            <span class="tool-nav-icon"><i class="fas fa-guitar text-lg"></i></span>
+            <span class="tool-nav-icon"><img src="/assets/pwa/icon-192.png" alt="" class="w-8 h-8 rounded-full object-cover"></span>
             <div class="font-bold text-lg mb-1">Chord Explorer</div>
             <p class="text-sm text-gray-400">Browse the available chord library and hear each chord like practice playback.</p>
           </button>
@@ -545,7 +559,7 @@
   <div id="view-settings" class="view">
     <header class="bg-surface p-4 border-b border-gray-800 shadow-md">
       <h1 class="text-xl font-bold text-primary flex items-center gap-2">
-        <i class="fas fa-gear"></i> Settings
+        <img src="/assets/pwa/icon-192.png" alt="" class="brand-logo-sm"> Settings
       </h1>
       <p class="text-xs text-gray-500 mt-1">Your practice preferences are saved to your account.</p>
     </header>

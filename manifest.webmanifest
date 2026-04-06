@@ -10,16 +10,32 @@
   "theme_color": "#121212",
   "icons": [
     {
-      "src": "/assets/icons/icon-192.png",
+      "src": "/assets/pwa/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "/assets/icons/icon-512.png",
+      "src": "/assets/pwa/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/assets/pwa/screenshot-desktop.png",
+      "sizes": "1376x761",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Desktop view"
+    },
+    {
+      "src": "/assets/pwa/screenshot-phone.png",
+      "sizes": "289x634",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Phone view"
     }
   ]
 }
