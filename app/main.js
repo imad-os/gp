@@ -846,6 +846,72 @@ import { FirestoreRepository } from './modules/repository.js';
       };
     }
 
+    function isLikelyChordLine(line = '') {
+      const text = String(line || '').trim();
+      if (!text) return false;
+      const tokens = text.split(/\s+/).filter(Boolean);
+      if (!tokens.length) return false;
+      const chordToken = /^[A-G](#|b)?(m|maj|min|sus|dim|aug|add)?\d*(\/[A-G](#|b)?)?$/i;
+      return tokens.every(token => chordToken.test(token));
+    }
+
+    function getFirstLyricLine(rawText = '') {
+      const lines = String(rawText || '').replace(/\r/g, '').split('\n');
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        if (/^\[[^\]]+\]$/.test(trimmed)) continue;
+        if (isLikelyChordLine(trimmed)) continue;
+        return trimmed;
+      }
+      return '';
+    }
+
+    function buildSongPayloadFromDraft(draft = {}) {
+      const timeSignature = ['2/4', '3/4', '4/4', '6/8'].includes(String(draft.timeSignature || '4/4')) ? String(draft.timeSignature) : '4/4';
+      const bpm = Math.max(40, Math.min(240, parseInt(draft.bpm, 10) || 80));
+      const capo = String(draft.capo || 'No capo').trim() || 'No capo';
+      const title = String(draft.title || 'Untitled').trim() || 'Untitled';
+      const artist = String(draft.artist || 'Unknown Artist').trim() || 'Unknown Artist';
+      const youtubeUrl = normalizeYouTubeUrl(draft.youtubeUrl || '');
+      const rawText = normalizeAiRawText(draft.rawText || 'C\nEmpty');
+      const beatsPerBar = getBeatsPerBarFromSignature(timeSignature);
+      const normalizedPatterns = normalizeAiPatterns(draft.strummingPatterns, timeSignature).map((entry, idx) => {
+        const patternText = normalizePatternText(String(entry?.patternText || ''), beatsPerBar);
+        return {
+          tag: String(entry?.tag || ''),
+          tagKey: normalizeTagKey(String(entry?.tag || '')),
+          patternText,
+          strumming: parseStrumPattern(patternText, timeSignature),
+          index: idx
+        };
+      }).filter((entry, idx) => idx === 0 || entry.tagKey);
+      const primaryPattern = normalizedPatterns[0] || {
+        tag: '',
+        tagKey: '',
+        patternText: normalizePatternText('', beatsPerBar),
+        strumming: parseStrumPattern('', timeSignature),
+        index: 0
+      };
+      return {
+        title,
+        artist,
+        youtubeUrl,
+        bpm,
+        timeSignature,
+        capo,
+        rawText,
+        strumming: primaryPattern.strumming,
+        strummingPatterns: normalizedPatterns.map(entry => ({
+          tag: entry.tag,
+          patternText: entry.patternText,
+          strumming: entry.strumming
+        })),
+        postedBy: user?.email ? user.email.split('@')[0] : 'AI',
+        ownerId: user?.uid || 'ai'
+      };
+    }
+
     function renderAiSongCandidates() {
       const container = document.getElementById('ai-song-candidates');
       if (!container) return;
@@ -860,8 +926,12 @@ import { FirestoreRepository } from './modules/repository.js';
               <p class="text-xs text-gray-500 uppercase tracking-[0.2em] mb-1">Candidate ${idx + 1}</p>
               <p class="font-bold text-white">${escapeHtml(draft.title)}</p>
               <p class="text-xs text-gray-400 mt-1">${escapeHtml(draft.artist)} • ${draft.bpm} BPM • ${escapeHtml(draft.timeSignature)}</p>
+              <p class="text-xs text-gray-300 mt-2 italic">${escapeHtml(getFirstLyricLine(draft.rawText) || 'No lyric preview')}</p>
             </div>
-            <button onclick="useAiSongCandidate(${idx})" class="btn-soft rounded-full px-4 py-2 text-xs btn-press">Use This</button>
+            <div class="flex items-center gap-2">
+              <button onclick="saveAiSongCandidate(${idx})" class="bg-active text-black rounded-full px-4 py-2 text-xs font-bold btn-press">Save</button>
+              <button onclick="useAiSongCandidate(${idx})" class="btn-soft rounded-full px-4 py-2 text-xs btn-press">Edit</button>
+            </div>
           </div>
         </div>
       `).join('');
@@ -873,6 +943,43 @@ import { FirestoreRepository } from './modules/repository.js';
       openAddSong({ draft });
       showToast("Draft loaded in Add Song.", true);
     };
+
+    window.saveAiSongCandidate = async function(index) {
+      const draft = aiSongDraftCandidates[index];
+      if (!draft) return;
+      if (!user) return navigate('auth');
+      if (user.isAnonymous) return showToast("Create an account to save songs.");
+      const payload = buildSongPayloadFromDraft(draft);
+      try {
+        showLoading(true, "Saving AI song...");
+        await repository.saveSong(payload, null);
+        await loadSongs();
+        showToast("Song saved from AI candidate.", true);
+        navigate('home');
+      } catch (err) {
+        console.error('Save AI candidate failed', err);
+        showToast("Could not save AI candidate.");
+      } finally {
+        showLoading(false);
+      }
+    };
+
+    async function fetchYouTubeMetadata(url = '') {
+      const normalized = normalizeYouTubeUrl(url);
+      if (!normalized) return null;
+      try {
+        const endpoint = `https://www.youtube.com/oembed?url=${encodeURIComponent(normalized)}&format=json`;
+        const response = await fetch(endpoint);
+        if (!response.ok) return null;
+        const data = await response.json();
+        return {
+          title: String(data?.title || '').trim(),
+          authorName: String(data?.author_name || '').trim()
+        };
+      } catch {
+        return null;
+      }
+    }
 
     window.generateSongWithAI = async function() {
       const btn = document.getElementById('btn-generate-ai-song');
@@ -894,8 +1001,9 @@ import { FirestoreRepository } from './modules/repository.js';
       if (btn) btn.disabled = true;
       if (btn) btn.innerHTML = `<i class="fas fa-circle-notch fa-spin mr-2"></i> Generating...`;
 
+      const ytMeta = normalizedYoutube ? await fetchYouTubeMetadata(normalizedYoutube) : null;
       const sourceHint = normalizedYoutube
-        ? `Use this YouTube link as primary reference: ${normalizedYoutube}`
+        ? `Use this YouTube link as primary reference: ${normalizedYoutube}. Exact YouTube metadata: title="${ytMeta?.title || ''}", artist/channel="${ytMeta?.authorName || ''}".`
         : `Use this song identity: title="${titleInput}", artist="${artistInput}"`;
       const difficultyHint = simpleMode
         ? 'Use simple mode: easy open-position chords only (avoid barre and complex 4-finger shapes), and an easy strumming pattern.'
@@ -930,6 +1038,7 @@ Rules:
 - Return exactly 3 candidate objects.
 - Use at least one strumming pattern per candidate.
 - If all sections use the same strumming, return only one pattern entry without repeated copies.
+- Keep candidates focused on the same song identity, not unrelated songs.
 - rawText must use two-line block style only:
   1) one full chords line
   2) next full lyrics line
@@ -961,7 +1070,15 @@ Rules:
         if (!parsed || typeof parsed !== 'object') {
           throw new Error('AI response was not valid JSON.');
         }
-        const rawCandidates = Array.isArray(parsed.candidates) ? parsed.candidates : [];
+        const rawCandidates = Array.isArray(parsed.candidates)
+          ? parsed.candidates
+          : Array.isArray(parsed.songs)
+            ? parsed.songs
+            : Array.isArray(parsed.options)
+              ? parsed.options
+              : parsed.title || parsed.rawText
+                ? [parsed]
+                : [];
         if (!rawCandidates.length) throw new Error('No candidates returned by AI.');
         const fallback = { title: titleInput || 'Untitled', artist: artistInput || 'Unknown Artist', youtubeUrl: normalizedYoutube || '' };
         aiSongDraftCandidates = rawCandidates.slice(0, 3).map(item => normalizeAiDraft(item, fallback));
