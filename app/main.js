@@ -981,6 +981,63 @@ import { FirestoreRepository } from './modules/repository.js';
       }
     }
 
+    async function fetchSongCatalogHints(title = '', artist = '') {
+      const query = [title, artist].filter(Boolean).join(' ').trim();
+      if (!query) return [];
+      try {
+        const endpoint = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=8`;
+        const response = await fetch(endpoint);
+        if (!response.ok) return [];
+        const data = await response.json();
+        return (Array.isArray(data?.results) ? data.results : []).map(item => ({
+          title: String(item?.trackName || '').trim(),
+          artist: String(item?.artistName || '').trim()
+        })).filter(item => item.title && item.artist);
+      } catch {
+        return [];
+      }
+    }
+
+    function candidateIdentityKey(item = {}) {
+      return `${String(item.title || '').trim().toLowerCase()}::${String(item.artist || '').trim().toLowerCase()}`;
+    }
+
+    function distinctCandidates(items = []) {
+      const out = [];
+      const seen = new Set();
+      for (const item of items) {
+        const key = candidateIdentityKey(item);
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        out.push(item);
+      }
+      return out;
+    }
+
+    async function callGeminiJson(apiKey, prompt) {
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.35,
+            responseMimeType: 'application/json'
+          }
+        })
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || `HTTP ${response.status}`);
+      }
+      const payload = await response.json();
+      const text = payload?.candidates?.[0]?.content?.parts?.map(part => part?.text || '').join('\n') || '';
+      const parsed = extractJsonObject(text);
+      if (!parsed || typeof parsed !== 'object') throw new Error('AI response was not valid JSON.');
+      return parsed;
+    }
+
     window.generateSongWithAI = async function() {
       const btn = document.getElementById('btn-generate-ai-song');
       const apiKey = (document.getElementById('ai-gemini-key')?.value || '').trim();
@@ -1002,6 +1059,10 @@ import { FirestoreRepository } from './modules/repository.js';
       if (btn) btn.innerHTML = `<i class="fas fa-circle-notch fa-spin mr-2"></i> Generating...`;
 
       const ytMeta = normalizedYoutube ? await fetchYouTubeMetadata(normalizedYoutube) : null;
+      const catalogHints = !normalizedYoutube ? await fetchSongCatalogHints(titleInput, artistInput) : [];
+      const catalogHintText = catalogHints.length
+        ? `Catalog hints (prefer these exact identities first):\n${catalogHints.map((h, i) => `${i + 1}. ${h.title} — ${h.artist}`).join('\n')}`
+        : '';
       const sourceHint = normalizedYoutube
         ? `Use this YouTube link as primary reference: ${normalizedYoutube}. Exact YouTube metadata: title="${ytMeta?.title || ''}", artist/channel="${ytMeta?.authorName || ''}".`
         : `Use this song identity: title="${titleInput}", artist="${artistInput}"`;
@@ -1012,6 +1073,7 @@ import { FirestoreRepository } from './modules/repository.js';
       const prompt = `
 Generate exactly 3 possible guitar song drafts as strict JSON only, no markdown.
 ${sourceHint}
+${catalogHintText}
 ${difficultyHint}
 
 Output JSON shape:
@@ -1039,6 +1101,8 @@ Rules:
 - Use at least one strumming pattern per candidate.
 - If all sections use the same strumming, return only one pattern entry without repeated copies.
 - Keep candidates focused on the same song identity, not unrelated songs.
+- Candidates must be 3 different songs (different title or different artist), not difficulty variants of same song.
+- Do not return "normal/simple/beginner" versions of one song.
 - rawText must use two-line block style only:
   1) one full chords line
   2) next full lyrics line
@@ -1048,28 +1112,7 @@ Rules:
 `.trim();
 
       try {
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            generationConfig: {
-              temperature: 0.4,
-              responseMimeType: 'application/json'
-            }
-          })
-        });
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(errorText || `HTTP ${response.status}`);
-        }
-        const payload = await response.json();
-        const text = payload?.candidates?.[0]?.content?.parts?.map(part => part?.text || '').join('\n') || '';
-        const parsed = extractJsonObject(text);
-        if (!parsed || typeof parsed !== 'object') {
-          throw new Error('AI response was not valid JSON.');
-        }
+        const parsed = await callGeminiJson(apiKey, prompt);
         const rawCandidates = Array.isArray(parsed.candidates)
           ? parsed.candidates
           : Array.isArray(parsed.songs)
@@ -1081,12 +1124,39 @@ Rules:
                 : [];
         if (!rawCandidates.length) throw new Error('No candidates returned by AI.');
         const fallback = { title: titleInput || 'Untitled', artist: artistInput || 'Unknown Artist', youtubeUrl: normalizedYoutube || '' };
-        aiSongDraftCandidates = rawCandidates.slice(0, 3).map(item => normalizeAiDraft(item, fallback));
-        while (aiSongDraftCandidates.length < 3) {
-          aiSongDraftCandidates.push(normalizeAiDraft({}, fallback));
+        aiSongDraftCandidates = distinctCandidates(rawCandidates.map(item => normalizeAiDraft(item, fallback)));
+
+        if (aiSongDraftCandidates.length < 3) {
+          const used = aiSongDraftCandidates.map(item => `${item.title} — ${item.artist}`).join('; ');
+          const retryPrompt = `
+Return only additional candidates to fill up to 3 distinct songs.
+Already used identities (must NOT repeat): ${used || 'none'}
+${sourceHint}
+${catalogHintText}
+Return JSON only:
+{
+  "candidates": [
+    { "title":"string", "artist":"string", "youtubeUrl":"string", "bpm":80, "timeSignature":"4/4", "capo":"No capo", "rawText":"...", "strummingPatterns":[{"tag":"", "patternText":"D.DU.UD."}] }
+  ]
+}
+Rules:
+- Only new song identities (different title or artist from used list).
+- No normal/simple/beginner variants.
+- rawText chord/lyric two-line style only.
+`.trim();
+          const retryParsed = await callGeminiJson(apiKey, retryPrompt);
+          const retryRaw = Array.isArray(retryParsed?.candidates) ? retryParsed.candidates : [];
+          if (retryRaw.length) {
+            aiSongDraftCandidates = distinctCandidates([
+              ...aiSongDraftCandidates,
+              ...retryRaw.map(item => normalizeAiDraft(item, fallback))
+            ]);
+          }
         }
+        aiSongDraftCandidates = aiSongDraftCandidates.slice(0, 3);
         renderAiSongCandidates();
-        showToast("3 candidates ready. Choose one.", true);
+        if (aiSongDraftCandidates.length < 3) showToast("Showing available distinct matches.", true);
+        else showToast("3 different candidates ready. Choose one.", true);
       } catch (err) {
         console.error('AI generation failed', err);
         showToast("AI generation failed. Check inputs/API key.");
