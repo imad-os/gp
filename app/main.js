@@ -2742,15 +2742,7 @@ Rules:
           btnEdit.classList.add('hidden');
       }
       
-      const detailPatternTimeSignature = normalizeTimeSignature(currentSong.strummingPatterns?.[0]?.timeSignature || currentSong.timeSignature || '4/4');
-      UI.renderPatternVisualizer(
-        'detail-strum-viz',
-        currentSong.strumming,
-        getBeatsPerBarFromSignature(detailPatternTimeSignature),
-        -1,
-        [],
-        getSubdivisionsPerBeatFromSignature(detailPatternTimeSignature)
-      );
+      renderSongDetailPatterns(currentSong);
       
       const unique = [...new Set(currentSong.chords.map(c => c.chord))];
       renderChordLibrary('detail-chords', unique);
@@ -2801,6 +2793,44 @@ Rules:
     function getRecentProgressForSong(songId) {
       const recent = (userSettings.recentPractice || []).find(entry => entry.songId === songId);
       return recent?.progress || null;
+    }
+
+    function renderSongDetailPatterns(song) {
+      const container = document.getElementById('detail-strum-viz');
+      if (!container) return;
+      const patterns = (Array.isArray(song?.strummingPatterns) && song.strummingPatterns.length)
+        ? song.strummingPatterns
+        : [{
+            tag: '',
+            timeSignature: normalizeTimeSignature(song?.timeSignature || '4/4'),
+            strumming: Array.isArray(song?.strumming) ? song.strumming : parseStrumPattern('', song?.timeSignature || '4/4')
+          }];
+      container.classList.remove('pattern-card');
+      container.innerHTML = patterns.map((entry, idx) => {
+        const tag = String(entry?.tag || '').trim();
+        const label = tag || `Pattern ${idx + 1}`;
+        const timeSig = normalizeTimeSignature(entry?.timeSignature || song?.timeSignature || '4/4');
+        return `
+          <div class="pattern-card mb-3">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs font-bold text-white">${escapeHtml(label)}</span>
+              <span class="text-[10px] uppercase tracking-[0.2em] text-gray-500">${timeSig}</span>
+            </div>
+            <div id="detail-strum-viz-${idx}"></div>
+          </div>
+        `;
+      }).join('');
+      patterns.forEach((entry, idx) => {
+        const timeSig = normalizeTimeSignature(entry?.timeSignature || song?.timeSignature || '4/4');
+        UI.renderPatternVisualizer(
+          `detail-strum-viz-${idx}`,
+          Array.isArray(entry?.strumming) ? entry.strumming : parseStrumPattern(entry?.patternText || '', timeSig),
+          getBeatsPerBarFromSignature(timeSig),
+          -1,
+          [],
+          getSubdivisionsPerBeatFromSignature(timeSig)
+        );
+      });
     }
 
     function renderSteps() {
