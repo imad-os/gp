@@ -56,6 +56,7 @@ import { FirestoreRepository } from './modules/repository.js';
     let toolRecordingVizAnimationId = null;
     let selectedChordReference = 'C';
     let activeToolPage = 'home';
+    let aiSongDraftCandidates = [];
     let currentSongComments = [];
     let currentSongRatings = [];
     let pendingSongRating = 0;
@@ -811,6 +812,68 @@ import { FirestoreRepository } from './modules/repository.js';
       return null;
     }
 
+    function normalizeAiPatterns(patterns = [], timeSignature = '4/4') {
+      const beatsPerBar = getBeatsPerBarFromSignature(timeSignature);
+      const cleaned = (Array.isArray(patterns) ? patterns : []).map(entry => ({
+        tag: String(entry?.tag || '').trim(),
+        patternText: normalizePatternText(String(entry?.patternText || ''), beatsPerBar)
+      })).filter(entry => !!entry.patternText);
+      if (!cleaned.length) return [{ tag: '', patternText: normalizePatternText('', beatsPerBar) }];
+      const uniquePatternCount = new Set(cleaned.map(entry => entry.patternText)).size;
+      if (uniquePatternCount === 1) {
+        return [{ tag: '', patternText: cleaned[0].patternText }];
+      }
+      return cleaned;
+    }
+
+    function normalizeAiRawText(rawText = '') {
+      const text = String(rawText || '').replace(/\r/g, '').trim();
+      if (!text) return 'C\nEmpty';
+      return text;
+    }
+
+    function normalizeAiDraft(raw = {}, fallback = {}) {
+      const timeSignature = ['2/4', '3/4', '4/4', '6/8'].includes(String(raw.timeSignature || '4/4')) ? String(raw.timeSignature) : '4/4';
+      return {
+        title: String(raw.title || fallback.title || 'Untitled').trim() || 'Untitled',
+        artist: String(raw.artist || fallback.artist || 'Unknown Artist').trim() || 'Unknown Artist',
+        youtubeUrl: normalizeYouTubeUrl(raw.youtubeUrl || fallback.youtubeUrl || ''),
+        bpm: Math.max(40, Math.min(240, parseInt(raw.bpm, 10) || 80)),
+        timeSignature,
+        capo: String(raw.capo || 'No capo').trim() || 'No capo',
+        rawText: normalizeAiRawText(raw.rawText),
+        strummingPatterns: normalizeAiPatterns(raw.strummingPatterns, timeSignature)
+      };
+    }
+
+    function renderAiSongCandidates() {
+      const container = document.getElementById('ai-song-candidates');
+      if (!container) return;
+      if (!aiSongDraftCandidates.length) {
+        container.innerHTML = '';
+        return;
+      }
+      container.innerHTML = aiSongDraftCandidates.map((draft, idx) => `
+        <div class="bg-black/30 border border-gray-800 rounded-xl p-3">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <p class="text-xs text-gray-500 uppercase tracking-[0.2em] mb-1">Candidate ${idx + 1}</p>
+              <p class="font-bold text-white">${escapeHtml(draft.title)}</p>
+              <p class="text-xs text-gray-400 mt-1">${escapeHtml(draft.artist)} • ${draft.bpm} BPM • ${escapeHtml(draft.timeSignature)}</p>
+            </div>
+            <button onclick="useAiSongCandidate(${idx})" class="btn-soft rounded-full px-4 py-2 text-xs btn-press">Use This</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    window.useAiSongCandidate = function(index) {
+      const draft = aiSongDraftCandidates[index];
+      if (!draft) return;
+      openAddSong({ draft });
+      showToast("Draft loaded in Add Song.", true);
+    };
+
     window.generateSongWithAI = async function() {
       const btn = document.getElementById('btn-generate-ai-song');
       const apiKey = (document.getElementById('ai-gemini-key')?.value || '').trim();
@@ -826,6 +889,8 @@ import { FirestoreRepository } from './modules/repository.js';
 
       const normalizedYoutube = normalizeYouTubeUrl(youtubeInput);
       localStorage.setItem(GEMINI_API_KEY_STORAGE_KEY, apiKey);
+      aiSongDraftCandidates = [];
+      renderAiSongCandidates();
       if (btn) btn.disabled = true;
       if (btn) btn.innerHTML = `<i class="fas fa-circle-notch fa-spin mr-2"></i> Generating...`;
 
@@ -837,28 +902,39 @@ import { FirestoreRepository } from './modules/repository.js';
         : 'Use normal mode: keep musically realistic chords and pattern.';
 
       const prompt = `
-Generate a guitar song draft as strict JSON only, no markdown.
+Generate exactly 3 possible guitar song drafts as strict JSON only, no markdown.
 ${sourceHint}
 ${difficultyHint}
 
 Output JSON shape:
 {
-  "title": "string",
-  "artist": "string",
-  "youtubeUrl": "string (can be empty)",
-  "bpm": 80,
-  "timeSignature": "4/4",
-  "capo": "No capo",
-  "rawText": "chords and lyrics in app format",
-  "strummingPatterns": [
-    { "tag": "[verse 1]", "patternText": "D.DU.UD." }
+  "candidates": [
+    {
+      "title": "string",
+      "artist": "string",
+      "youtubeUrl": "string (can be empty)",
+      "bpm": 80,
+      "timeSignature": "4/4",
+      "capo": "No capo",
+      "rawText": "chords and lyrics in app format",
+      "strummingPatterns": [
+        { "tag": "[verse 1]", "patternText": "D.DU.UD." }
+      ]
+    }
   ]
 }
 
 Rules:
 - timeSignature must be one of: 2/4, 3/4, 4/4, 6/8.
 - patternText must contain only D, U, X, .
-- Use at least one strumming pattern.
+- Return exactly 3 candidate objects.
+- Use at least one strumming pattern per candidate.
+- If all sections use the same strumming, return only one pattern entry without repeated copies.
+- rawText must use two-line block style only:
+  1) one full chords line
+  2) next full lyrics line
+  Never insert chord names inline between lyric words.
+- Keep section tags like [intro], [verse 1], [chorus] on separate lines.
 - Keep response compact and valid JSON.
 `.trim();
 
@@ -885,25 +961,15 @@ Rules:
         if (!parsed || typeof parsed !== 'object') {
           throw new Error('AI response was not valid JSON.');
         }
-
-        const draft = {
-          title: parsed.title || titleInput || 'Untitled',
-          artist: parsed.artist || artistInput || 'Unknown Artist',
-          youtubeUrl: normalizeYouTubeUrl(parsed.youtubeUrl || normalizedYoutube || ''),
-          bpm: Math.max(40, Math.min(240, parseInt(parsed.bpm, 10) || 80)),
-          timeSignature: ['2/4', '3/4', '4/4', '6/8'].includes(String(parsed.timeSignature || '4/4')) ? String(parsed.timeSignature) : '4/4',
-          capo: String(parsed.capo || 'No capo'),
-          rawText: String(parsed.rawText || 'C\nEmpty'),
-          strummingPatterns: Array.isArray(parsed.strummingPatterns) && parsed.strummingPatterns.length
-            ? parsed.strummingPatterns.map(entry => ({
-                tag: String(entry?.tag || ''),
-                patternText: String(entry?.patternText || '')
-              }))
-            : [{ tag: '', patternText: '' }]
-        };
-
-        openAddSong({ draft });
-        showToast("Draft generated. Review and save.", true);
+        const rawCandidates = Array.isArray(parsed.candidates) ? parsed.candidates : [];
+        if (!rawCandidates.length) throw new Error('No candidates returned by AI.');
+        const fallback = { title: titleInput || 'Untitled', artist: artistInput || 'Unknown Artist', youtubeUrl: normalizedYoutube || '' };
+        aiSongDraftCandidates = rawCandidates.slice(0, 3).map(item => normalizeAiDraft(item, fallback));
+        while (aiSongDraftCandidates.length < 3) {
+          aiSongDraftCandidates.push(normalizeAiDraft({}, fallback));
+        }
+        renderAiSongCandidates();
+        showToast("3 candidates ready. Choose one.", true);
       } catch (err) {
         console.error('AI generation failed', err);
         showToast("AI generation failed. Check inputs/API key.");
@@ -1286,7 +1352,7 @@ Rules:
         return `
           <div class="practice-line-preview ${state}">
             ${chordHtml ? `<div class="text-primary font-bold whitespace-pre text-[11px] sm:text-[13px]">${chordHtml}</div>` : ''}
-            ${entry.lyricLine ? `<div class="text-gray-200 whitespace-pre-wrap leading-snug mt-2 ${state === 'current' ? 'text-sm sm:text-base' : 'text-xs sm:text-sm'}">${entry.lyricLine}</div>` : ''}
+            ${entry.lyricLine ? `<div class="practice-lyrics-line text-gray-200 whitespace-pre-wrap leading-snug mt-2 ${state === 'current' ? 'text-sm sm:text-base' : 'text-xs sm:text-sm'}">${entry.lyricLine}</div>` : ''}
           </div>
         `;
       };

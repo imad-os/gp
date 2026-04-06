@@ -42,7 +42,7 @@
     .timeline-pair { display: flex; flex-direction: column; align-items: flex-start; gap: 0.18rem; }
     .timeline-line { margin: 0; padding: 0; display: block; white-space: pre; }
     .timeline-line.chords { line-height: 1; }
-    .timeline-line.lyrics { line-height: 1.08; }
+    .timeline-line.lyrics { line-height: 1.08; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
     .timeline-block.compact-gap { height: 0.2rem; }
     .timeline-block.tight-stack { margin-top: 0.26rem; }
     .settings-card { background: rgba(20,20,20,0.72); border: 1px solid #2a2a2a; }
@@ -107,6 +107,7 @@
     .practice-line-preview { transition: opacity 0.15s ease, transform 0.15s ease; }
     .practice-line-preview.secondary { opacity: 0.7; transform: scale(0.94); }
     .practice-line-preview.current { opacity: 1; transform: scale(1); }
+    .practice-lyrics-line { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
     .favorite-btn.idle { background: rgba(255,255,255,0.03); border: 1px solid #5a5a5a; color: #f4f4f5; }
     .favorite-btn.active { background: rgba(187,134,252,0.24); border: 1px solid rgba(187,134,252,0.9); color: #f5e9ff; box-shadow: 0 0 18px rgba(187,134,252,0.2); }
     .favorite-btn.active i { color: #bb86fc; }
@@ -581,6 +582,7 @@
               <i class="fas fa-sparkles mr-2"></i> Generate Song Draft
             </button>
             <p class="text-[11px] text-gray-500">Provide YouTube link OR title + artist. Then review/edit in Add Song before saving.</p>
+            <div id="ai-song-candidates" class="space-y-3"></div>
           </div>
         </div>
       </div>
