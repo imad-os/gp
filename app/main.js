@@ -73,7 +73,6 @@ import { FirestoreRepository } from './modules/repository.js';
     const GEMINI_API_KEY_STORAGE_KEY = 'guitartrainer.gemini.apiKey';
     const APP_BUILD = {
       version: 'v2026.04.06.2',
-      updatedAt: '2026-04-06 17:05 (Africa/Lagos)'
     };
     const DEFAULT_SETTINGS = {
       practiceTextSize: 14,
@@ -3300,7 +3299,8 @@ Rules:
     function renderBuildInfo() {
       const el = document.getElementById('settings-build-info');
       if (!el) return;
-      el.innerText = `Version ${APP_BUILD.version} • Updated ${APP_BUILD.updatedAt}`;
+      const localPcTime = new Date().toLocaleString();
+      el.innerText = `Version ${APP_BUILD.version} • Updated ${localPcTime}`;
     }
 
     async function registerServiceWorker() {
