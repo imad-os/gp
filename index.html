@@ -639,15 +639,7 @@
         <input type="text" id="add-artist" placeholder="Artist" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 focus:border-primary focus:outline-none">
         <input type="url" id="add-youtube-url" placeholder="YouTube Link (optional)" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 focus:border-primary focus:outline-none">
         
-        <div class="flex gap-4">
-          <input type="number" id="add-bpm" placeholder="Default BPM (e.g., 80)" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 focus:border-primary focus:outline-none">
-          <select id="add-time-sig" onchange="syncAddPatternEditor()" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 focus:border-primary focus:outline-none text-white">
-            <option value="4/4">4/4 Time</option>
-            <option value="3/4">3/4 Time</option>
-            <option value="2/4">2/4 Time</option>
-            <option value="6/8">6/8 Time</option>
-          </select>
-        </div>
+        <input type="number" id="add-bpm" placeholder="Default BPM (e.g., 80)" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 focus:border-primary focus:outline-none">
         <select id="add-capo" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 focus:border-primary focus:outline-none text-white"></select>
         
         <div>
@@ -658,7 +650,7 @@
         
         <div>
           <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Strumming Pattern</label>
-          <p class="text-[10px] text-gray-500 mb-2">Add one or more patterns. Use tags like <b>[verse 1]</b> and <b>[verse 2]</b> so practice mode can apply each pattern to the matching section.</p>
+          <p class="text-[10px] text-gray-500 mb-2">Add one or more patterns. Each pattern has its own time (4/4, 3/4...). Use tags like <b>[verse 1]</b> and <b>[verse 2]</b> so practice mode can apply each pattern to the matching section.</p>
           <div id="add-strum-editor"></div>
           <button type="button" onclick="addPatternRow()" class="mt-2 w-full btn-soft rounded-xl py-2 btn-press text-sm">
             <i class="fas fa-plus mr-2"></i> Add Pattern
@@ -690,7 +682,7 @@
         <div class="flex justify-between mb-4">
           <div><p class="text-[10px] text-gray-500 uppercase">Transcriber</p><p id="detail-posted" class="text-sm truncate max-w-[120px]"></p></div>
           <div class="text-right">
-            <p class="text-[10px] text-gray-500 uppercase">Target BPM, Time & Capo</p>
+            <p id="detail-meta-label" class="text-[10px] text-gray-500 uppercase">Target BPM, Time & Capo</p>
             <p class="text-sm font-bold text-primary"><span id="detail-bpm"></span> <span class="text-gray-500 text-xs font-normal" id="detail-time-sig"></span> <span class="text-gray-500 text-xs font-normal" id="detail-capo"></span></p>
           </div>
         </div>
