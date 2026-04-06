@@ -49,9 +49,13 @@ export class FirestoreRepository {
     const songsRef = collection(this.db, 'songs');
     const token = term.split(/\s+/)[0];
     const snapshots = [];
-    snapshots.push(await getDocs(query(songsRef, where('searchTokens', 'array-contains', token), limit(max))));
-    if (term !== token) {
-      snapshots.push(await getDocs(query(songsRef, where('searchTokens', 'array-contains', term), limit(max))));
+    try {
+      snapshots.push(await getDocs(query(songsRef, where('searchTokens', 'array-contains', token), limit(max))));
+      if (term !== token) {
+        snapshots.push(await getDocs(query(songsRef, where('searchTokens', 'array-contains', term), limit(max))));
+      }
+    } catch {
+      // Fallback path handled below for legacy documents without search indexes.
     }
     const merged = [];
     const seen = new Set();
@@ -62,7 +66,8 @@ export class FirestoreRepository {
         merged.push({ id: d.id, ...d.data() });
       });
     }
-    const filtered = merged.filter(song => {
+    const source = merged.length ? merged : (await getDocs(songsRef)).docs.map(d => ({ id: d.id, ...d.data() }));
+    const filtered = source.filter(song => {
       const title = String(song.title || '').toLowerCase();
       const artist = String(song.artist || '').toLowerCase();
       return title.includes(term) || artist.includes(term);

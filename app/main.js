@@ -72,7 +72,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const METRONOME_STORAGE_KEY = 'guitartrainer.metronome.settings';
     const GEMINI_API_KEY_STORAGE_KEY = 'guitartrainer.gemini.apiKey';
     const APP_BUILD = {
-      version: 'v2026.04.06.2',
+      version: 'v2026.04.06.3',
     };
     const DEFAULT_SETTINGS = {
       practiceTextSize: 14,
@@ -2297,7 +2297,9 @@ Rules:
       const input = document.getElementById('home-song-search');
       const query = String(input?.value || '').trim();
       if (!query) return;
-      navigate('tools', { pathOverride: '/tools/songs' });
+      navigate('tools', { skipUrl: true });
+      openToolPage('songs', { skipUrl: true });
+      pushUrlPath('/tools/songs');
       const toolInput = document.getElementById('tool-song-search');
       if (toolInput) toolInput.value = query;
       submitToolSongsSearch();
