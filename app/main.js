@@ -1963,8 +1963,12 @@ import { FirestoreRepository } from './modules/repository.js';
     function setPracticePreviewControls(isPreview) {
       const footer = document.getElementById('practice-footer');
       const fab = document.getElementById('btn-start-step1-fab');
+      const audioBtn = document.getElementById('btn-practice-audio');
+      const bpmWrap = document.getElementById('practice-bpm-wrap');
       if (footer) footer.classList.toggle('hidden', !!isPreview);
       if (fab) fab.classList.toggle('hidden', !isPreview);
+      if (audioBtn) audioBtn.classList.toggle('hidden', !!isPreview);
+      if (bpmWrap) bpmWrap.classList.toggle('hidden', !!isPreview);
     }
 
     window.updatePracticeBpmLabel = function(value) {
@@ -2276,6 +2280,11 @@ import { FirestoreRepository } from './modules/repository.js';
                   ${lineData.chordHtml || lineData.lyricLine ? `<div class="timeline-pair">${lineData.chordHtml ? `<div class="timeline-line chords text-primary font-bold" style="font-size:var(--practice-chord-size, 11px)">${lineData.chordHtml}</div>` : ''}${lineData.lyricLine ? `<div class="timeline-line ${lineData.type === 'tag' ? 'text-primary/80 uppercase tracking-[0.25em] text-[10px] sm:text-xs' : 'lyrics text-gray-300'}" style="${lineData.type === 'tag' ? '' : 'font-size:var(--practice-text-size, 14px)'}">${lineData.lyricLine}</div>` : ''}</div>` : ''}
                 </div>
               `).join('') + `</div>
+            </div>
+            <div class="flex justify-end">
+              <button onclick="openSongDetails('${currentSong.id}')" class="btn-soft rounded-full px-5 py-2 text-sm btn-press">
+                <i class="fas fa-file-lines mr-2"></i> Song Page
+              </button>
             </div>
           </div>`;
         const normalizedPreview = currentSong.strumming.map(s => ({ ...s, raw: s.raw || '.' }));
