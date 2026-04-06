@@ -20,6 +20,7 @@ import { FirestoreRepository } from './modules/repository.js';
     let userProgress = {};
     let userProgressSongId = null;
     let editingSongId = null; 
+    let activeArtistName = '';
     
     let audioCtx = null;
     let isPlaying = false;
@@ -1719,6 +1720,10 @@ Rules:
         if (currentSong?.id) return `/practice/${encodeURIComponent(currentSong.id)}/${currentStepMode}`;
         return '/practice';
       }
+      if (id === 'artist') {
+        if (activeArtistName) return `/artists/${encodeURIComponent(activeArtistName)}`;
+        return '/artists';
+      }
       return '/';
     }
 
@@ -1817,6 +1822,17 @@ Rules:
             return;
           }
           await openSongDetails(songId, { skipUrl: true });
+          return;
+        }
+
+        if (parts[0] === 'artists') {
+          const artistName = decodeURIComponent(parts[1] || '');
+          if (!artistName) {
+            navigate('home', { skipUrl: true });
+            if (replaceUnknown) pushUrlPath('/', { replace: true });
+            return;
+          }
+          openArtistPage(artistName, { skipUrl: true });
           return;
         }
 
@@ -1946,6 +1962,81 @@ Rules:
       await persistUserSettingsPartial({ favoriteSongIds: Array.from(favorites) });
       updateFavoriteButton();
       renderHomeDashboard();
+    };
+
+    window.toggleFavoriteFromList = async function(songId, event) {
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      if (!songId) return;
+      const favorites = new Set(userSettings.favoriteSongIds || []);
+      if (favorites.has(songId)) favorites.delete(songId);
+      else favorites.add(songId);
+      await persistUserSettingsPartial({ favoriteSongIds: Array.from(favorites) });
+      renderHomeDashboard();
+      renderToolSongsSearch(document.getElementById('tool-song-search')?.value || '');
+      renderArtistPageSongs();
+      if (currentSong?.id === songId) updateFavoriteButton();
+    };
+
+    function renderArtistSongCard(song) {
+      const meta = getSongListMeta(song);
+      return `
+        <div onclick="openSongPreviewFromList('${song.id}')" class="w-full text-left tool-nav-card btn-press cursor-pointer">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <div class="font-bold text-white">${song.title}</div>
+              <button onclick="openArtistPage('${encodeURIComponent(song.artist || 'Unknown artist')}', event)" class="text-xs text-gray-400 mt-1 underline decoration-transparent hover:decoration-gray-500">${song.artist || 'Unknown artist'}</button>
+              <div class="mt-2">${renderStars(getSongRatingAverage(song))}</div>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="toggleFavoriteFromList('${song.id}', event)" class="w-8 h-8 rounded-full btn-soft btn-press" title="${meta.favoriteTitle}">
+                <i class="${meta.favoriteIcon}"></i>
+              </button>
+              <i class="fas fa-chevron-right text-primary"></i>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderArtistPageSongs() {
+      const container = document.getElementById('artist-page-results');
+      if (!container) return;
+      const key = String(activeArtistName || '').trim().toLowerCase();
+      const matches = songs.filter(song => String(song.artist || 'Unknown artist').trim().toLowerCase() === key);
+      if (!matches.length) {
+        container.innerHTML = `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No songs found for this artist.</div>`;
+        return;
+      }
+      container.innerHTML = matches.map(song => renderArtistSongCard(song)).join('');
+    }
+
+    window.openArtistPage = function(artistName, eventOrOptions = null, maybeOptions = {}) {
+      let opts = {};
+      if (eventOrOptions && typeof eventOrOptions.preventDefault === 'function') {
+        eventOrOptions.preventDefault();
+        eventOrOptions.stopPropagation();
+        opts = maybeOptions || {};
+      } else {
+        opts = eventOrOptions || {};
+      }
+      const { skipUrl = false, replaceUrl = false } = opts || {};
+      const decoded = decodeURIComponent(String(artistName || '').trim());
+      activeArtistName = decoded || 'Unknown artist';
+      const title = document.getElementById('artist-page-title');
+      if (title) title.innerText = activeArtistName;
+      renderArtistPageSongs();
+      navigate('artist', { skipUrl, replaceUrl, pathOverride: `/artists/${encodeURIComponent(activeArtistName)}` });
+    };
+
+    window.goBackFromArtistPage = function() {
+      if (window.history.length > 1) {
+        window.history.back();
+      } else {
+        navigate('home');
+      }
     };
 
     function updateFavoriteButton() {
@@ -2123,6 +2214,18 @@ Rules:
       return `<div class="flex items-center gap-1 text-[11px]">${Array.from({ length: 5 }, (_, index) => `<i class="fas fa-star ${index < rounded ? 'text-primary' : 'text-gray-700'}"></i>`).join('')}</div>`;
     }
 
+    function isSongFavorite(songId) {
+      return (userSettings.favoriteSongIds || []).includes(songId);
+    }
+
+    function getSongListMeta(song) {
+      const isFav = isSongFavorite(song.id);
+      return {
+        favoriteIcon: isFav ? 'fas fa-heart text-primary' : 'far fa-heart text-gray-400',
+        favoriteTitle: isFav ? 'Remove favorite' : 'Add favorite'
+      };
+    }
+
     function buildSongDashboardCard(song, options = {}) {
       const stepProgress = userProgress && currentSong?.id === song.id ? userProgress : null;
       const progress = options.progress || stepProgress || { step1: { p: 0 }, step2: { p: 0 }, step3: { p: 0 } };
@@ -2133,6 +2236,7 @@ Rules:
       const p1w = p1 > 0 ? Math.max(4, p1) : 0;
       const p2w = p2 > 0 ? Math.max(4, p2) : 0;
       const p3w = p3 > 0 ? Math.max(4, p3) : 0;
+      const meta = getSongListMeta(song);
       const stepsBlock = hasProgress
         ? `<div class="grid gap-2 mt-3 text-[10px]" style="grid-template-columns:repeat(3,minmax(0,1fr));">
             <div>
@@ -2147,19 +2251,22 @@ Rules:
           </div>`
         : '';
       return `
-        <button onclick="openSongPreviewFromList('${song.id}')" class="w-full text-left tool-nav-card btn-press">
+        <div onclick="openSongPreviewFromList('${song.id}')" class="w-full text-left tool-nav-card btn-press cursor-pointer">
           <div class="flex items-start justify-between gap-3">
             <div>
               <div class="font-bold text-white">${song.title}</div>
-              <div class="text-xs text-gray-400 mt-1">${song.artist || 'Unknown artist'}</div>
+              <button onclick="openArtistPage('${encodeURIComponent(song.artist || 'Unknown artist')}', event)" class="text-xs text-gray-400 mt-1 underline decoration-transparent hover:decoration-gray-500">${song.artist || 'Unknown artist'}</button>
               <div class="mt-2">${renderStars(getSongRatingAverage(song))}</div>
             </div>
             <div class="flex items-center gap-2">
+              <button onclick="toggleFavoriteFromList('${song.id}', event)" class="w-8 h-8 rounded-full btn-soft btn-press" title="${meta.favoriteTitle}">
+                <i class="${meta.favoriteIcon}"></i>
+              </button>
               <i class="fas fa-chevron-right text-primary text-xs"></i>
             </div>
           </div>
           ${stepsBlock}
-        </button>
+        </div>
       `;
     }
 
@@ -2177,42 +2284,22 @@ Rules:
 
       const practiceShortcuts = document.getElementById('training-practice-shortcuts');
       if (practiceShortcuts) practiceShortcuts.innerHTML = recentSongs.length ? recentSongs.slice(0, 4).map(({ song, progress }) => buildSongDashboardCard(song, { progress })).join('') : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">Start from a song on Home to see it here.</div>`;
-
-      const homeSearch = document.getElementById('home-song-search');
-      renderHomeSongsSearch(homeSearch?.value || '');
     }
 
-    function renderHomeSongsSearch(query = '') {
-      const container = document.getElementById('home-song-search-results');
-      if (!container) return;
-      const q = String(query || '').trim().toLowerCase();
-      const filtered = songs
-        .filter(song => !q || song.title?.toLowerCase().includes(q) || song.artist?.toLowerCase().includes(q))
-        .slice(0, 24);
-      if (!filtered.length) {
-        container.innerHTML = `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No songs match your search.</div>`;
-        return;
-      }
-      container.innerHTML = filtered.map(song => `
-        <button onclick="openSongPreviewFromList('${song.id}')" class="w-full text-left tool-nav-card btn-press">
-          <div class="flex items-center justify-between gap-3">
-            <div>
-              <div class="font-bold text-white">${song.title}</div>
-              <div class="text-xs text-gray-400 mt-1">${song.artist || 'Unknown artist'}</div>
-              <div class="mt-2">${renderStars(getSongRatingAverage(song))}</div>
-            </div>
-            <i class="fas fa-chevron-right text-primary"></i>
-          </div>
-        </button>
-      `).join('');
-    }
-
-    window.renderHomeSongsSearch = renderHomeSongsSearch;
-
-    window.submitHomeSongsSearch = function(event) {
+    window.submitHomeSongsSearch = async function(event) {
       if (event) event.preventDefault();
       const input = document.getElementById('home-song-search');
-      renderHomeSongsSearch(input?.value || '');
+      const query = String(input?.value || '').trim();
+      if (!query) return;
+      try {
+        songs = await repository.loadSongs({ defaultSong: MOCK_SONG, ensureSongFormat });
+      } catch (e) {
+        console.error("Home search refresh failed", e);
+      }
+      navigate('tools', { pathOverride: '/tools/songs' });
+      const toolInput = document.getElementById('tool-song-search');
+      if (toolInput) toolInput.value = query;
+      renderToolSongsSearch(query);
     };
 
     function renderToolSongsSearch(query = '') {
@@ -2224,18 +2311,7 @@ Rules:
         container.innerHTML = `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No songs found.</div>`;
         return;
       }
-      container.innerHTML = filtered.map(song => `
-        <button onclick="openSongPreviewFromList('${song.id}')" class="w-full text-left tool-nav-card btn-press">
-          <div class="flex items-center justify-between gap-3">
-            <div>
-              <div class="font-bold text-white">${song.title}</div>
-              <div class="text-xs text-gray-400 mt-1">${song.artist || 'Unknown artist'}</div>
-              <div class="mt-2">${renderStars(getSongRatingAverage(song))}</div>
-            </div>
-            <i class="fas fa-chevron-right text-primary"></i>
-          </div>
-        </button>
-      `).join('');
+      container.innerHTML = filtered.map(song => renderArtistSongCard(song)).join('');
     }
 
     window.renderToolSongsSearch = renderToolSongsSearch;
@@ -2252,14 +2328,12 @@ Rules:
     function setPracticePreviewControls(isPreview) {
       const footer = document.getElementById('practice-footer');
       const fab = document.getElementById('btn-start-step1-fab');
-      const previewFab = document.getElementById('btn-preview-play-fab');
       const liveControls = document.getElementById('practice-header-live-controls');
       const audioBtn = document.getElementById('btn-practice-audio');
       const bpmWrap = document.getElementById('practice-bpm-wrap');
       const textBtn = document.getElementById('btn-practice-text-settings');
       if (footer) footer.classList.toggle('hidden', !!isPreview);
       if (fab) fab.classList.toggle('hidden', !isPreview);
-      if (previewFab) previewFab.classList.toggle('hidden', !isPreview);
       if (liveControls) liveControls.classList.toggle('hidden', !!isPreview);
       if (audioBtn) audioBtn.classList.toggle('hidden', !!isPreview);
       if (bpmWrap) bpmWrap.classList.toggle('hidden', !!isPreview);
@@ -2267,7 +2341,7 @@ Rules:
     }
 
     function updatePreviewPlayButton() {
-      const btn = document.getElementById('btn-preview-play-fab');
+      const btn = document.getElementById('btn-preview-play');
       if (!btn) return;
       if (currentStepMode !== 0) {
         btn.classList.add('hidden');
@@ -2604,6 +2678,9 @@ Rules:
                 <div><div class="text-[10px] uppercase tracking-[0.2em] text-gray-500 mb-1">Capo</div><div class="text-white font-semibold">${currentSong.capo || 'No capo'}</div></div>
               </div>
               <div class="mt-4 flex items-center justify-end gap-2">
+                <button id="btn-preview-play" onclick="togglePlay()" class="bg-primary text-black rounded-full px-5 py-2 text-sm font-bold btn-press">
+                  <i class="fas fa-play mr-2"></i> Play Preview
+                </button>
                 <button onclick="openSongDetails('${currentSong.id}')" class="btn-soft rounded-full px-5 py-2 text-sm btn-press">
                   <i class="fas fa-file-lines mr-2"></i> Open Song Details
                 </button>
