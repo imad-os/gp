@@ -921,6 +921,7 @@ ${difficultyHint}
 
 Output JSON shape:
 {
+  "found" : true,
   "title": "string",
   "artist": "string",
   "youtubeUrl": "string (can be empty)",
@@ -936,6 +937,7 @@ Output JSON shape:
 Rules:
 - timeSignature must be one of: 2/4, 3/4, 4/4, 6/8.
 - patternText must contain only D, U, X, .
+- 'X' : chuck , '.' : rest
 - Return one song only.
 - Use at least one strumming pattern.
 - If all sections use the same strumming, return only one pattern entry without repeated copies.
@@ -946,11 +948,17 @@ Rules:
   Never insert chord names inline between lyric words.
 - Keep section tags like [intro], [verse 1], [chorus] on separate lines.
 - Keep response compact and valid JSON.
+- get me real songs , that exist , do not make up songs that do not exist , if you do not know a song that matches the input criteria just return "found":false;
 `.trim();
 
       try {
         const parsed = await callGeminiJson(apiKey, prompt);
         if (!parsed || typeof parsed !== 'object') throw new Error('No song returned by AI.');
+        const found = parsed.found === true || String(parsed.found || '').toLowerCase() === 'true';
+        if (!found) {
+          showToast("Could not match a real song for this input.");
+          return;
+        }
         const fallback = { title: titleInput || ytMeta?.title || 'Untitled', artist: artistInput || ytMeta?.authorName || 'Unknown Artist', youtubeUrl: normalizedYoutube || '' };
         const draft = normalizeAiDraft(parsed, fallback);
         if (artistInput) draft.artist = artistInput;
@@ -3172,5 +3180,4 @@ Rules:
       });
       initApp();
     };
-
 
