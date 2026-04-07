@@ -159,4 +159,87 @@ export class FirestoreRepository {
     const created = await addDoc(collection(this.db, 'chords'), chordData);
     return created.id;
   }
+
+  async loadTrainingArticles() {
+    const ref = collection(this.db, 'training_articles');
+    const snap = await getDocs(ref);
+    return snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  }
+
+  async saveTrainingArticle(articleData, editingArticleId = null) {
+    const titleLc = String(articleData?.title || '').trim().toLowerCase();
+    const descriptionLc = String(articleData?.description || '').trim().toLowerCase();
+    const categoryLc = String(articleData?.category || '').trim().toLowerCase();
+    const searchTokens = Array.from(new Set(
+      `${titleLc} ${descriptionLc} ${categoryLc}`
+        .split(/[^a-z0-9]+/i)
+        .map(token => token.trim())
+        .filter(token => token.length >= 2)
+    ));
+    const payload = {
+      ...articleData,
+      titleLc,
+      categoryLc,
+      searchTokens
+    };
+    if (editingArticleId) {
+      await setDoc(doc(this.db, 'training_articles', editingArticleId), payload, { merge: true });
+      return editingArticleId;
+    }
+    const created = await addDoc(collection(this.db, 'training_articles'), {
+      ...payload,
+      createdAt: payload.createdAt || Date.now(),
+      ratingSummary: payload.ratingSummary || { average: 0, count: 0 }
+    });
+    return created.id;
+  }
+
+  async deleteTrainingArticle(articleId) {
+    await deleteDoc(doc(this.db, 'training_articles', articleId));
+  }
+
+  async loadTrainingArticleComments(articleId) {
+    const commentsRef = collection(this.db, 'training_articles', articleId, 'comments');
+    const snap = await getDocs(commentsRef);
+    return snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  }
+
+  async addTrainingArticleComment(articleId, comment) {
+    const commentsRef = collection(this.db, 'training_articles', articleId, 'comments');
+    const created = await addDoc(commentsRef, comment);
+    return created.id;
+  }
+
+  async loadTrainingArticleRatings(articleId) {
+    const ratingsRef = collection(this.db, 'training_articles', articleId, 'ratings');
+    const snap = await getDocs(ratingsRef);
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  }
+
+  async upsertTrainingArticleRating(articleId, userId, rating) {
+    await setDoc(doc(this.db, 'training_articles', articleId, 'ratings', userId), rating, { merge: true });
+  }
+
+  async updateTrainingArticleMeta(articleId, patch) {
+    await setDoc(doc(this.db, 'training_articles', articleId), patch, { merge: true });
+  }
+
+  async seedTrainingArticles(entries = []) {
+    if (!Array.isArray(entries) || !entries.length) return [];
+    const existing = await this.loadTrainingArticles();
+    const existingKeys = new Set(existing.map(item => `${String(item.category || '').trim().toLowerCase()}::${String(item.title || '').trim().toLowerCase()}`));
+    const inserted = [];
+    for (const entry of entries) {
+      const key = `${String(entry?.category || '').trim().toLowerCase()}::${String(entry?.title || '').trim().toLowerCase()}`;
+      if (!key || existingKeys.has(key)) continue;
+      const id = await this.saveTrainingArticle(entry);
+      inserted.push(id);
+      existingKeys.add(key);
+    }
+    return inserted;
+  }
 }

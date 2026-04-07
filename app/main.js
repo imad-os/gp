@@ -66,6 +66,13 @@ import { FirestoreRepository } from './modules/repository.js';
     let currentSongComments = [];
     let currentSongRatings = [];
     let pendingSongRating = 0;
+    let trainingArticles = [];
+    let currentTrainingArticle = null;
+    let currentTrainingArticleComments = [];
+    let currentTrainingArticleRatings = [];
+    let pendingTrainingArticleRating = 0;
+    let editingTrainingArticleId = null;
+    let activeTrainingArticleCategory = 'trainings';
     let lastNonPracticePath = '/';
     let tunerStream = null;
     let tunerAnalyser = null;
@@ -95,7 +102,7 @@ import { FirestoreRepository } from './modules/repository.js';
     let practiceValidationStates = [];
 
     const CAPO_OPTIONS = ["No capo", "1st fret", "2nd fret", "3rd fret", "4th fret", "5th fret", "6th fret", "7th fret", "8th fret", "9th fret", "10th fret", "11th fret", "12th fret"];
-    const TAB_VIEWS = new Set(['home', 'training', 'tuner', 'tools', 'settings']);
+    const TAB_VIEWS = new Set(['home', 'training', 'tuner', 'tools', 'profile']);
     const STANDARD_TUNING = [
       { note: 'E2', freq: 82.41 },
       { note: 'A2', freq: 110.0 },
@@ -136,6 +143,223 @@ import { FirestoreRepository } from './modules/repository.js';
       ]
     };
 
+    const DEFAULT_TRAINING_ARTICLES = [
+      {
+        category: 'trainings',
+        title: 'Perfect Posture and Pick Hold',
+        imageUrl: '',
+        level: 'beginner',
+        articleType: 'text',
+        description: 'Set your hands and wrist correctly before speed work.',
+        body: `1) Sit tall and keep shoulders relaxed.
+2) Keep fretting thumb behind the neck midpoint.
+3) Hold pick with light pressure: enough to not drop, not enough to lock wrist.
+4) Do 3 rounds: open-string downstrokes 60 BPM for 2 minutes.`,
+      },
+      {
+        category: 'trainings',
+        title: 'Clean Chord Changes: C to G to Am',
+        imageUrl: '',
+        level: 'beginner',
+        articleType: 'text',
+        description: 'Fast transition drills with minimal finger movement.',
+        body: `Use 4 bars each chord at 70 BPM.
+Focus: move fingers together, not one by one.
+Routine:
+- 3 minutes C -> G
+- 3 minutes G -> Am
+- 3 minutes C -> Am`,
+      },
+      {
+        category: 'trainings',
+        title: 'Palm Muting Control Basics',
+        imageUrl: '',
+        level: 'medium',
+        articleType: 'text',
+        description: 'Control tone and attack with right-hand palm position.',
+        body: `Place palm edge near bridge.
+Move 1 cm toward neck for warmer muted tone.
+Drill:
+- 2 bars muted eighth notes
+- 2 bars open ringing eighth notes
+- Repeat for 5 minutes`,
+      },
+      {
+        category: 'dailies',
+        title: '10-Minute Daily Warm-Up',
+        imageUrl: '',
+        level: 'beginner',
+        articleType: 'text',
+        description: 'A daily quick stack for consistency.',
+        body: `2 min finger stretch
+3 min open-string alternate picking
+3 min chord transitions (C, G, Am, F)
+2 min slow strumming with metronome`,
+      },
+      {
+        category: 'dailies',
+        title: 'Rhythm Daily: Subdivision Focus',
+        imageUrl: '',
+        level: 'medium',
+        articleType: 'text',
+        description: 'Tighten timing by counting out loud.',
+        body: `At 75 BPM:
+- Quarter notes x 2 min
+- Eighth notes x 2 min
+- Sixteenth notes x 2 min
+Count "1 e & a" clearly while strumming.`,
+      },
+      {
+        category: 'dailies',
+        title: 'Daily Ear and Tuning Check',
+        imageUrl: '',
+        level: 'beginner',
+        articleType: 'text',
+        description: 'Build pitch awareness before practice.',
+        body: `1) Tune each string slowly.
+2) Pluck and sing the note.
+3) Check octave string pairs.
+4) End with one clean chord ring for 20 seconds.`,
+      },
+      {
+        category: 'courses',
+        title: 'Marty Music - Beginner Guitar Lesson 1',
+        imageUrl: 'https://i.ytimg.com/vi/_QCt3UBTS1Y/hqdefault.jpg',
+        level: 'beginner',
+        articleType: 'video',
+        description: 'Very friendly absolute beginner starter lesson.',
+        youtubeUrl: 'https://www.youtube.com/watch?v=_QCt3UBTS1Y',
+        body: '',
+      },
+      {
+        category: 'courses',
+        title: 'Marty Music - Beginner Guitar Lesson 2',
+        imageUrl: 'https://i.ytimg.com/vi/RY3AvEGKfZ0/hqdefault.jpg',
+        level: 'beginner',
+        articleType: 'video',
+        description: 'Follow-up beginner lesson focusing on chord transitions.',
+        youtubeUrl: 'https://www.youtube.com/watch?v=RY3AvEGKfZ0',
+        body: '',
+      },
+      {
+        category: 'courses',
+        title: 'Andy Guitar - Beginner Lesson (Part 2)',
+        imageUrl: 'https://i.ytimg.com/vi/6Jxz9F3CYuo/hqdefault.jpg',
+        level: 'beginner',
+        articleType: 'video',
+        description: 'Beginner-friendly pacing and structure.',
+        youtubeUrl: 'https://www.youtube.com/watch?v=6Jxz9F3CYuo',
+        body: '',
+      },
+      {
+        category: 'trainings',
+        title: 'Beginner Finger Independence Drill',
+        imageUrl: '',
+        level: 'beginner',
+        articleType: 'text',
+        description: 'Build left-hand control with a 1-2-3-4 crawl routine.',
+        body: `Start on low E string:
+- Fret 1,2,3,4 then move to next string.
+- Use strict alternate picking.
+- 4 reps ascending + 4 reps descending.
+Tempo: 55 BPM first week, then +5 BPM.`,
+      },
+      {
+        category: 'trainings',
+        title: 'Strumming Dynamics and Accent Control',
+        imageUrl: '',
+        level: 'medium',
+        articleType: 'text',
+        description: 'Practice loud/soft accents without breaking tempo.',
+        body: `Pattern: D . D U . U D U
+Round A: accent beat 2
+Round B: accent beat 4
+Round C: ghost strum on off-beats
+Use metronome at 80 BPM for 8 minutes.`,
+      },
+      {
+        category: 'trainings',
+        title: 'Barre Chord Foundations',
+        imageUrl: '',
+        level: 'advance',
+        articleType: 'text',
+        description: 'Prepare finger strength and wrist angle for clean barre shapes.',
+        body: `1) Thumb behind neck, no squeeze collapse.
+2) Roll index finger slightly toward thumb side.
+3) Start with mini-barre on top 2 strings.
+4) Build to full F major for 10-second holds x 8 reps.`,
+      },
+      {
+        category: 'dailies',
+        title: '15-Minute Daily Chord Flow',
+        imageUrl: '',
+        level: 'beginner',
+        articleType: 'text',
+        description: 'Daily transitions for common open chords.',
+        body: `5 min: C-G-Am-F (slow)
+5 min: D-A-Bm-G (slow)
+5 min: pick one song progression and loop
+Goal: no pauses between changes.`,
+      },
+      {
+        category: 'dailies',
+        title: 'Speed Ladder Daily',
+        imageUrl: '',
+        level: 'medium',
+        articleType: 'text',
+        description: 'Controlled speed increase without losing timing.',
+        body: `Pick one drill and run:
+60 BPM x 1 min
+70 BPM x 1 min
+80 BPM x 1 min
+90 BPM x 1 min
+Drop back to 70 BPM for clean finish.`,
+      },
+      {
+        category: 'dailies',
+        title: 'Daily Review Loop',
+        imageUrl: '',
+        level: 'beginner',
+        articleType: 'text',
+        description: 'Simple structure to keep consistency every day.',
+        body: `2 min tuning
+4 min rhythm drill
+4 min chord transitions
+4 min song excerpt
+1 min notes: what improved / what failed`,
+      },
+      {
+        category: 'courses',
+        title: 'Marty Music - 12 Bar Blues for Absolute Beginner',
+        imageUrl: 'https://i.ytimg.com/vi/BU_wgm3M_tw/hqdefault.jpg',
+        level: 'beginner',
+        articleType: 'video',
+        description: 'Good first blues form for absolute beginners.',
+        youtubeUrl: 'https://www.youtube.com/watch?v=BU_wgm3M_tw',
+        body: '',
+      },
+      {
+        category: 'courses',
+        title: 'GuitarZero2Hero - Beginner Lesson',
+        imageUrl: 'https://i.ytimg.com/vi/_bkxNOU29zk/hqdefault.jpg',
+        level: 'beginner',
+        articleType: 'video',
+        description: 'Step-by-step beginner fundamentals and song-ready basics.',
+        youtubeUrl: 'https://www.youtube.com/watch?v=_bkxNOU29zk',
+        body: '',
+      },
+      {
+        category: 'courses',
+        title: 'Nate Savage - Beginner Guitar Lesson 1',
+        imageUrl: 'https://i.ytimg.com/vi/HNSaXAe8tyg/hqdefault.jpg',
+        level: 'beginner',
+        articleType: 'video',
+        description: 'First-lesson format with core beginner essentials.',
+        youtubeUrl: 'https://www.youtube.com/watch?v=HNSaXAe8tyg',
+        body: '',
+      }
+    ];
+
     window.showToast = function(msg, isSuccess = false) {
       const t = document.getElementById('toast-msg');
       t.innerText = msg;
@@ -157,6 +381,7 @@ import { FirestoreRepository } from './modules/repository.js';
       showLoading(true, "Authenticating...");
       try {
         await signInWithEmailAndPassword(auth, email, pass);
+        closeAuthModal();
       } catch(err) {
         showLoading(false);
         showToast(err.message.replace('Firebase:', '').trim() || "Login failed");
@@ -172,11 +397,26 @@ import { FirestoreRepository } from './modules/repository.js';
       showLoading(true, "Creating account...");
       try {
         await createUserWithEmailAndPassword(auth, email, pass);
+        closeAuthModal();
         showToast("Account created successfully!", true);
       } catch(err) {
         showLoading(false);
         showToast(err.message.replace('Firebase:', '').trim() || "Signup failed");
       }
+    };
+
+    window.openAuthModal = function() {
+      const modal = document.getElementById('view-auth');
+      if (!modal) return;
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    };
+
+    window.closeAuthModal = function() {
+      const modal = document.getElementById('view-auth');
+      if (!modal) return;
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
     };
 
     window.handleGuest = async function() {
@@ -197,6 +437,41 @@ import { FirestoreRepository } from './modules/repository.js';
       } catch(e) {
         showLoading(false);
       }
+    };
+
+    function updateUserHeaderState() {
+      const profileBtn = document.getElementById('btn-open-profile');
+      const authBtn = document.getElementById('btn-open-auth');
+      const logoutBtn = document.getElementById('btn-logout');
+      if (!profileBtn || !authBtn || !logoutBtn) return;
+      const isGuest = !user || user.isAnonymous;
+      profileBtn.innerText = isGuest
+        ? 'Guest Player'
+        : (user.email ? user.email.split('@')[0] : 'Player');
+      profileBtn.title = isGuest ? 'Open profile' : (user.email || 'Open profile');
+      authBtn.classList.toggle('hidden', !isGuest);
+      logoutBtn.classList.toggle('hidden', isGuest);
+    }
+
+    function renderProfileSummary() {
+      const nameEl = document.getElementById('profile-user-name');
+      const emailEl = document.getElementById('profile-user-email');
+      const favoritesEl = document.getElementById('profile-stat-favorites');
+      const recentEl = document.getElementById('profile-stat-recent');
+      const songsEl = document.getElementById('profile-stat-songs');
+      const commentsEl = document.getElementById('profile-stat-comments');
+      const isGuest = !user || user.isAnonymous;
+      if (nameEl) nameEl.innerText = isGuest ? 'Guest Player' : (user.email ? user.email.split('@')[0] : 'Player');
+      if (emailEl) emailEl.innerText = isGuest ? 'Not signed in' : (user.email || 'Signed in');
+      if (favoritesEl) favoritesEl.innerText = String((userSettings.favoriteSongIds || []).length);
+      if (recentEl) recentEl.innerText = String((userSettings.recentPractice || []).length);
+      if (songsEl) songsEl.innerText = String(songs.filter(song => song.ownerId && user && song.ownerId === user.uid).length);
+      if (commentsEl) commentsEl.innerText = String(trainingArticles.filter(article => article.ownerId && user && article.ownerId === user.uid).length);
+    }
+
+    window.openProfilePage = function(options = {}) {
+      navigate('profile', options);
+      renderProfileSummary();
     };
 
     function showLoading(show, text = "Loading...") {
@@ -537,6 +812,31 @@ import { FirestoreRepository } from './modules/repository.js';
        return song;
     }
 
+    function ensureTrainingArticleFormat(article = {}) {
+      const category = ['trainings', 'dailies', 'courses'].includes(String(article.category || '').toLowerCase())
+        ? String(article.category || '').toLowerCase()
+        : 'trainings';
+      const articleType = String(article.articleType || 'text').toLowerCase() === 'video' ? 'video' : 'text';
+      const levelRaw = String(article.level || 'beginner').trim().toLowerCase();
+      const level = ['beginner', 'medium', 'advance'].includes(levelRaw) ? levelRaw : 'beginner';
+      const normalizedYoutube = normalizeYouTubeUrl(article.youtubeUrl || '');
+      return {
+        id: article.id || '',
+        category,
+        title: String(article.title || 'Untitled').trim() || 'Untitled',
+        imageUrl: String(article.imageUrl || '').trim(),
+        level,
+        articleType,
+        description: String(article.description || '').trim(),
+        body: articleType === 'text' ? String(article.body || '').trim() : '',
+        youtubeUrl: articleType === 'video' ? normalizedYoutube : '',
+        ownerId: article.ownerId || '',
+        postedBy: article.postedBy || '',
+        createdAt: article.createdAt || Date.now(),
+        ratingSummary: article.ratingSummary || { average: 0, count: 0 }
+      };
+    }
+
     function normalizeYouTubeUrl(input = '') {
       const raw = String(input || '').trim();
       if (!raw) return '';
@@ -586,9 +886,8 @@ import { FirestoreRepository } from './modules/repository.js';
           if (u) {
             user = u;
             const isGuest = user.isAnonymous;
-            
-            document.getElementById('display-username').innerText = isGuest ? "Guest Player" : user.email.split('@')[0];
-            document.getElementById('display-username').title = isGuest ? "Guest" : user.email;
+            updateUserHeaderState();
+            closeAuthModal();
             
             const addBtn = document.getElementById('btn-add-song');
             if(isGuest) addBtn.classList.add('hidden');
@@ -596,21 +895,26 @@ import { FirestoreRepository } from './modules/repository.js';
 
             await loadUserSettings();
             await loadSongs();
+            await loadTrainingArticles();
             await loadChordLibraryData();
             await loadToolRecordings();
             renderToolRecordings();
             renderChordExplorer();
             renderToolSongsSearch();
+            renderProfileSummary();
             showToolsHome({ skipUrl: true });
             await applyRouteFromLocation({ replaceUnknown: true });
             showLoading(false);
           } else {
             user = null;
-            toolRecordings = [];
-            document.getElementById('email-input').value = "";
-            document.getElementById('password-input').value = "";
-            navigate('auth', { replaceUrl: true, pathOverride: '/auth' });
-            showLoading(false);
+            updateUserHeaderState();
+            try {
+              await signInAnonymously(auth);
+            } catch (e) {
+              console.error('Guest sign-in failed', e);
+              showToast("Failed to start guest session.");
+              showLoading(false);
+            }
           }
         });
       } catch (err) {
@@ -629,6 +933,29 @@ import { FirestoreRepository } from './modules/repository.js';
         songs = [ensureSongFormat(MOCK_SONG)]; 
         renderHomeList();
       }
+    }
+
+    async function loadTrainingArticles() {
+      if (!repository) return;
+      try {
+        if (user && !user.isAnonymous) {
+          await repository.seedTrainingArticles(DEFAULT_TRAINING_ARTICLES.map(entry => ({
+            ...entry,
+            ownerId: entry.ownerId || user.uid,
+            postedBy: entry.postedBy || (user.email ? user.email.split('@')[0] : 'trainer')
+          })));
+        }
+        const raw = await repository.loadTrainingArticles();
+        trainingArticles = raw.length
+          ? raw.map(ensureTrainingArticleFormat)
+          : DEFAULT_TRAINING_ARTICLES.map((entry, idx) => ensureTrainingArticleFormat({ id: `fallback-${idx}`, ...entry }));
+      } catch (e) {
+        console.error('Failed to load training articles', e);
+        trainingArticles = DEFAULT_TRAINING_ARTICLES.map((entry, idx) => ensureTrainingArticleFormat({ id: `local-${idx}`, ...entry }));
+      }
+      renderTrainingArticleLists();
+      refreshTrainingAddButtons();
+      renderProfileSummary();
     }
 
     async function loadChordLibraryData() {
@@ -1106,15 +1433,156 @@ Rules:
       }
     };
 
+    function getTrainingCategoryLabel(category = '') {
+      if (category === 'courses') return 'Courses';
+      if (category === 'dailies') return 'Dailies';
+      return 'Trainings';
+    }
+
+    function refreshTrainingAddButtons() {
+      const canEdit = !!user && !user.isAnonymous;
+      ['trainings', 'dailies', 'courses'].forEach(category => {
+        const btn = document.getElementById(`btn-training-new-${category}`);
+        if (!btn) return;
+        btn.classList.toggle('hidden', !canEdit);
+      });
+    }
+
+    function buildTrainingArticleCard(article = {}) {
+      const typeBadge = article.articleType === 'video' ? 'Video' : 'Text';
+      const levelLabel = article.level === 'advance' ? 'Advance' : (article.level === 'medium' ? 'Medium' : 'Beginner');
+      const ratingText = article.ratingSummary?.count
+        ? `${Number(article.ratingSummary.average || 0).toFixed(1)} ★ (${article.ratingSummary.count})`
+        : 'No ratings';
+      const image = article.imageUrl
+        ? `<img src="${escapeHtml(article.imageUrl)}" alt="" class="w-16 h-16 rounded-xl object-cover border border-gray-700">`
+        : `<div class="w-16 h-16 rounded-xl border border-gray-700 bg-black/40 flex items-center justify-center text-primary"><i class="fas ${article.articleType === 'video' ? 'fa-play' : 'fa-file-lines'}"></i></div>`;
+      return `
+        <button onclick="openTrainingArticleDetail('${article.id}')" class="w-full text-left tool-nav-card btn-press">
+          <div class="flex items-start gap-3">
+            ${image}
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 mb-1">
+                <span class="text-[10px] uppercase tracking-[0.2em] text-gray-400">${levelLabel}</span>
+                <span class="text-[10px] uppercase tracking-[0.2em] text-gray-500">•</span>
+                <span class="text-[10px] uppercase tracking-[0.2em] text-gray-400">${typeBadge}</span>
+              </div>
+              <p class="font-bold text-white truncate">${escapeHtml(article.title || 'Untitled')}</p>
+              <p class="text-xs text-gray-400 mt-1 line-clamp-2">${escapeHtml(article.description || 'No description')}</p>
+              <p class="text-[11px] text-primary mt-2">${ratingText}</p>
+            </div>
+            <i class="fas fa-chevron-right text-primary mt-1"></i>
+          </div>
+        </button>
+      `;
+    }
+
+    function renderTrainingArticlesList(category = 'trainings') {
+      const holder = document.getElementById(`training-articles-${category}`);
+      if (!holder) return;
+      const searchInput = document.getElementById(`training-search-${category}`);
+      const term = String(searchInput?.value || '').trim().toLowerCase();
+      const matches = trainingArticles.filter(article => {
+        if (article.category !== category) return false;
+        if (!term) return true;
+        return String(article.title || '').toLowerCase().includes(term)
+          || String(article.description || '').toLowerCase().includes(term)
+          || String(article.body || '').toLowerCase().includes(term);
+      });
+      holder.innerHTML = matches.length
+        ? matches.map(buildTrainingArticleCard).join('')
+        : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No articles found.</div>`;
+    }
+
+    function renderTrainingArticleLists() {
+      renderTrainingArticlesList('trainings');
+      renderTrainingArticlesList('dailies');
+      renderTrainingArticlesList('courses');
+    }
+
+    function renderTrainingArticleRatingStars(selected = 0) {
+      const stars = document.getElementById('training-rating-stars');
+      if (!stars) return;
+      const canRate = !!user && !user.isAnonymous;
+      stars.innerHTML = Array.from({ length: 5 }, (_, index) => {
+        const value = index + 1;
+        const active = value <= selected;
+        return `<button onclick="setTrainingArticleRating(${value})" ${canRate ? '' : 'disabled'} class="btn-press ${active ? 'text-primary' : 'text-gray-600'} ${canRate ? '' : 'opacity-40 cursor-not-allowed'}"><i class="fas fa-star"></i></button>`;
+      }).join('');
+    }
+
+    function renderTrainingArticleRatingSummary() {
+      const summary = document.getElementById('training-rating-summary');
+      if (!summary) return;
+      if (!currentTrainingArticleRatings.length) {
+        summary.innerText = 'No ratings';
+        return;
+      }
+      const avg = currentTrainingArticleRatings.reduce((sum, item) => sum + (item.rating || 0), 0) / currentTrainingArticleRatings.length;
+      summary.innerText = `${avg.toFixed(1)} / 5 (${currentTrainingArticleRatings.length} ratings)`;
+    }
+
+    function renderTrainingArticleComments() {
+      const list = document.getElementById('training-comments-list');
+      if (!list) return;
+      if (!currentTrainingArticleComments.length) {
+        list.innerHTML = `<div class="bg-black/30 border border-gray-800 rounded-xl px-3 py-2 text-xs text-gray-400">No comments yet.</div>`;
+        return;
+      }
+      list.innerHTML = currentTrainingArticleComments.map(comment => `
+        <div class="bg-black/40 border border-gray-800 rounded-xl px-3 py-2">
+          <div class="flex items-center justify-between gap-3">
+            <p class="text-xs font-semibold text-white">${escapeHtml(comment.authorName || 'Anonymous')}</p>
+            <p class="text-[10px] uppercase tracking-[0.15em] text-gray-500">${comment.createdAt ? new Date(comment.createdAt).toLocaleDateString() : ''}</p>
+          </div>
+          <p class="text-sm text-gray-300 mt-1 whitespace-pre-wrap">${escapeHtml(comment.text || '')}</p>
+        </div>
+      `).join('');
+    }
+
+    async function loadTrainingArticleSocialData(articleId) {
+      if (!repository || !articleId) return;
+      try {
+        currentTrainingArticleComments = await repository.loadTrainingArticleComments(articleId);
+      } catch {
+        currentTrainingArticleComments = [];
+      }
+      try {
+        currentTrainingArticleRatings = await repository.loadTrainingArticleRatings(articleId);
+      } catch {
+        currentTrainingArticleRatings = [];
+      }
+      renderTrainingArticleComments();
+      renderTrainingArticleRatingSummary();
+      const existing = user ? currentTrainingArticleRatings.find(item => item.id === user.uid) : null;
+      pendingTrainingArticleRating = existing?.rating || 0;
+      renderTrainingArticleRatingStars(pendingTrainingArticleRating);
+    }
+
+    window.submitTrainingArticlesSearch = function(event, category) {
+      if (event?.preventDefault) event.preventDefault();
+      renderTrainingArticlesList(category);
+    };
+
     window.openTrainingPage = function(page, options = {}) {
       const { skipUrl = false, replaceUrl = false } = options || {};
+      activeTrainingArticleCategory = ['trainings', 'dailies', 'courses'].includes(page) ? page : activeTrainingArticleCategory;
       document.getElementById('training-home-panel')?.classList.add('hidden');
-      ['practice', 'dailies', 'strumming'].forEach(id => {
+      ['trainings', 'dailies', 'courses', 'article-detail', 'article-editor', 'strumming'].forEach(id => {
         document.getElementById(`training-page-${id}`)?.classList.toggle('hidden', id !== page);
       });
       document.getElementById('training-back-btn')?.classList.remove('hidden');
       const subtitle = document.getElementById('training-header-subtitle');
-      if (subtitle) subtitle.innerText = page === 'practice' ? 'Song practice hub.' : page === 'dailies' ? 'Warm-up routines.' : 'Pattern trainer.';
+      if (subtitle) {
+        subtitle.innerText = page === 'strumming'
+          ? 'Pattern trainer.'
+          : page === 'article-detail'
+            ? 'Article details.'
+            : page === 'article-editor'
+              ? 'Create or edit article.'
+              : `${getTrainingCategoryLabel(page)} hub.`;
+      }
+      if (['trainings', 'dailies', 'courses'].includes(page)) renderTrainingArticlesList(page);
       if (!skipUrl && !isHandlingRouteChange) {
         pushUrlPath(`/training/${encodeURIComponent(page)}`, { replace: replaceUrl });
       }
@@ -1123,7 +1591,7 @@ Rules:
     window.showTrainingHome = function(options = {}) {
       const { skipUrl = false, replaceUrl = false } = options || {};
       document.getElementById('training-home-panel')?.classList.remove('hidden');
-      ['practice', 'dailies', 'strumming'].forEach(id => {
+      ['trainings', 'dailies', 'courses', 'article-detail', 'article-editor', 'strumming'].forEach(id => {
         document.getElementById(`training-page-${id}`)?.classList.add('hidden');
       });
       document.getElementById('training-back-btn')?.classList.add('hidden');
@@ -1131,6 +1599,195 @@ Rules:
       if (subtitle) subtitle.innerText = 'Choose a training page.';
       if (!skipUrl && !isHandlingRouteChange) {
         pushUrlPath('/training', { replace: replaceUrl });
+      }
+    };
+
+    window.openTrainingArticleDetail = async function(articleId, options = {}) {
+      const { skipUrl = false, replaceUrl = false } = options || {};
+      const article = trainingArticles.find(item => item.id === articleId);
+      if (!article) return showToast('Article not found.');
+      currentTrainingArticle = article;
+      activeTrainingArticleCategory = article.category || 'trainings';
+      document.getElementById('training-detail-category').innerText = getTrainingCategoryLabel(activeTrainingArticleCategory);
+      document.getElementById('training-detail-title').innerText = article.title;
+      document.getElementById('training-detail-description').innerText = article.description || '';
+      document.getElementById('training-detail-level').innerText = article.level || 'beginner';
+      document.getElementById('training-detail-type').innerText = article.articleType || 'text';
+      const body = document.getElementById('training-detail-body');
+      if (body) body.innerText = article.body || '';
+      const image = document.getElementById('training-detail-image');
+      if (image) {
+        if (article.imageUrl) {
+          image.src = article.imageUrl;
+          image.classList.remove('hidden');
+        } else {
+          image.classList.add('hidden');
+          image.removeAttribute('src');
+        }
+      }
+      const videoWrap = document.getElementById('training-detail-video-wrap');
+      const videoLink = document.getElementById('training-detail-video-link');
+      const videoIframe = document.getElementById('training-detail-video-iframe');
+      if (article.articleType === 'video' && article.youtubeUrl) {
+        const embed = getYouTubeEmbedUrl(article.youtubeUrl);
+        if (videoIframe) videoIframe.src = embed || '';
+        if (videoLink) {
+          videoLink.href = article.youtubeUrl;
+          videoLink.innerText = 'Open on YouTube';
+        }
+        videoWrap?.classList.remove('hidden');
+      } else {
+        videoWrap?.classList.add('hidden');
+        if (videoIframe) videoIframe.src = '';
+        if (videoLink) {
+          videoLink.href = '#';
+          videoLink.innerText = '';
+        }
+      }
+      const canEdit = !!user && !user.isAnonymous;
+      document.getElementById('btn-training-edit-article')?.classList.toggle('hidden', !canEdit);
+      document.getElementById('btn-training-delete-article')?.classList.toggle('hidden', !canEdit);
+      await loadTrainingArticleSocialData(article.id);
+      openTrainingPage('article-detail', { skipUrl: true });
+      if (!skipUrl && !isHandlingRouteChange) {
+        pushUrlPath(`/training/${encodeURIComponent(activeTrainingArticleCategory)}/${encodeURIComponent(article.id)}`, { replace: replaceUrl });
+      }
+    };
+
+    window.openTrainingArticleEditor = function(category = 'trainings', articleId = null, options = {}) {
+      const { skipUrl = false, replaceUrl = false } = options || {};
+      if (!user || user.isAnonymous) return showToast('Create an account to manage articles.');
+      activeTrainingArticleCategory = ['trainings', 'dailies', 'courses'].includes(category) ? category : 'trainings';
+      editingTrainingArticleId = articleId || null;
+      const editingArticle = articleId ? trainingArticles.find(item => item.id === articleId) : null;
+      document.getElementById('training-editor-title').innerText = editingArticle ? 'Edit Article' : 'New Article';
+      document.getElementById('training-editor-article-title').value = editingArticle?.title || '';
+      document.getElementById('training-editor-article-image').value = editingArticle?.imageUrl || '';
+      document.getElementById('training-editor-article-level').value = editingArticle?.level || 'beginner';
+      document.getElementById('training-editor-article-type').value = editingArticle?.articleType || 'text';
+      document.getElementById('training-editor-article-description').value = editingArticle?.description || '';
+      document.getElementById('training-editor-article-body').value = editingArticle?.body || '';
+      document.getElementById('training-editor-article-youtube').value = editingArticle?.youtubeUrl || '';
+      toggleTrainingEditorTypeFields();
+      openTrainingPage('article-editor', { skipUrl: true });
+      if (!skipUrl && !isHandlingRouteChange) {
+        pushUrlPath(`/training/${encodeURIComponent(activeTrainingArticleCategory)}/editor`, { replace: replaceUrl });
+      }
+    };
+
+    window.cancelTrainingArticleEditor = function() {
+      editingTrainingArticleId = null;
+      openTrainingPage(activeTrainingArticleCategory);
+    };
+
+    window.toggleTrainingEditorTypeFields = function() {
+      const type = document.getElementById('training-editor-article-type')?.value || 'text';
+      document.getElementById('training-editor-article-body')?.classList.toggle('hidden', type !== 'text');
+      document.getElementById('training-editor-article-youtube')?.classList.toggle('hidden', type !== 'video');
+    };
+
+    window.saveTrainingArticle = async function() {
+      if (!user || user.isAnonymous) return showToast('Create an account to manage articles.');
+      try {
+        const payload = ensureTrainingArticleFormat({
+          id: editingTrainingArticleId || '',
+          category: activeTrainingArticleCategory,
+          title: document.getElementById('training-editor-article-title')?.value || '',
+          imageUrl: document.getElementById('training-editor-article-image')?.value || '',
+          level: document.getElementById('training-editor-article-level')?.value || 'beginner',
+          articleType: document.getElementById('training-editor-article-type')?.value || 'text',
+          description: document.getElementById('training-editor-article-description')?.value || '',
+          body: document.getElementById('training-editor-article-body')?.value || '',
+          youtubeUrl: document.getElementById('training-editor-article-youtube')?.value || '',
+          ownerId: user.uid,
+          postedBy: user.email ? user.email.split('@')[0] : 'trainer',
+          createdAt: editingTrainingArticleId
+            ? (trainingArticles.find(item => item.id === editingTrainingArticleId)?.createdAt || Date.now())
+            : Date.now()
+        });
+        if (!payload.title.trim()) return showToast('Title is required.');
+        if (payload.articleType === 'video' && !payload.youtubeUrl) return showToast('Valid YouTube link is required for video.');
+        const savedId = await repository.saveTrainingArticle(payload, editingTrainingArticleId);
+        await loadTrainingArticles();
+        const latest = trainingArticles.find(item => item.id === savedId);
+        if (latest) await openTrainingArticleDetail(latest.id);
+        else openTrainingPage(activeTrainingArticleCategory);
+        showToast('Article saved.', true);
+      } catch (e) {
+        console.error('Save training article failed', e);
+        showToast('Could not save article.');
+      }
+    };
+
+    window.editCurrentTrainingArticle = function() {
+      if (!currentTrainingArticle) return;
+      openTrainingArticleEditor(currentTrainingArticle.category || 'trainings', currentTrainingArticle.id);
+    };
+
+    window.deleteCurrentTrainingArticle = async function() {
+      if (!currentTrainingArticle || !repository) return;
+      if (!user || user.isAnonymous) return showToast('Create an account to manage articles.');
+      if (!confirm('Delete this article?')) return;
+      try {
+        const category = currentTrainingArticle.category || 'trainings';
+        await repository.deleteTrainingArticle(currentTrainingArticle.id);
+        currentTrainingArticle = null;
+        currentTrainingArticleComments = [];
+        currentTrainingArticleRatings = [];
+        await loadTrainingArticles();
+        openTrainingPage(category);
+        showToast('Article deleted.', true);
+      } catch (e) {
+        console.error('Delete training article failed', e);
+        showToast('Could not delete article.');
+      }
+    };
+
+    window.submitTrainingArticleComment = async function() {
+      if (!currentTrainingArticle || !repository) return;
+      if (!user || user.isAnonymous) return showToast('Create an account to comment.');
+      const input = document.getElementById('training-comment-input');
+      const text = String(input?.value || '').trim();
+      if (!text) return;
+      try {
+        await repository.addTrainingArticleComment(currentTrainingArticle.id, {
+          text,
+          authorId: user.uid,
+          authorName: user.email ? user.email.split('@')[0] : 'member',
+          createdAt: Date.now()
+        });
+        input.value = '';
+        await loadTrainingArticleSocialData(currentTrainingArticle.id);
+        showToast('Comment added.', true);
+      } catch (e) {
+        console.error('Add training comment failed', e);
+        showToast('Could not save comment.');
+      }
+    };
+
+    window.setTrainingArticleRating = async function(value) {
+      if (!currentTrainingArticle || !repository) return;
+      if (!user || user.isAnonymous) return showToast('Create an account to rate.');
+      pendingTrainingArticleRating = value;
+      renderTrainingArticleRatingStars(pendingTrainingArticleRating);
+      try {
+        await repository.upsertTrainingArticleRating(currentTrainingArticle.id, user.uid, {
+          rating: value,
+          authorId: user.uid,
+          updatedAt: Date.now()
+        });
+        await loadTrainingArticleSocialData(currentTrainingArticle.id);
+        const avg = currentTrainingArticleRatings.length
+          ? currentTrainingArticleRatings.reduce((sum, item) => sum + (item.rating || 0), 0) / currentTrainingArticleRatings.length
+          : value;
+        currentTrainingArticle.ratingSummary = { average: avg, count: currentTrainingArticleRatings.length };
+        await repository.updateTrainingArticleMeta(currentTrainingArticle.id, { ratingSummary: currentTrainingArticle.ratingSummary });
+        const idx = trainingArticles.findIndex(item => item.id === currentTrainingArticle.id);
+        if (idx >= 0) trainingArticles[idx].ratingSummary = currentTrainingArticle.ratingSummary;
+        renderTrainingArticleLists();
+      } catch (e) {
+        console.error('Training rating save failed', e);
+        showToast('Could not save rating.');
       }
     };
 
@@ -1852,7 +2509,7 @@ Rules:
     };
 
     window.saveSong = async function() {
-      if (!user) return navigate('auth');
+      if (!user) return openAuthModal();
       if (user.isAnonymous) return showToast("Please create an account to edit songs.");
 
       try {
@@ -1962,12 +2619,11 @@ Rules:
     }
 
     function buildPathForView(id) {
-      if (id === 'auth') return '/auth';
       if (id === 'home') return '/';
       if (id === 'training') return '/training';
       if (id === 'tuner') return '/tuner';
       if (id === 'tools') return '/tools';
-      if (id === 'settings') return '/settings';
+      if (id === 'profile') return '/profile';
       if (id === 'add-song') {
         if (editingSongId) return `/songs/${encodeURIComponent(editingSongId)}/edit`;
         return '/songs/new';
@@ -2018,14 +2674,8 @@ Rules:
         const parts = path.split('/').filter(Boolean);
 
         if (!user) {
-          navigate('auth', { skipUrl: true });
-          if (path !== '/auth') pushUrlPath('/auth', { replace: true });
-          return;
-        }
-
-        if (path === '/auth') {
           navigate('home', { skipUrl: true });
-          pushUrlPath('/', { replace: true });
+          if (path !== '/') pushUrlPath('/', { replace: true });
           return;
         }
 
@@ -2034,8 +2684,8 @@ Rules:
           return;
         }
 
-        if (path === '/settings') {
-          navigate('settings', { skipUrl: true });
+        if (path === '/settings' || path === '/profile') {
+          navigate('profile', { skipUrl: true });
           return;
         }
 
@@ -2056,9 +2706,29 @@ Rules:
         if (parts[0] === 'training') {
           navigate('training', { skipUrl: true });
           const page = decodeURIComponent(parts[1] || '');
-          const allowed = new Set(['practice', 'dailies', 'strumming']);
-          if (page && allowed.has(page)) openTrainingPage(page, { skipUrl: true });
-          else showTrainingHome({ skipUrl: true });
+          const allowed = new Set(['trainings', 'dailies', 'courses', 'strumming']);
+          if (page === 'editor') {
+            openTrainingArticleEditor(activeTrainingArticleCategory || 'trainings', null, { skipUrl: true });
+            return;
+          }
+          if (page && allowed.has(page)) {
+            if (parts[2]) {
+              const segment = decodeURIComponent(parts[2] || '');
+              if (segment === 'editor') {
+                openTrainingArticleEditor(page, null, { skipUrl: true });
+                return;
+              }
+              const articleId = segment;
+              const match = trainingArticles.find(item => item.id === articleId && item.category === page);
+              if (match) {
+                await openTrainingArticleDetail(articleId, { skipUrl: true });
+              } else {
+                openTrainingPage(page, { skipUrl: true });
+              }
+            } else {
+              openTrainingPage(page, { skipUrl: true });
+            }
+          } else showTrainingHome({ skipUrl: true });
           return;
         }
 
@@ -2149,6 +2819,7 @@ Rules:
       if (modalSlider) modalSlider.value = size;
       if (settingsLabel) settingsLabel.innerText = `${size} px`;
       if (modalLabel) modalLabel.innerText = `${size} px`;
+      renderProfileSummary();
     }
 
     window.previewTextSize = function(value, fromModal = false) {
@@ -2619,6 +3290,7 @@ Rules:
 
       const practiceShortcuts = document.getElementById('training-practice-shortcuts');
       if (practiceShortcuts) practiceShortcuts.innerHTML = recentSongs.length ? recentSongs.slice(0, 4).map(({ song, progress }) => buildSongDashboardCard(song, { progress })).join('') : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">Start from a song on Home to see it here.</div>`;
+      renderProfileSummary();
     }
 
     window.submitHomeSongsSearch = async function(event) {
@@ -3427,8 +4099,7 @@ Rules:
         { id: 'home', label: 'Home', icon: 'fa-house' },
         { id: 'training', label: 'Training', icon: 'fa-dumbbell' },
         { id: 'tuner', label: 'Tuner', icon: 'fa-microphone' },
-        { id: 'tools', label: 'Tools', icon: 'fa-toolbox' },
-        { id: 'settings', label: 'Settings', icon: 'fa-gear' }
+        { id: 'tools', label: 'Tools', icon: 'fa-toolbox' }
       ];
       const tabBar = document.getElementById('bottom-tabbar');
       if (!tabBar) return;

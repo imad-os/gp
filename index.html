@@ -169,6 +169,7 @@
       border-color: #747474;
       color: #ffffff;
     }
+    .page-shell { width: 100%; max-width: 72rem; margin: 0 auto; }
   </style>
 </head>
 <body>
@@ -192,13 +193,16 @@
   <!-- Toast Notifications -->
   <div id="toast-msg" class="fixed top-4 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-xl shadow-lg z-[100] transition-all duration-300 translate-y-[-150%] opacity-0 font-bold text-center w-11/12 max-w-sm pointer-events-none"></div>
 
-  <!-- VIEW: Auth (Login/Signup) -->
-  <div id="view-auth" class="view active items-center justify-center p-6 bg-[#121212] z-50">
+  <!-- Modal: Auth (Login/Signup) -->
+  <div id="view-auth" class="fixed inset-0 bg-black/65 z-50 hidden items-center justify-center p-6">
     <div class="w-full max-w-sm bg-surface p-8 rounded-2xl border border-gray-800 shadow-2xl">
+      <div class="flex justify-end mb-3">
+        <button onclick="closeAuthModal()" class="w-8 h-8 rounded-full btn-soft btn-press"><i class="fas fa-times"></i></button>
+      </div>
       <div class="text-center mb-8">
         <img src="/assets/pwa/icon-192.png" alt="GuitarTrainer logo" class="brand-logo mx-auto mb-4">
         <h1 class="text-2xl font-bold">GuitarTrainer</h1>
-        <p class="text-gray-400 mt-2 text-sm">Login or practice as a guest</p>
+        <p class="text-gray-400 mt-2 text-sm">Sign in to sync your data</p>
       </div>
       
       <div class="space-y-4 mb-6">
@@ -215,11 +219,6 @@
         </button>
       </div>
       
-      <div class="mt-8 text-center">
-        <button onclick="handleGuest()" class="text-gray-500 text-sm hover:text-white transition-colors underline">
-          Continue as Guest
-        </button>
-      </div>
     </div>
   </div>
 
@@ -236,14 +235,17 @@
         <img src="/assets/pwa/icon-192.png" alt="" class="brand-logo-sm"> Home
       </h1>
       <div class="flex items-center gap-3">
-        <span id="display-username" class="text-xs text-gray-500 max-w-[100px] truncate"></span>
-        <button onclick="handleLogout()" id="btn-logout" class="text-gray-400 hover:text-danger transition-colors" title="Logout">
+        <button id="btn-open-profile" onclick="openProfilePage()" class="px-3 py-1.5 rounded-full bg-black/30 border border-gray-700 text-sm font-semibold text-white max-w-[220px] truncate btn-press"></button>
+        <button onclick="openAuthModal()" id="btn-open-auth" class="hidden w-10 h-10 rounded-full btn-soft btn-press" title="Sign In">
+          <i class="fas fa-right-to-bracket"></i>
+        </button>
+        <button onclick="handleLogout()" id="btn-logout" class="hidden text-gray-300 hover:text-danger transition-colors" title="Logout">
           <i class="fas fa-sign-out-alt"></i>
         </button>
       </div>
     </header>
     <main class="flex-1 overflow-y-auto p-4 pb-28 scroll-area">
-      <div class="space-y-6">
+      <div class="page-shell space-y-6">
         <div>
           <form onsubmit="submitHomeSongsSearch(event)" class="flex items-center gap-2">
             <input id="home-song-search" type="search" placeholder="Search by song title or artist" class="flex-1 bg-black/30 border border-gray-800 rounded-xl px-4 py-3 outline-none text-white">
@@ -282,17 +284,22 @@
       </div>
     </header>
     <main class="flex-1 overflow-y-auto p-4 pb-28 scroll-area bg-black/20">
-      <div class="max-w-xl mx-auto">
+      <div class="page-shell">
         <div id="training-home-panel" class="grid sm:grid-cols-2 gap-4">
-          <button onclick="openTrainingPage('practice')" class="tool-nav-card btn-press">
-            <span class="tool-nav-icon"><img src="/assets/pwa/icon-192.png" alt="" class="w-8 h-8 rounded-full object-cover"></span>
-            <div class="font-bold text-lg mb-1">Practice</div>
-            <p class="text-sm text-gray-400">Start from a song preview and work through the steps.</p>
+          <button onclick="openTrainingPage('trainings')" class="tool-nav-card btn-press">
+            <span class="tool-nav-icon"><i class="fas fa-book-open text-lg"></i></span>
+            <div class="font-bold text-lg mb-1">Trainings</div>
+            <p class="text-sm text-gray-400">Technique lessons and practical guides.</p>
           </button>
           <button onclick="openTrainingPage('dailies')" class="tool-nav-card btn-press">
             <span class="tool-nav-icon"><i class="fas fa-calendar-check text-lg"></i></span>
             <div class="font-bold text-lg mb-1">Dailies</div>
-            <p class="text-sm text-gray-400">Simple daily warm-up structure and routine ideas.</p>
+            <p class="text-sm text-gray-400">Daily drills and short routine articles.</p>
+          </button>
+          <button onclick="openTrainingPage('courses')" class="tool-nav-card btn-press">
+            <span class="tool-nav-icon"><i class="fas fa-play-circle text-lg"></i></span>
+            <div class="font-bold text-lg mb-1">Courses</div>
+            <p class="text-sm text-gray-400">Beginner video courses with curated links.</p>
           </button>
           <button onclick="openTrainingPage('strumming')" class="tool-nav-card btn-press sm:col-span-2">
             <span class="tool-nav-icon"><i class="fas fa-wave-square text-lg"></i></span>
@@ -300,20 +307,114 @@
             <p class="text-sm text-gray-400">Mute strums, accents, and subdivision control.</p>
           </button>
         </div>
-        <div id="training-page-practice" class="hidden bg-surface rounded-2xl p-5 border border-gray-800">
-          <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-2">Practice</p>
-          <h2 class="text-lg font-bold mb-2">Song Practice</h2>
-          <p class="text-sm text-gray-400 mb-4">Open a song from Home or Tools > Songs, then use Preview and the practice steps from its song page.</p>
-          <div id="training-practice-shortcuts" class="space-y-3"></div>
+        <div id="training-page-trainings" class="hidden bg-surface rounded-2xl p-5 border border-gray-800">
+          <div class="flex items-center justify-between gap-3 mb-3">
+            <div>
+              <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-1">Trainings</p>
+              <h2 class="text-lg font-bold">Articles</h2>
+            </div>
+            <button id="btn-training-new-trainings" onclick="openTrainingArticleEditor('trainings')" class="hidden bg-primary text-black text-xs font-bold px-3 py-2 rounded-lg btn-press">
+              <i class="fas fa-plus mr-1"></i> Add
+            </button>
+          </div>
+          <form onsubmit="submitTrainingArticlesSearch(event, 'trainings')" class="flex items-center gap-2 mb-3">
+            <input id="training-search-trainings" type="search" placeholder="Search trainings" class="flex-1 bg-black/30 border border-gray-800 rounded-xl px-4 py-3 outline-none text-white">
+            <button type="submit" class="w-11 h-11 rounded-xl btn-soft btn-press"><i class="fas fa-search"></i></button>
+          </form>
+          <div id="training-articles-trainings" class="space-y-3"></div>
         </div>
         <div id="training-page-dailies" class="hidden bg-surface rounded-2xl p-5 border border-gray-800">
-          <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-2">Dailies</p>
-          <h2 class="text-lg font-bold mb-2">Warm up every day</h2>
-          <p class="text-sm text-gray-400 mb-4">A simple hub for daily routines is ready here, so we can plug in your streaks and short exercises next.</p>
-          <div class="grid grid-cols-3 gap-3 text-center">
-            <div class="bg-black/30 rounded-xl p-3 border border-gray-800"><p class="text-primary font-bold">5m</p><p class="text-[10px] text-gray-500 mt-1">Stretch</p></div>
-            <div class="bg-black/30 rounded-xl p-3 border border-gray-800"><p class="text-primary font-bold">8m</p><p class="text-[10px] text-gray-500 mt-1">Timing</p></div>
-            <div class="bg-black/30 rounded-xl p-3 border border-gray-800"><p class="text-primary font-bold">10m</p><p class="text-[10px] text-gray-500 mt-1">Chord Flow</p></div>
+          <div class="flex items-center justify-between gap-3 mb-3">
+            <div>
+              <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-1">Dailies</p>
+              <h2 class="text-lg font-bold">Daily Articles</h2>
+            </div>
+            <button id="btn-training-new-dailies" onclick="openTrainingArticleEditor('dailies')" class="hidden bg-primary text-black text-xs font-bold px-3 py-2 rounded-lg btn-press">
+              <i class="fas fa-plus mr-1"></i> Add
+            </button>
+          </div>
+          <form onsubmit="submitTrainingArticlesSearch(event, 'dailies')" class="flex items-center gap-2 mb-3">
+            <input id="training-search-dailies" type="search" placeholder="Search dailies" class="flex-1 bg-black/30 border border-gray-800 rounded-xl px-4 py-3 outline-none text-white">
+            <button type="submit" class="w-11 h-11 rounded-xl btn-soft btn-press"><i class="fas fa-search"></i></button>
+          </form>
+          <div id="training-articles-dailies" class="space-y-3"></div>
+        </div>
+        <div id="training-page-courses" class="hidden bg-surface rounded-2xl p-5 border border-gray-800">
+          <div class="flex items-center justify-between gap-3 mb-3">
+            <div>
+              <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-1">Courses</p>
+              <h2 class="text-lg font-bold">Video Courses</h2>
+            </div>
+            <button id="btn-training-new-courses" onclick="openTrainingArticleEditor('courses')" class="hidden bg-primary text-black text-xs font-bold px-3 py-2 rounded-lg btn-press">
+              <i class="fas fa-plus mr-1"></i> Add
+            </button>
+          </div>
+          <form onsubmit="submitTrainingArticlesSearch(event, 'courses')" class="flex items-center gap-2 mb-3">
+            <input id="training-search-courses" type="search" placeholder="Search courses" class="flex-1 bg-black/30 border border-gray-800 rounded-xl px-4 py-3 outline-none text-white">
+            <button type="submit" class="w-11 h-11 rounded-xl btn-soft btn-press"><i class="fas fa-search"></i></button>
+          </form>
+          <div id="training-articles-courses" class="space-y-3"></div>
+        </div>
+        <div id="training-page-article-detail" class="hidden bg-surface rounded-2xl p-5 border border-gray-800">
+          <div class="flex items-center justify-between gap-3 mb-3">
+            <p id="training-detail-category" class="text-[10px] uppercase tracking-[0.25em] text-gray-500">Article</p>
+            <div class="flex items-center gap-2">
+              <button id="btn-training-edit-article" onclick="editCurrentTrainingArticle()" class="hidden w-9 h-9 rounded-full btn-soft btn-press"><i class="fas fa-pen text-xs"></i></button>
+              <button id="btn-training-delete-article" onclick="deleteCurrentTrainingArticle()" class="hidden w-9 h-9 rounded-full btn-soft btn-press"><i class="fas fa-trash text-xs"></i></button>
+            </div>
+          </div>
+          <h2 id="training-detail-title" class="text-xl font-bold mb-2"></h2>
+          <img id="training-detail-image" alt="" class="hidden w-full h-44 object-cover rounded-xl border border-gray-800 mb-3">
+          <div class="flex items-center gap-2 mb-3">
+            <span id="training-detail-level" class="text-[10px] uppercase tracking-[0.2em] bg-black/30 border border-gray-700 rounded-full px-2 py-1"></span>
+            <span id="training-detail-type" class="text-[10px] uppercase tracking-[0.2em] bg-black/30 border border-gray-700 rounded-full px-2 py-1"></span>
+          </div>
+          <p id="training-detail-description" class="text-sm text-gray-300 mb-4"></p>
+          <div id="training-detail-video-wrap" class="hidden mb-4">
+            <div class="rounded-xl overflow-hidden border border-gray-800 bg-black/40 mb-2">
+              <iframe id="training-detail-video-iframe" class="w-full aspect-video" src="" title="Training video" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+            </div>
+            <a id="training-detail-video-link" href="#" target="_blank" rel="noopener noreferrer" class="text-xs text-primary underline break-all"></a>
+          </div>
+          <div id="training-detail-body" class="text-sm text-gray-200 whitespace-pre-wrap leading-relaxed mb-5"></div>
+          <div class="bg-black/30 border border-gray-800 rounded-xl p-4 mb-4">
+            <p class="text-[10px] uppercase tracking-[0.2em] text-gray-500 mb-2">Rate This Article</p>
+            <div id="training-rating-stars" class="flex gap-2 text-xl"></div>
+            <p id="training-rating-summary" class="text-xs text-gray-400 mt-2">No ratings</p>
+          </div>
+          <div class="bg-black/30 border border-gray-800 rounded-xl p-4">
+            <p class="text-[10px] uppercase tracking-[0.2em] text-gray-500 mb-2">Comments</p>
+            <div class="flex gap-2 mb-3">
+              <textarea id="training-comment-input" rows="2" class="flex-1 bg-black/40 border border-gray-700 rounded-xl px-3 py-2 text-sm focus:border-primary focus:outline-none" placeholder="Write a comment..."></textarea>
+              <button onclick="submitTrainingArticleComment()" class="btn-soft rounded-xl px-4 py-2 btn-press text-sm">Post</button>
+            </div>
+            <div id="training-comments-list" class="space-y-2"></div>
+          </div>
+        </div>
+        <div id="training-page-article-editor" class="hidden bg-surface rounded-2xl p-5 border border-gray-800">
+          <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-2">Article Editor</p>
+          <h2 id="training-editor-title" class="text-lg font-bold mb-3">New Article</h2>
+          <div class="space-y-3">
+            <input id="training-editor-article-title" type="text" placeholder="Title" class="w-full bg-black/30 border border-gray-800 rounded-xl px-4 py-3 outline-none text-white">
+            <input id="training-editor-article-image" type="url" placeholder="Image URL (optional)" class="w-full bg-black/30 border border-gray-800 rounded-xl px-4 py-3 outline-none text-white">
+            <div class="grid grid-cols-2 gap-3">
+              <select id="training-editor-article-level" class="w-full bg-black/30 border border-gray-800 rounded-xl px-4 py-3 outline-none text-white">
+                <option value="beginner">Beginner</option>
+                <option value="medium">Medium</option>
+                <option value="advance">Advance</option>
+              </select>
+              <select id="training-editor-article-type" onchange="toggleTrainingEditorTypeFields()" class="w-full bg-black/30 border border-gray-800 rounded-xl px-4 py-3 outline-none text-white">
+                <option value="text">Text</option>
+                <option value="video">Video</option>
+              </select>
+            </div>
+            <textarea id="training-editor-article-description" rows="2" placeholder="Description" class="w-full bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm outline-none text-white"></textarea>
+            <textarea id="training-editor-article-body" rows="8" placeholder="Body (for Text article)" class="w-full bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm outline-none text-white"></textarea>
+            <input id="training-editor-article-youtube" type="url" placeholder="YouTube Link (for Video article)" class="hidden w-full bg-black/30 border border-gray-800 rounded-xl px-4 py-3 outline-none text-white">
+            <div class="grid grid-cols-2 gap-3">
+              <button onclick="cancelTrainingArticleEditor()" class="btn-soft rounded-xl py-3 btn-press text-sm">Cancel</button>
+              <button onclick="saveTrainingArticle()" class="bg-active text-black font-bold rounded-xl py-3 btn-press text-sm">Save Article</button>
+            </div>
           </div>
         </div>
         <div id="training-page-strumming" class="hidden bg-surface rounded-2xl p-5 border border-gray-800">
@@ -362,7 +463,7 @@
       <p class="text-xs text-gray-500 mt-1">Tune with mic or device playback audio.</p>
     </header>
     <main class="flex-1 overflow-hidden p-3 pb-24 scroll-area bg-black/20">
-      <div class="max-w-xl mx-auto h-full flex flex-col gap-3">
+      <div class="page-shell h-full flex flex-col gap-3">
         <div class="bg-surface rounded-2xl p-4 border border-gray-800 text-center shrink-0">
           <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-2">Tuning Offset</p>
           <p id="tuner-note" class="text-5xl sm:text-6xl font-black text-primary">--</p>
@@ -404,7 +505,7 @@
       </div>
     </header>
     <main class="flex-1 overflow-y-auto p-4 pb-28 scroll-area bg-black/20">
-      <div class="max-w-xl mx-auto">
+      <div class="page-shell">
         <div id="tools-home-panel" class="grid sm:grid-cols-2 gap-4">
           <button onclick="openToolPage('metronome')" class="tool-nav-card btn-press">
             <span class="tool-nav-icon"><i class="fas fa-wave-square text-lg"></i></span>
@@ -602,15 +703,35 @@
     </main>
   </div>
 
-  <div id="view-settings" class="view">
+  <div id="view-profile" class="view">
     <header class="bg-surface p-4 border-b border-gray-800 shadow-md">
-      <h1 class="text-xl font-bold text-primary flex items-center gap-2">
-        <img src="/assets/pwa/icon-192.png" alt="" class="brand-logo-sm"> Settings
-      </h1>
-      <p class="text-xs text-gray-500 mt-1">Your practice preferences are saved to your account.</p>
+      <div class="flex items-center justify-between gap-3">
+        <div>
+          <h1 class="text-xl font-bold text-primary flex items-center gap-2">
+            <img src="/assets/pwa/icon-192.png" alt="" class="brand-logo-sm"> Profile
+          </h1>
+          <p class="text-xs text-gray-500 mt-1">Account details, stats, and settings.</p>
+        </div>
+        <button onclick="navigate('home')" class="w-10 h-10 rounded-full btn-soft btn-press" title="Back">
+          <i class="fas fa-arrow-left"></i>
+        </button>
+      </div>
     </header>
     <main class="flex-1 overflow-y-auto p-4 pb-28 scroll-area bg-black/20">
-      <div class="max-w-xl mx-auto space-y-4">
+      <div class="page-shell space-y-4">
+        <div class="settings-card rounded-2xl p-5">
+          <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-3">Account</p>
+          <div class="space-y-1 mb-4">
+            <p id="profile-user-name" class="text-lg font-bold text-white">Guest Player</p>
+            <p id="profile-user-email" class="text-sm text-gray-400">Not signed in</p>
+          </div>
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div class="bg-black/30 rounded-xl p-3 border border-gray-800"><p class="text-[10px] text-gray-500 uppercase">Favorites</p><p id="profile-stat-favorites" class="font-bold text-white mt-1">0</p></div>
+            <div class="bg-black/30 rounded-xl p-3 border border-gray-800"><p class="text-[10px] text-gray-500 uppercase">Recent</p><p id="profile-stat-recent" class="font-bold text-white mt-1">0</p></div>
+            <div class="bg-black/30 rounded-xl p-3 border border-gray-800"><p class="text-[10px] text-gray-500 uppercase">My Songs</p><p id="profile-stat-songs" class="font-bold text-white mt-1">0</p></div>
+            <div class="bg-black/30 rounded-xl p-3 border border-gray-800"><p class="text-[10px] text-gray-500 uppercase">Articles</p><p id="profile-stat-comments" class="font-bold text-white mt-1">0</p></div>
+          </div>
+        </div>
         <div class="settings-card rounded-2xl p-5">
           <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-3">Practice Text</p>
           <div class="flex items-center justify-between gap-3 mb-3">
@@ -639,7 +760,7 @@
       <h1 id="add-view-title" class="text-xl font-bold">New Song</h1>
     </header>
     <main class="flex-1 overflow-y-auto p-6 scroll-area bg-black/20">
-      <div class="space-y-5 max-w-lg mx-auto pb-10">
+      <div class="page-shell space-y-5 pb-10">
         <input type="text" id="add-title" placeholder="Song Title" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 focus:border-primary focus:outline-none">
         <input type="text" id="add-artist" placeholder="Artist" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 focus:border-primary focus:outline-none">
         <input type="url" id="add-youtube-url" placeholder="YouTube Link (optional)" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 focus:border-primary focus:outline-none">
@@ -683,6 +804,7 @@
       </div>
     </header>
     <main class="flex-1 overflow-y-auto p-4 scroll-area">
+      <div class="page-shell">
       <div class="bg-surface rounded-xl p-5 mb-6 border border-gray-800 shadow-xl">
         <div class="flex justify-between mb-4">
           <div><p class="text-[10px] text-gray-500 uppercase">Transcriber</p><p id="detail-posted" class="text-sm truncate max-w-[120px]"></p></div>
@@ -742,6 +864,7 @@
           <button onclick="submitSongComment()" class="bg-primary font-bold py-3 px-6 rounded-full btn-press shadow-[0_0_20px_rgba(187,134,252,0.25)]">Post Comment</button>
         </div>
         <div id="detail-comments-list" class="space-y-3"></div>
+      </div>
       </div>
     </main>
   </div>
@@ -817,7 +940,9 @@
       </div>
     </header>
     <main class="flex-1 overflow-y-auto p-4 pb-28 scroll-area bg-black/20">
-      <div id="artist-page-results" class="space-y-3"></div>
+      <div class="page-shell">
+        <div id="artist-page-results" class="space-y-3"></div>
+      </div>
     </main>
   </div>
 
