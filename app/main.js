@@ -77,6 +77,8 @@ import { FirestoreRepository } from './modules/repository.js';
     let tunerPendingNote = '';
     let tunerPendingNoteFrames = 0;
     let tunerNoSignalFrames = 0;
+    let tunerAudioMode = 'mic';
+    let tunerRecentFreqs = [];
     let trainingTimer = null;
     let trainingBeatIndex = 0;
     const METRONOME_STORAGE_KEY = 'guitartrainer.metronome.settings';
@@ -248,6 +250,56 @@ import { FirestoreRepository } from './modules/repository.js';
       return tag;
     }
 
+    function normalizeTagLabel(rawTag = "") {
+      const inner = String(rawTag || '')
+        .trim()
+        .replace(/^\[\s*/, '')
+        .replace(/\s*\]$/, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      return inner ? `[${inner}]` : '';
+    }
+
+    function normalizePatternTags(entry = {}) {
+      const tags = [];
+      const seen = new Set();
+      const pushTag = (rawTag) => {
+        const key = normalizeTagKey(rawTag);
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        tags.push({
+          key,
+          label: normalizeTagLabel(rawTag) || `[${key}]`
+        });
+      };
+      const rawTags = [];
+      if (Array.isArray(entry?.tags)) rawTags.push(...entry.tags);
+      if (Array.isArray(entry?.tagKeys)) rawTags.push(...entry.tagKeys);
+      if (entry?.tag) rawTags.push(entry.tag);
+      if (entry?.tagKey) rawTags.push(entry.tagKey);
+      rawTags.forEach(pushTag);
+      return tags;
+    }
+
+    function normalizePatternTagKeys(entry = {}) {
+      return normalizePatternTags(entry).map(item => item.key);
+    }
+
+    function extractTagOptionsFromRawText(rawText = '') {
+      const lines = String(rawText || '').replace(/\r/g, '').split('\n');
+      const options = [];
+      const seen = new Set();
+      lines.forEach(line => {
+        const match = String(line || '').match(/^\s*\[([^\]]+)\]\s*$/);
+        if (!match) return;
+        const key = normalizeTagKey(match[1]);
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        options.push({ key, label: normalizeTagLabel(match[1]) || `[${key}]` });
+      });
+      return options;
+    }
+
     function normalizeTimeSignature(value = '', fallback = '4/4') {
       const normalized = String(value || '').trim();
       if (SUPPORTED_TIME_SIGNATURES.includes(normalized)) return normalized;
@@ -354,15 +406,18 @@ import { FirestoreRepository } from './modules/repository.js';
     function normalizeSongStrummingPatterns(song) {
       const candidateEntries = Array.isArray(song?.strummingPatterns) && song.strummingPatterns.length
         ? song.strummingPatterns
-        : [{ tag: '', strumming: song?.strumming || [] }];
+        : [{ tags: [], strumming: song?.strumming || [] }];
       return candidateEntries.map((entry, idx) => {
         const entryTimeSignature = normalizeTimeSignature(entry?.timeSignature || song?.timeSignature || '4/4');
         const beatsPerBar = getBeatsPerBarFromSignature(entryTimeSignature);
         const rawText = normalizePatternText(extractRawPatternFromEntry(entry), entryTimeSignature);
+        const tags = normalizePatternTags(entry);
         return {
           id: `song-pattern-${idx}`,
-          tag: String(entry?.tag || ''),
-          tagKey: normalizeTagKey(entry?.tag || ''),
+          tag: tags[0]?.label || '',
+          tagKey: tags[0]?.key || '',
+          tags: tags.map(item => item.label),
+          tagKeys: tags.map(item => item.key),
           timeSignature: entryTimeSignature,
           patternText: rawText,
           strumming: parseStrumPattern(rawText, entryTimeSignature)
@@ -459,6 +514,8 @@ import { FirestoreRepository } from './modules/repository.js';
            id: 'song-pattern-0',
            tag: '',
            tagKey: '',
+           tags: [],
+           tagKeys: [],
            timeSignature: fallbackTimeSignature,
            patternText: normalizePatternText('', fallbackTimeSignature),
            strumming: parseStrumPattern('', fallbackTimeSignature)
@@ -1637,27 +1694,34 @@ Rules:
       }));
       const fallbackTimeSignature = normalizeTimeSignature(song?.strummingPatterns?.[0]?.timeSignature || song?.timeSignature || '4/4');
       const fallback = fallbackPattern.length ? fallbackPattern : parseStrumPattern('', fallbackTimeSignature);
-      const tagToPattern = new Map();
-      (song?.strummingPatterns || []).forEach((entry, idx) => {
-        if (idx > 0 && !entry?.tagKey) return;
-        if (entry?.tagKey) {
-          tagToPattern.set(entry.tagKey, {
-            pattern: entry.strumming || fallback,
-            timeSignature: normalizeTimeSignature(entry?.timeSignature || fallbackTimeSignature, fallbackTimeSignature)
-          });
-        }
+      const patternEntries = (song?.strummingPatterns || []).map((entry, idx) => {
+        const tags = normalizePatternTagKeys(entry);
+        return {
+          id: entry?.id || `song-pattern-${idx}`,
+          tagKeys: tags,
+          pattern: (entry?.strumming || fallback).map(slot => ({ ...slot, raw: slot?.raw || '.' })),
+          timeSignature: normalizeTimeSignature(entry?.timeSignature || fallbackTimeSignature, fallbackTimeSignature)
+        };
       });
+      const catchAllEntry = patternEntries.find(entry => entry.tagKeys.length === 0) || null;
       const assignments = [];
-      let lastPatternRef = null;
+      let lastPatternId = '';
       let lastTagKey = null;
       const chordList = song?.chords || [];
       const chordTagIndex = song?.chordTagIndex || [];
       chordList.forEach(chord => {
         const tagKey = chordTagIndex[chord.lineIdx] || '';
-        const selected = (tagKey && tagToPattern.get(tagKey)) || { pattern: fallback, timeSignature: fallbackTimeSignature };
-        if (selected.pattern !== lastPatternRef || tagKey !== lastTagKey) {
+        const matchedEntry = tagKey
+          ? patternEntries.find(entry => entry.tagKeys.includes(tagKey))
+          : null;
+        const selected = matchedEntry || catchAllEntry || {
+          id: 'fallback',
+          pattern: fallback,
+          timeSignature: fallbackTimeSignature
+        };
+        if (selected.id !== lastPatternId || tagKey !== lastTagKey) {
           assignments.push({ startBeat: chord.time || 0, pattern: selected.pattern, timeSignature: selected.timeSignature, tagKey });
-          lastPatternRef = selected.pattern;
+          lastPatternId = selected.id;
           lastTagKey = tagKey;
         }
       });
@@ -1712,11 +1776,11 @@ Rules:
       document.getElementById('add-chords-text').value = rawText || 'C\nEmpty';
 
       const patterns = Array.isArray(draft.strummingPatterns) ? draft.strummingPatterns : [];
-      addPatternEntries = (patterns.length ? patterns : [{ tag: '', patternText: '' }]).map(entry => ({
+      addPatternEntries = (patterns.length ? patterns : [{ tags: [], patternText: '' }]).map(entry => ({
         id: nextAddPatternEntryId++,
-        tag: String(entry?.tag || ''),
+        tags: normalizePatternTagKeys(entry),
         timeSignature: normalizeTimeSignature(entry?.timeSignature || defaultTimeSignature, defaultTimeSignature),
-        patternText: normalizePatternText(String(entry?.patternText || ''), normalizeTimeSignature(entry?.timeSignature || defaultTimeSignature, defaultTimeSignature))
+        patternText: normalizePatternText(extractRawPatternFromEntry(entry), normalizeTimeSignature(entry?.timeSignature || defaultTimeSignature, defaultTimeSignature))
       }));
       syncAddPatternEditor();
     }
@@ -1743,7 +1807,7 @@ Rules:
       document.getElementById('add-bpm').value = '';
       document.getElementById('add-capo').value = 'No capo';
       document.getElementById('add-chords-text').value = '';
-      addPatternEntries = [{ id: nextAddPatternEntryId++, tag: '', timeSignature: '4/4', patternText: normalizePatternText('', 4) }];
+      addPatternEntries = [{ id: nextAddPatternEntryId++, tags: [], timeSignature: '4/4', patternText: normalizePatternText('', 4) }];
       syncAddPatternEditor();
       if (draft) applySongDraftToAddForm(draft);
       
@@ -1767,10 +1831,10 @@ Rules:
       const defaultTimeSignature = normalizeTimeSignature(currentSong.timeSignature || '4/4');
       const sourcePatterns = Array.isArray(currentSong.strummingPatterns) && currentSong.strummingPatterns.length
         ? currentSong.strummingPatterns
-        : [{ tag: '', strumming: currentSong.strumming || [] }];
+        : [{ tags: [], strumming: currentSong.strumming || [] }];
       addPatternEntries = sourcePatterns.map(entry => ({
         id: nextAddPatternEntryId++,
-        tag: String(entry.tag || ''),
+        tags: normalizePatternTagKeys(entry),
         timeSignature: normalizeTimeSignature(entry.timeSignature || defaultTimeSignature, defaultTimeSignature),
         patternText: normalizePatternText(extractRawPatternFromEntry(entry), normalizeTimeSignature(entry.timeSignature || defaultTimeSignature, defaultTimeSignature))
       }));
@@ -1799,13 +1863,17 @@ Rules:
         const capo = document.getElementById('add-capo').value || "No capo";
         const rawText = document.getElementById('add-chords-text').value || "C\nEmpty";
         
+        const tagOptionMap = new Map(extractTagOptionsFromRawText(rawText).map(item => [item.key, item.label]));
         const preparedPatterns = addPatternEntries.map((entry, idx) => {
           const timeSignature = normalizeTimeSignature(entry.timeSignature || '4/4');
           const patternText = normalizePatternText(entry.patternText || "", timeSignature);
-          const tag = String(entry.tag || '').trim();
+          const tagKeys = normalizePatternTagKeys(entry);
+          const tags = tagKeys.map(key => tagOptionMap.get(key) || `[${key}]`);
           return {
-            tag,
-            tagKey: normalizeTagKey(tag),
+            tag: tags[0] || '',
+            tagKey: tagKeys[0] || '',
+            tags,
+            tagKeys,
             timeSignature,
             patternText,
             strumming: parseStrumPattern(patternText, timeSignature),
@@ -1815,13 +1883,14 @@ Rules:
         const fallbackPattern = {
           tag: '',
           tagKey: '',
+          tags: [],
+          tagKeys: [],
           timeSignature: '4/4',
           patternText: normalizePatternText("", '4/4'),
           strumming: parseStrumPattern("", '4/4'),
           index: 0
         };
-        const normalizedPatterns = (preparedPatterns.length ? preparedPatterns : [fallbackPattern])
-          .filter((entry, idx) => idx === 0 || entry.tagKey);
+        const normalizedPatterns = preparedPatterns.length ? preparedPatterns : [fallbackPattern];
         const primaryPattern = normalizedPatterns[0];
         const uniqueTimes = Array.from(new Set(normalizedPatterns.map(entry => normalizeTimeSignature(entry.timeSignature || '4/4'))));
         const songTimeSignature = uniqueTimes.length === 1
@@ -1833,6 +1902,9 @@ Rules:
           strumming: primaryPattern.strumming,
           strummingPatterns: normalizedPatterns.map(entry => ({
             tag: entry.tag,
+            tags: entry.tags,
+            tagKey: entry.tagKey,
+            tagKeys: entry.tagKeys,
             timeSignature: normalizeTimeSignature(entry.timeSignature || '4/4'),
             patternText: entry.patternText,
             strumming: entry.strumming
@@ -2247,26 +2319,49 @@ Rules:
     function renderAddPatternEditors() {
       const holder = document.getElementById('add-strum-editor');
       if (!holder) return;
+      const rawText = document.getElementById('add-chords-text')?.value || '';
+      const tagOptions = extractTagOptionsFromRawText(rawText);
+      const tagLabelByKey = new Map(tagOptions.map(item => [item.key, item.label]));
+      addPatternEntries.forEach(entry => {
+        normalizePatternTagKeys(entry).forEach(key => {
+          if (!tagLabelByKey.has(key)) tagLabelByKey.set(key, `[${key}]`);
+        });
+      });
+      const mergedTagOptions = Array.from(tagLabelByKey.entries()).map(([key, label]) => ({ key, label }));
       if (!addPatternEntries.length) {
-        addPatternEntries = [{ id: nextAddPatternEntryId++, tag: '', timeSignature: '4/4', patternText: normalizePatternText('', 4) }];
+        addPatternEntries = [{ id: nextAddPatternEntryId++, tags: [], timeSignature: '4/4', patternText: normalizePatternText('', 4) }];
       }
       addPatternEntries = addPatternEntries.map(entry => ({
         ...entry,
-        tag: String(entry.tag || ''),
+        tags: normalizePatternTagKeys(entry),
         timeSignature: normalizeTimeSignature(entry.timeSignature || '4/4'),
         patternText: normalizePatternText(entry.patternText || '', normalizeTimeSignature(entry.timeSignature || '4/4'))
       }));
       holder.innerHTML = addPatternEntries.map((entry, idx) => `
         <div class="bg-surface border border-gray-700 rounded-xl p-3 mb-3">
-          <div class="flex items-center gap-2 mb-2">
-            <input
-              type="text"
-              value="${escapeHtml(entry.tag)}"
-              oninput="updateAddPatternTag(${entry.id}, this.value)"
-              onchange="updateAddPatternTag(${entry.id}, this.value)"
-              placeholder="Tag (example: [verse 1])"
-              class="flex-1 bg-black/30 border border-gray-700 rounded-lg px-3 py-2 text-xs focus:border-primary focus:outline-none"
-            >
+          <div class="flex items-start gap-2 mb-2">
+            <details class="flex-1 group">
+              <summary class="list-none cursor-pointer bg-black/30 border border-gray-700 rounded-lg px-3 py-2 text-xs flex items-center justify-between gap-2">
+                <span class="truncate">${entry.tags.length
+                  ? entry.tags.map(key => escapeHtml(tagLabelByKey.get(key) || `[${key}]`)).join(', ')
+                  : '<span class="text-active font-semibold">All</span>'}</span>
+                <i class="fas fa-chevron-down text-[10px] text-gray-400 transition-transform group-open:rotate-180"></i>
+              </summary>
+              <div class="mt-2 bg-black/40 border border-gray-800 rounded-lg p-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onclick="toggleAddPatternTag(${entry.id}, '__ALL__')"
+                  class="rounded-full px-3 py-1 text-[11px] border ${entry.tags.length === 0 ? 'bg-active/20 border-active/60 text-active' : 'bg-black/30 border-gray-700 text-gray-300'}"
+                >All</button>
+                ${mergedTagOptions.map(option => `
+                  <button
+                    type="button"
+                    onclick="toggleAddPatternTag(${entry.id}, decodeURIComponent('${encodeURIComponent(option.key)}'))"
+                    class="rounded-full px-3 py-1 text-[11px] border ${entry.tags.includes(option.key) ? 'bg-primary/20 border-primary/60 text-primary' : 'bg-black/30 border-gray-700 text-gray-300'}"
+                  >${escapeHtml(option.label)}</button>
+                `).join('')}
+              </div>
+            </details>
             <select
               onchange="updateAddPatternTimeSignature(${entry.id}, this.value)"
               class="bg-black/30 border border-gray-700 rounded-lg px-2 py-2 text-xs focus:border-primary focus:outline-none text-white"
@@ -2292,7 +2387,7 @@ Rules:
             </button>
           </div>
           <div id="add-strum-editor-${entry.id}" class="pattern-editor-grid"></div>
-          <div class="text-[10px] text-gray-500 mt-2">Pattern ${idx + 1}${idx > 0 ? ' (requires a tag for practice mode)' : ''}</div>
+          <div class="text-[10px] text-gray-500 mt-2">Pattern ${idx + 1} • choose <b>All</b> or one/more section tags.</div>
         </div>
       `).join('');
       addPatternEntries.forEach(entry => {
@@ -2320,7 +2415,7 @@ Rules:
       const subdivisionsPerBeat = getSubdivisionsPerBeatFromSignature(timeSignature);
       addPatternEntries.push({
         id: nextAddPatternEntryId++,
-        tag: '',
+        tags: [],
         timeSignature,
         patternText: normalizePatternText('', beatsPerBar, subdivisionsPerBeat)
       });
@@ -2334,10 +2429,21 @@ Rules:
       renderAddPatternEditors();
     };
 
-    window.updateAddPatternTag = function(entryId, value) {
+    window.toggleAddPatternTag = function(entryId, value) {
       const target = addPatternEntries.find(entry => entry.id === entryId);
       if (!target) return;
-      target.tag = String(value || '');
+      const normalized = normalizeTagKey(value);
+      if (normalized === '__all__') {
+        target.tags = [];
+        renderAddPatternEditors();
+        return;
+      }
+      if (!normalized) return;
+      const next = new Set(normalizePatternTagKeys(target));
+      if (next.has(normalized)) next.delete(normalized);
+      else next.add(normalized);
+      target.tags = Array.from(next);
+      renderAddPatternEditors();
     };
 
     window.updateAddPatternTimeSignature = function(entryId, value) {
@@ -2808,13 +2914,14 @@ Rules:
         ? song.strummingPatterns
         : [{
             tag: '',
+            tags: [],
             timeSignature: normalizeTimeSignature(song?.timeSignature || '4/4'),
             strumming: Array.isArray(song?.strumming) ? song.strumming : parseStrumPattern('', song?.timeSignature || '4/4')
           }];
       container.classList.remove('pattern-card');
       container.innerHTML = patterns.map((entry, idx) => {
-        const tag = String(entry?.tag || '').trim();
-        const label = tag || `Pattern ${idx + 1}`;
+        const labels = normalizePatternTags(entry).map(item => item.label);
+        const label = labels.length ? labels.join(', ') : `All Sections`;
         const timeSig = normalizeTimeSignature(entry?.timeSignature || song?.timeSignature || '4/4');
         return `
           <div class="pattern-card mb-3">
@@ -3418,6 +3525,13 @@ Rules:
     function renderTunerMeter(cents = 0) {
       const meter = document.getElementById('tuner-meter');
       if (!meter) return;
+      const step = Math.abs(getTuneStepValue(cents) ?? 99);
+      const pointerTone = step <= 1 ? 'green' : (step <= 3 ? 'orange' : 'red');
+      const pointerColorClass = pointerTone === 'green'
+        ? 'border-b-[#16c47f] drop-shadow-[0_0_8px_rgba(22,196,127,0.85)]'
+        : (pointerTone === 'orange'
+          ? 'border-b-[#ff9f1a] drop-shadow-[0_0_8px_rgba(255,159,26,0.85)]'
+          : 'border-b-[#ff4d4f] drop-shadow-[0_0_8px_rgba(255,77,79,0.85)]');
       const bars = [];
       for (let i = -8; i <= 8; i++) {
         const distance = Math.abs(i - (cents / 10));
@@ -3429,7 +3543,7 @@ Rules:
       const pointerOffset = Math.max(-48, Math.min(48, (cents / 50) * 48));
       meter.innerHTML = `
         <div class="absolute inset-x-0 top-0 flex justify-center pointer-events-none">
-          <div class="w-0 h-0 border-l-[7px] border-r-[7px] border-b-[11px] border-l-transparent border-r-transparent border-b-active drop-shadow-[0_0_6px_rgba(3,218,198,0.8)]" style="transform:translateX(${pointerOffset}px)"></div>
+          <div class="w-0 h-0 border-l-[7px] border-r-[7px] border-b-[11px] border-l-transparent border-r-transparent ${pointerColorClass}" style="transform:translateX(${pointerOffset}px)"></div>
         </div>
         ${bars.join('')}
       `;
@@ -3483,6 +3597,43 @@ Rules:
       return STANDARD_TUNING.find(item => item.note === note) || null;
     }
 
+    function getTuneStepValue(cents = 0) {
+      if (!Number.isFinite(cents)) return null;
+      if (Math.abs(cents) < 3) return 0;
+      const steps = Math.max(1, Math.round(Math.abs(cents) / 6));
+      return cents > 0 ? steps : -steps;
+    }
+
+    function centsToTuneSteps(cents = 0) {
+      const step = getTuneStepValue(cents);
+      if (step === null) return '--';
+      if (step === 0) return '0';
+      return `${step > 0 ? '+' : ''}${step}`;
+    }
+
+    function getMedian(values = []) {
+      if (!values.length) return 0;
+      const sorted = [...values].sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    }
+
+    function resolveClosestStringCandidateFrequency(freq = 0) {
+      if (!Number.isFinite(freq) || freq <= 0) return freq;
+      let bestFreq = freq;
+      let bestDistance = Infinity;
+      [freq, freq * 0.5, freq * 2].forEach(candidate => {
+        STANDARD_TUNING.forEach(item => {
+          const distance = Math.abs(1200 * Math.log2(candidate / item.freq));
+          if (distance < bestDistance) {
+            bestDistance = distance;
+            bestFreq = candidate;
+          }
+        });
+      });
+      return bestFreq;
+    }
+
     function resetTunerStabilityState() {
       tunerSmoothedFreq = 0;
       tunerSmoothedCents = 0;
@@ -3490,6 +3641,7 @@ Rules:
       tunerPendingNote = '';
       tunerPendingNoteFrames = 0;
       tunerNoSignalFrames = 0;
+      tunerRecentFreqs = [];
     }
 
     function startTunerLoop() {
@@ -3500,9 +3652,13 @@ Rules:
         const freq = autoCorrelate(buffer, audioCtx.sampleRate);
         if (freq > 0) {
           tunerNoSignalFrames = 0;
+          const correctedFreq = resolveClosestStringCandidateFrequency(freq);
+          tunerRecentFreqs.push(correctedFreq);
+          if (tunerRecentFreqs.length > 7) tunerRecentFreqs.shift();
+          const medianFreq = getMedian(tunerRecentFreqs);
           tunerSmoothedFreq = tunerSmoothedFreq > 0
-            ? (tunerSmoothedFreq * 0.84) + (freq * 0.16)
-            : freq;
+            ? (tunerSmoothedFreq * 0.87) + (medianFreq * 0.13)
+            : medianFreq;
 
           const nearest = closestString(tunerSmoothedFreq);
           if (!tunerStableNote) tunerStableNote = nearest.note;
@@ -3512,7 +3668,7 @@ Rules:
               tunerPendingNote = nearest.note;
               tunerPendingNoteFrames = 1;
             }
-            if (tunerPendingNoteFrames >= 4) {
+            if (tunerPendingNoteFrames >= 5) {
               tunerStableNote = nearest.note;
               tunerPendingNote = '';
               tunerPendingNoteFrames = 0;
@@ -3526,14 +3682,7 @@ Rules:
           const rawCents = Math.max(-50, Math.min(50, 1200 * Math.log2(tunerSmoothedFreq / locked.freq)));
           tunerSmoothedCents = (tunerSmoothedCents * 0.78) + (rawCents * 0.22);
 
-          document.getElementById('tuner-note').innerText = locked.note;
-          document.getElementById('tuner-frequency').innerText = `${tunerSmoothedFreq.toFixed(2)} Hz detected`;
-          document.getElementById('tuner-status').innerText = Math.abs(tunerSmoothedCents) < 6
-            ? 'In tune'
-            : (tunerSmoothedCents < 0
-              ? `${Math.abs(tunerSmoothedCents).toFixed(1)} cents flat`
-              : `${tunerSmoothedCents.toFixed(1)} cents sharp`);
-          document.getElementById('tuner-cents').innerText = `${tunerSmoothedCents >= 0 ? '+' : ''}${tunerSmoothedCents.toFixed(1)} cents`;
+          document.getElementById('tuner-note').innerText = centsToTuneSteps(tunerSmoothedCents);
           renderTunerMeter(tunerSmoothedCents);
           renderTuningReference(locked.note);
         } else {
@@ -3541,15 +3690,10 @@ Rules:
           tunerSmoothedCents *= 0.9;
           if (tunerNoSignalFrames >= 12) {
             document.getElementById('tuner-note').innerText = '--';
-            document.getElementById('tuner-frequency').innerText = 'Play one string clearly near your microphone.';
-            document.getElementById('tuner-status').innerText = 'Listening...';
-            document.getElementById('tuner-cents').innerText = '0.0 cents';
             renderTunerMeter(0);
             renderTuningReference('');
             if (tunerNoSignalFrames >= 30) resetTunerStabilityState();
           } else {
-            document.getElementById('tuner-status').innerText = 'Hold steady...';
-            document.getElementById('tuner-cents').innerText = `${tunerSmoothedCents >= 0 ? '+' : ''}${tunerSmoothedCents.toFixed(1)} cents`;
             renderTunerMeter(tunerSmoothedCents);
             renderTuningReference(tunerStableNote);
           }
@@ -3563,7 +3707,23 @@ Rules:
       try {
         if (!audioCtx) audioCtx = new AudioContext();
         resetTunerStabilityState();
-        tunerStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const useSystemAudio = !!document.getElementById('tuner-use-system-audio')?.checked;
+        tunerAudioMode = useSystemAudio ? 'system' : 'mic';
+        if (useSystemAudio) {
+          if (!navigator.mediaDevices?.getDisplayMedia) throw new Error('System audio capture is not supported in this browser.');
+          tunerStream = await navigator.mediaDevices.getDisplayMedia({
+            video: true,
+            audio: true
+          });
+          const hasAudioTrack = (tunerStream.getAudioTracks() || []).length > 0;
+          if (!hasAudioTrack) {
+            tunerStream.getTracks().forEach(track => track.stop());
+            tunerStream = null;
+            throw new Error('No audio track was shared. Enable audio in the share dialog.');
+          }
+        } else {
+          tunerStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        }
         tunerAnalyser = audioCtx.createAnalyser();
         tunerAnalyser.fftSize = 2048;
         tunerSource = audioCtx.createMediaStreamSource(tunerStream);
@@ -3571,11 +3731,12 @@ Rules:
         document.getElementById('btn-tuner-toggle').innerHTML = `<i class="fas fa-stop mr-2"></i> Stop Tuner`;
         document.getElementById('btn-tuner-toggle').classList.replace('bg-primary', 'bg-danger');
         document.getElementById('btn-tuner-toggle').classList.add('text-white');
-        document.getElementById('tuner-status').innerText = 'Listening...';
         startTunerLoop();
       } catch (err) {
         console.error(err);
-        showToast("Microphone access is required for the tuner.");
+        showToast(tunerAudioMode === 'system'
+          ? "Could not capture PC/screen audio. Share with audio enabled."
+          : "Microphone access is required for the tuner.");
       }
     }
 
@@ -3598,11 +3759,8 @@ Rules:
         tunerBtn.classList.replace('bg-danger', 'bg-primary');
         tunerBtn.classList.add('text-white');
       }
-      const status = document.getElementById('tuner-status');
-      if (status && activeTab !== 'tuner') status.innerText = 'Idle';
-      const cents = document.getElementById('tuner-cents');
-      if (cents) cents.innerText = '0.0 cents';
       renderTuningReference('');
+      tunerAudioMode = 'mic';
     }
 
     window.toggleTuner = function() {
