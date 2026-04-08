@@ -1,7 +1,6 @@
 ﻿import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 import { getFirestore } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-import { getStorage, ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
 import * as UI from './modules/renderers.js';
 import { FirestoreRepository } from './modules/repository.js';
 
@@ -15,7 +14,7 @@ import { FirestoreRepository } from './modules/repository.js';
       appId: "1:282086325190:web:b3ec1bca510460e87a50c7"
     };
     
-    let app, auth, db, storage, user, repository;
+    let app, auth, db, user, repository;
     let songs = [];
     let currentSong = null;
     let userProgress = {};
@@ -78,6 +77,9 @@ import { FirestoreRepository } from './modules/repository.js';
     let looperHistorySaveTimer = null;
     let looperActiveSource = null;
     let looperPendingUploadFile = null;
+    let looperPendingDataUrl = '';
+    let looperHistoryCreatePromise = null;
+    let looperDeletingHistoryId = '';
     let currentSongComments = [];
     let currentSongRatings = [];
     let pendingSongRating = 0;
@@ -105,7 +107,7 @@ import { FirestoreRepository } from './modules/repository.js';
     let trainingBeatIndex = 0;
     const METRONOME_STORAGE_KEY = 'guitartrainer.metronome.settings';
     const GEMINI_API_KEY_STORAGE_KEY = 'guitartrainer.gemini.apiKey';
-    const LOOPER_MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+    const LOOPER_MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
     const APP_BUILD = {
       version: 'v2026.04.06.3',
     };
@@ -993,6 +995,14 @@ Drop back to 70 BPM for clean finish.`,
       return cleaned || fallback;
     }
 
+    function buildUploadFingerprint(file) {
+      if (!file) return '';
+      const name = String(file.name || '').trim().toLowerCase();
+      const size = Number(file.size || 0);
+      const modified = Number(file.lastModified || 0);
+      return `${name}::${size}::${modified}`;
+    }
+
     function getDefaultLooperTitle() {
       if (looperActiveSource?.title) return sanitizeLooperTitle(looperActiveSource.title);
       if (looperMode === 'youtube') return 'YouTube Track';
@@ -1025,36 +1035,75 @@ Drop back to 70 BPM for clean finish.`,
     async function ensureActiveLooperHistoryEntry() {
       if (activeLooperHistoryId) return activeLooperHistoryId;
       if (!user || user.isAnonymous || !repository || !hasActiveLooperTrack()) return '';
+      if (looperHistoryCreatePromise) {
+        try {
+          return await looperHistoryCreatePromise;
+        } catch {
+          return '';
+        }
+      }
 
-      if (looperActiveSource.sourceType === 'upload') {
-        if (!looperActiveSource.downloadUrl && looperPendingUploadFile) {
+      looperHistoryCreatePromise = (async () => {
+        if (looperActiveSource.sourceType === 'upload') {
+          if (!looperPendingDataUrl && looperPendingUploadFile) {
+            try {
+              looperPendingDataUrl = await readFileAsDataUrl(looperPendingUploadFile);
+            } catch (err) {
+              console.error('Deferred looper encode failed', err);
+              return '';
+            }
+          }
+          const fingerprint = looperActiveSource.uploadFingerprint || buildUploadFingerprint(looperPendingUploadFile);
+          if (fingerprint) {
+            const duplicates = looperHistory.filter(item => item.sourceType === 'upload' && item.uploadFingerprint === fingerprint);
+            for (const oldItem of duplicates) {
+              try {
+                await repository.deleteLooperMediaData(user.uid, oldItem.id);
+                await repository.deleteLooperHistory(user.uid, oldItem.id);
+              } catch (err) {
+                console.error('Could not remove duplicate looper history item', err);
+              }
+            }
+            if (duplicates.length) {
+              const duplicateIds = new Set(duplicates.map(item => item.id));
+              looperHistory = looperHistory.filter(item => !duplicateIds.has(item.id));
+              if (activeLooperHistoryId && duplicateIds.has(activeLooperHistoryId)) activeLooperHistoryId = '';
+            }
+          }
+        }
+
+        const createdId = await createLooperHistoryEntry({
+          title: looperActiveSource.title || getDefaultLooperTitle(),
+          sourceType: looperActiveSource.sourceType || (looperMode === 'youtube' ? 'youtube' : 'upload'),
+          mediaType: looperActiveSource.mediaType || (looperMode === 'video' ? 'video' : 'audio'),
+          youtubeUrl: looperActiveSource.youtubeUrl || '',
+          uploadFingerprint: looperActiveSource.uploadFingerprint || '',
+          mediaStored: looperActiveSource.sourceType === 'upload' ? !!looperPendingDataUrl : true,
+          sizeBytes: Number(looperPendingUploadFile?.size || 0),
+          duration: Number(looperDuration || getLooperDuration() || 0)
+        });
+        if (!createdId) return '';
+
+        if (looperActiveSource.sourceType === 'upload' && looperPendingDataUrl) {
           try {
-            const uploaded = await uploadLooperFileToStorage(looperPendingUploadFile);
-            looperActiveSource = {
-              ...looperActiveSource,
-              storagePath: uploaded.path,
-              downloadUrl: uploaded.url
-            };
+            const chunkCount = await repository.saveLooperMediaData(user.uid, createdId, looperPendingDataUrl);
+            looperActiveSource = { ...looperActiveSource, mediaStored: true };
             looperPendingUploadFile = null;
+            looperPendingDataUrl = '';
+            await repository.updateLooperHistory(user.uid, createdId, { mediaStored: true, mediaChunkCount: chunkCount, updatedAt: Date.now() });
           } catch (err) {
-            console.error('Deferred looper upload failed', err);
+            console.error('Deferred looper Firestore save failed', err);
             return '';
           }
         }
-        if (!looperActiveSource.downloadUrl) return '';
-      }
+        return createdId || '';
+      })();
 
-      const createdId = await createLooperHistoryEntry({
-        title: looperActiveSource.title || getDefaultLooperTitle(),
-        sourceType: looperActiveSource.sourceType || (looperMode === 'youtube' ? 'youtube' : 'upload'),
-        mediaType: looperActiveSource.mediaType || (looperMode === 'video' ? 'video' : 'audio'),
-        youtubeUrl: looperActiveSource.youtubeUrl || '',
-        storagePath: looperActiveSource.storagePath || '',
-        downloadUrl: looperActiveSource.downloadUrl || '',
-        sizeBytes: Number(looperPendingUploadFile?.size || 0),
-        duration: Number(looperDuration || getLooperDuration() || 0)
-      });
-      return createdId || '';
+      try {
+        return await looperHistoryCreatePromise;
+      } finally {
+        looperHistoryCreatePromise = null;
+      }
     }
 
     function scheduleLooperHistorySave(delayMs = 700) {
@@ -1090,8 +1139,9 @@ Drop back to 70 BPM for clean finish.`,
           sourceType: payload.sourceType || 'upload',
           mediaType: payload.mediaType || 'audio',
           youtubeUrl: payload.youtubeUrl || '',
-          storagePath: payload.storagePath || '',
-          downloadUrl: payload.downloadUrl || '',
+          uploadFingerprint: String(payload.uploadFingerprint || ''),
+          mediaStored: payload.mediaStored !== false,
+          mediaChunkCount: Number(payload.mediaChunkCount || 0),
           sizeBytes: payload.sizeBytes || 0,
           duration: Number(payload.duration || 0),
           pointA: 0,
@@ -1113,15 +1163,17 @@ Drop back to 70 BPM for clean finish.`,
       }
     }
 
-    async function uploadLooperFileToStorage(file) {
-      if (!storage || !user) throw new Error('Storage is not ready');
-      const safeName = String(file?.name || 'track').replace(/[^a-z0-9._-]+/gi, '_');
-      const ext = safeName.includes('.') ? safeName.slice(safeName.lastIndexOf('.')) : '';
-      const path = `users/${user.uid}/looper_uploads/${Date.now()}_${Math.random().toString(36).slice(2, 8)}${ext}`;
-      const refObj = storageRef(storage, path);
-      await uploadBytes(refObj, file, { contentType: file.type || undefined });
-      const url = await getDownloadURL(refObj);
-      return { path, url };
+    function readFileAsDataUrl(file) {
+      return new Promise((resolve, reject) => {
+        if (!file) {
+          reject(new Error('Missing file'));
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(reader.error || new Error('Read failed'));
+        reader.readAsDataURL(file);
+      });
     }
 
     function getLooperAudioEl() {
@@ -1256,10 +1308,11 @@ Drop back to 70 BPM for clean finish.`,
       const rawB = looperPointB > 0 ? looperPointB : fallbackB;
       looperPointB = Math.max(looperPointA + (maxValue > 0 ? 0.2 : 0), Math.min(rawB, maxValue || rawB));
       if (duration > 0 && looperPointB > duration) looperPointB = duration;
-      const aSlider = document.getElementById('tool-looper-a-slider');
-      const bSlider = document.getElementById('tool-looper-b-slider');
+      const aSlider = document.getElementById('tool-looper-ab-range-a');
+      const bSlider = document.getElementById('tool-looper-ab-range-b');
       const aLabel = document.getElementById('tool-looper-a-label');
       const bLabel = document.getElementById('tool-looper-b-label');
+      const fill = document.getElementById('tool-looper-ab-fill');
       if (aSlider) {
         aSlider.max = String(maxValue);
         aSlider.value = String(Math.min(looperPointA, maxValue));
@@ -1268,17 +1321,51 @@ Drop back to 70 BPM for clean finish.`,
         bSlider.max = String(maxValue);
         bSlider.value = String(Math.min(Math.max(looperPointB, looperPointA), maxValue));
       }
+      if (fill) {
+        const safeMax = maxValue > 0 ? maxValue : 1;
+        const leftPct = Math.max(0, Math.min(100, (looperPointA / safeMax) * 100));
+        const rightPct = Math.max(0, Math.min(100, 100 - ((looperPointB / safeMax) * 100)));
+        fill.style.left = `${leftPct}%`;
+        fill.style.right = `${rightPct}%`;
+      }
       if (aLabel) aLabel.innerText = `A ${formatLooperTime(looperPointA)}`;
       if (bLabel) bLabel.innerText = `B ${formatLooperTime(looperPointB)}`;
     }
 
+    function renderLooperModeButtons() {
+      const fullBtn = document.getElementById('tool-looper-mode-full');
+      const abBtn = document.getElementById('tool-looper-mode-ab');
+      if (fullBtn) fullBtn.classList.toggle('active', !!looperRepeatEnabled);
+      if (abBtn) abBtn.classList.toggle('active', !!looperABEnabled);
+    }
+
+    function setLooperLoopMode(mode = 'none') {
+      if (mode === 'full') {
+        const next = !looperRepeatEnabled;
+        looperRepeatEnabled = next;
+        looperABEnabled = false;
+      } else if (mode === 'ab') {
+        const next = !looperABEnabled;
+        looperABEnabled = next;
+        looperRepeatEnabled = false;
+        if (looperABEnabled && looperPointB <= looperPointA) {
+          const duration = looperDuration || getLooperDuration();
+          looperPointB = duration || (looperPointA + 0.5);
+        }
+      } else {
+        looperRepeatEnabled = false;
+        looperABEnabled = false;
+      }
+      enforceLooperBounds();
+      refreshLooperUi();
+      scheduleLooperHistorySave();
+    }
+
     function refreshLooperUi() {
+      if (looperRepeatEnabled && looperABEnabled) looperRepeatEnabled = false;
       syncLooperTimeUi();
       syncLooperBoundaryUi();
-      const repeat = document.getElementById('tool-looper-repeat-enabled');
-      const ab = document.getElementById('tool-looper-ab-enabled');
-      if (repeat) repeat.checked = !!looperRepeatEnabled;
-      if (ab) ab.checked = !!looperABEnabled;
+      renderLooperModeButtons();
       enforceLooperBounds();
     }
 
@@ -1410,6 +1497,7 @@ Drop back to 70 BPM for clean finish.`,
           title: sourceTitle
         };
         looperPendingUploadFile = null;
+        looperPendingDataUrl = '';
         if (!fromHistoryEntry) activeLooperHistoryId = '';
         looperDuration = Number(fromHistoryEntry?.duration || 0) || 0;
         looperPointA = Number(fromHistoryEntry?.pointA || 0) || 0;
@@ -1462,7 +1550,6 @@ Drop back to 70 BPM for clean finish.`,
         app = initializeApp(firebaseConfig);
         auth = getAuth(app);
         db = getFirestore(app);
-        storage = getStorage(app);
         repository = new FirestoreRepository(db);
 
         const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
@@ -1603,18 +1690,19 @@ Drop back to 70 BPM for clean finish.`,
         return;
       }
       list.innerHTML = looperHistory.map(item => `
-        <div class="bg-black/30 border ${item.id === activeLooperHistoryId ? 'border-primary/60' : 'border-gray-800'} rounded-xl px-3 py-3">
+        <div class="bg-black/30 border ${item.id === activeLooperHistoryId ? 'border-primary/60' : 'border-gray-800'} rounded-xl px-3 py-3 ${looperDeletingHistoryId === item.id ? 'opacity-70' : ''}">
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
               <p class="font-semibold text-sm text-white truncate">${escapeHtml(item.title || 'Untitled media')}</p>
               <p class="text-[11px] text-gray-500 mt-1">${getLooperHistoryTypeLabel(item)} • ${item.updatedAt ? new Date(item.updatedAt).toLocaleString() : 'Saved'}</p>
               <p class="text-[11px] text-gray-500 mt-1">A ${formatLooperTime(item.pointA || 0)} | B ${formatLooperTime(item.pointB || 0)} | Last ${formatLooperTime(item.lastPosition || 0)}</p>
+              ${looperDeletingHistoryId === item.id ? `<p class="text-[11px] text-primary mt-1"><i class="fas fa-spinner fa-spin mr-1"></i>Deleting...</p>` : ''}
             </div>
             <div class="flex items-center gap-2 shrink-0">
-              <button onclick="openLooperHistoryItem('${item.id}')" class="w-8 h-8 rounded-full btn-soft btn-press" title="Open">
+              <button onclick="openLooperHistoryItem('${item.id}')" class="w-8 h-8 rounded-full btn-soft btn-press ${looperDeletingHistoryId === item.id ? 'opacity-50 pointer-events-none' : ''}" title="Open">
                 <i class="fas fa-play text-xs"></i>
               </button>
-              <button onclick="deleteLooperHistoryItem('${item.id}')" class="w-8 h-8 rounded-full btn-soft btn-press" title="Delete">
+              <button onclick="deleteLooperHistoryItem('${item.id}')" class="w-8 h-8 rounded-full btn-soft btn-press ${looperDeletingHistoryId === item.id ? 'opacity-50 pointer-events-none' : ''}" title="Delete">
                 <i class="fas fa-trash text-xs"></i>
               </button>
             </div>
@@ -1910,35 +1998,24 @@ Drop back to 70 BPM for clean finish.`,
       const isVideo = String(file.type || '').startsWith('video/');
       activeLooperHistoryId = '';
       looperPendingUploadFile = file;
+      looperPendingDataUrl = '';
       looperActiveSource = {
         sourceType: 'upload',
         mediaType: isVideo ? 'video' : 'audio',
-        title: sanitizeLooperTitle(file.name, isVideo ? 'Uploaded Video' : 'Uploaded Audio')
+        title: sanitizeLooperTitle(file.name, isVideo ? 'Uploaded Video' : 'Uploaded Audio'),
+        uploadFingerprint: buildUploadFingerprint(file),
+        mediaStored: false
       };
       await attachLooperMediaSource(looperObjectUrl, looperActiveSource.mediaType);
       const youtubeInput = document.getElementById('tool-looper-youtube-url');
       if (youtubeInput) youtubeInput.value = '';
       try {
-        const uploaded = await uploadLooperFileToStorage(file);
-        looperActiveSource = {
-          ...looperActiveSource,
-          storagePath: uploaded.path,
-          downloadUrl: uploaded.url
-        };
-        looperPendingUploadFile = null;
-        activeLooperHistoryId = await createLooperHistoryEntry({
-          title: looperActiveSource.title,
-          sourceType: 'upload',
-          mediaType: looperActiveSource.mediaType,
-          downloadUrl: uploaded.url,
-          storagePath: uploaded.path,
-          sizeBytes: file.size,
-          duration: looperDuration
-        });
+        looperPendingDataUrl = await readFileAsDataUrl(file);
+        activeLooperHistoryId = await ensureActiveLooperHistoryEntry();
         scheduleLooperHistorySave(120);
       } catch (e) {
-        console.error('Upload looper media failed', e);
-        showToast('Loaded locally, but cloud save failed.');
+        console.error('Save looper media to Firestore failed', e);
+        showToast('Loaded locally, but Firestore save failed.');
       }
       showToast(`Loaded ${isVideo ? 'video' : 'audio'} file.`, true);
     };
@@ -1960,19 +2037,24 @@ Drop back to 70 BPM for clean finish.`,
       if (!item) return;
       activeLooperHistoryId = item.id;
       looperPendingUploadFile = null;
+      looperPendingDataUrl = '';
       if (item.sourceType === 'youtube' && item.youtubeUrl) {
         await loadLooperYouTubeByUrl(item.youtubeUrl, { fromHistoryEntry: item });
-      } else if (item.downloadUrl) {
+      } else if (item.sourceType === 'upload') {
         destroyLooperYoutubePlayer();
         resetLooperObjectUrl();
+        const mediaDataUrl = await repository.loadLooperMediaData(user.uid, item.id);
+        if (!mediaDataUrl) {
+          showToast('This history item has no playable source.');
+          return;
+        }
         looperActiveSource = {
           sourceType: 'upload',
           mediaType: item.mediaType === 'video' ? 'video' : 'audio',
           title: sanitizeLooperTitle(item.title),
-          storagePath: item.storagePath || '',
-          downloadUrl: item.downloadUrl || ''
+          mediaStored: true
         };
-        await attachLooperMediaSource(item.downloadUrl, looperActiveSource.mediaType, { fromHistoryEntry: item });
+        await attachLooperMediaSource(mediaDataUrl, looperActiveSource.mediaType, { fromHistoryEntry: item });
       } else {
         showToast('This history item has no playable source.');
       }
@@ -1982,22 +2064,21 @@ Drop back to 70 BPM for clean finish.`,
     window.deleteLooperHistoryItem = async function(itemId) {
       const item = looperHistory.find(entry => entry.id === itemId);
       if (!item || !user) return;
+      if (looperDeletingHistoryId === itemId) return;
+      looperDeletingHistoryId = itemId;
+      renderLooperHistory();
       try {
-        if (item.storagePath && storage) {
-          try {
-            await deleteObject(storageRef(storage, item.storagePath));
-          } catch (innerErr) {
-            console.error('Delete storage file failed', innerErr);
-          }
-        }
+        await repository.deleteLooperMediaData(user.uid, itemId);
         await repository.deleteLooperHistory(user.uid, itemId);
         looperHistory = looperHistory.filter(entry => entry.id !== itemId);
         if (activeLooperHistoryId === itemId) activeLooperHistoryId = '';
-        renderLooperHistory();
         showToast('History item removed.', true);
       } catch (e) {
         console.error('Delete looper history failed', e);
         showToast('Could not delete history item.');
+      } finally {
+        looperDeletingHistoryId = '';
+        renderLooperHistory();
       }
     };
 
@@ -2039,20 +2120,12 @@ Drop back to 70 BPM for clean finish.`,
       scheduleLooperHistorySave();
     };
 
-    window.toggleLooperRepeat = function(enabled) {
-      looperRepeatEnabled = !!enabled;
-      scheduleLooperHistorySave();
+    window.toggleLooperFullTrack = function() {
+      setLooperLoopMode('full');
     };
 
-    window.toggleLooperABLoop = function(enabled) {
-      looperABEnabled = !!enabled;
-      if (looperABEnabled && looperPointB <= looperPointA) {
-        const duration = looperDuration || getLooperDuration();
-        looperPointB = duration || (looperPointA + 0.5);
-      }
-      enforceLooperBounds();
-      refreshLooperUi();
-      scheduleLooperHistorySave();
+    window.toggleLooperABMode = function() {
+      setLooperLoopMode('ab');
     };
 
     window.onLooperBoundaryInput = function(which, value) {
@@ -2090,10 +2163,9 @@ Drop back to 70 BPM for clean finish.`,
       activeLooperHistoryId = '';
       looperActiveSource = null;
       looperPendingUploadFile = null;
-      const repeat = document.getElementById('tool-looper-repeat-enabled');
-      const ab = document.getElementById('tool-looper-ab-enabled');
-      if (repeat) repeat.checked = false;
-      if (ab) ab.checked = false;
+      looperPendingDataUrl = '';
+      looperHistoryCreatePromise = null;
+      looperDeletingHistoryId = '';
       updateLooperMaxUploadLabel();
       renderLooperHistory();
       refreshLooperUi();

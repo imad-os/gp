@@ -137,6 +137,54 @@ export class FirestoreRepository {
     await deleteDoc(doc(this.db, 'users', userId, 'looper_history', itemId));
   }
 
+  async saveLooperMediaData(userId, itemId, dataUrl) {
+    const chunksRef = collection(this.db, 'users', userId, 'looper_history', itemId, 'media_chunks');
+    const existing = await getDocs(chunksRef);
+    for (const entry of existing.docs) {
+      await deleteDoc(entry.ref);
+    }
+    const CHUNK_SIZE = 350000;
+    const source = String(dataUrl || '');
+    const chunkCount = Math.max(1, Math.ceil(source.length / CHUNK_SIZE));
+    for (let i = 0; i < chunkCount; i += 1) {
+      const start = i * CHUNK_SIZE;
+      const part = source.slice(start, start + CHUNK_SIZE);
+      const chunkId = String(i).padStart(5, '0');
+      await setDoc(doc(chunksRef, chunkId), { index: i, data: part });
+    }
+    return chunkCount;
+  }
+
+  async loadLooperMediaData(userId, itemId, onProgress = null) {
+    const chunksRef = collection(this.db, 'users', userId, 'looper_history', itemId, 'media_chunks');
+    const snap = await getDocs(chunksRef);
+    if (snap.empty) return '';
+    if (typeof onProgress === 'function') onProgress(18);
+    const ordered = snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (a.index ?? Number(a.id)) - (b.index ?? Number(b.id)));
+    const total = Math.max(1, ordered.length);
+    const parts = [];
+    for (let i = 0; i < ordered.length; i += 1) {
+      parts.push(String(ordered[i].data || ''));
+      if (typeof onProgress === 'function') {
+        const progress = 18 + Math.round(((i + 1) / total) * 72);
+        onProgress(Math.min(90, progress));
+      }
+      if (i % 25 === 0) await Promise.resolve();
+    }
+    if (typeof onProgress === 'function') onProgress(95);
+    return parts.join('');
+  }
+
+  async deleteLooperMediaData(userId, itemId) {
+    const chunksRef = collection(this.db, 'users', userId, 'looper_history', itemId, 'media_chunks');
+    const snap = await getDocs(chunksRef);
+    for (const entry of snap.docs) {
+      await deleteDoc(entry.ref);
+    }
+  }
+
   async loadSongComments(songId) {
     const commentsRef = collection(this.db, 'songs', songId, 'comments');
     const snap = await getDocs(commentsRef);
