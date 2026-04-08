@@ -115,6 +115,28 @@ export class FirestoreRepository {
     await deleteDoc(doc(this.db, 'users', userId, 'tool_recordings', recordingId));
   }
 
+  async loadLooperHistory(userId) {
+    const ref = collection(this.db, 'users', userId, 'looper_history');
+    const snap = await getDocs(ref);
+    return snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+  }
+
+  async addLooperHistory(userId, item) {
+    const ref = collection(this.db, 'users', userId, 'looper_history');
+    const created = await addDoc(ref, item);
+    return created.id;
+  }
+
+  async updateLooperHistory(userId, itemId, patch) {
+    await setDoc(doc(this.db, 'users', userId, 'looper_history', itemId), patch, { merge: true });
+  }
+
+  async deleteLooperHistory(userId, itemId) {
+    await deleteDoc(doc(this.db, 'users', userId, 'looper_history', itemId));
+  }
+
   async loadSongComments(songId) {
     const commentsRef = collection(this.db, 'songs', songId, 'comments');
     const snap = await getDocs(commentsRef);

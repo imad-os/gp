@@ -1,6 +1,7 @@
 ﻿import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 import { getFirestore } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { getStorage, ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
 import * as UI from './modules/renderers.js';
 import { FirestoreRepository } from './modules/repository.js';
 
@@ -14,7 +15,7 @@ import { FirestoreRepository } from './modules/repository.js';
       appId: "1:282086325190:web:b3ec1bca510460e87a50c7"
     };
     
-    let app, auth, db, user, repository;
+    let app, auth, db, storage, user, repository;
     let songs = [];
     let currentSong = null;
     let userProgress = {};
@@ -63,6 +64,20 @@ import { FirestoreRepository } from './modules/repository.js';
     let toolRecordingVizAnimationId = null;
     let selectedChordReference = 'C';
     let activeToolPage = 'home';
+    let looperMode = 'none';
+    let looperObjectUrl = '';
+    let looperYoutubePlayer = null;
+    let looperSyncTimer = null;
+    let looperDuration = 0;
+    let looperRepeatEnabled = false;
+    let looperABEnabled = false;
+    let looperPointA = 0;
+    let looperPointB = 0;
+    let looperHistory = [];
+    let activeLooperHistoryId = '';
+    let looperHistorySaveTimer = null;
+    let looperActiveSource = null;
+    let looperPendingUploadFile = null;
     let currentSongComments = [];
     let currentSongRatings = [];
     let pendingSongRating = 0;
@@ -90,6 +105,7 @@ import { FirestoreRepository } from './modules/repository.js';
     let trainingBeatIndex = 0;
     const METRONOME_STORAGE_KEY = 'guitartrainer.metronome.settings';
     const GEMINI_API_KEY_STORAGE_KEY = 'guitartrainer.gemini.apiKey';
+    const LOOPER_MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
     const APP_BUILD = {
       version: 'v2026.04.06.3',
     };
@@ -103,14 +119,93 @@ import { FirestoreRepository } from './modules/repository.js';
 
     const CAPO_OPTIONS = ["No capo", "1st fret", "2nd fret", "3rd fret", "4th fret", "5th fret", "6th fret", "7th fret", "8th fret", "9th fret", "10th fret", "11th fret", "12th fret"];
     const TAB_VIEWS = new Set(['home', 'training', 'tuner', 'tools', 'profile']);
-    const STANDARD_TUNING = [
-      { note: 'E2', freq: 82.41 },
-      { note: 'A2', freq: 110.0 },
-      { note: 'D3', freq: 146.83 },
-      { note: 'G3', freq: 196.0 },
-      { note: 'B3', freq: 246.94 },
-      { note: 'E4', freq: 329.63 }
+    const TUNING_PRESETS = [
+      {
+        id: 'standard',
+        label: 'Standard (E A D G B E)',
+        strings: [
+          { note: 'E2', freq: 82.41 },
+          { note: 'A2', freq: 110.0 },
+          { note: 'D3', freq: 146.83 },
+          { note: 'G3', freq: 196.0 },
+          { note: 'B3', freq: 246.94 },
+          { note: 'E4', freq: 329.63 }
+        ]
+      },
+      {
+        id: 'drop-d',
+        label: 'Drop D (D A D G B E)',
+        strings: [
+          { note: 'D2', freq: 73.42 },
+          { note: 'A2', freq: 110.0 },
+          { note: 'D3', freq: 146.83 },
+          { note: 'G3', freq: 196.0 },
+          { note: 'B3', freq: 246.94 },
+          { note: 'E4', freq: 329.63 }
+        ]
+      },
+      {
+        id: 'half-step-down',
+        label: 'Half Step Down (Eb Ab Db Gb Bb Eb)',
+        strings: [
+          { note: 'Eb2', freq: 77.78 },
+          { note: 'Ab2', freq: 103.83 },
+          { note: 'Db3', freq: 138.59 },
+          { note: 'Gb3', freq: 185.0 },
+          { note: 'Bb3', freq: 233.08 },
+          { note: 'Eb4', freq: 311.13 }
+        ]
+      },
+      {
+        id: 'dadgad',
+        label: 'DADGAD (D A D G A D)',
+        strings: [
+          { note: 'D2', freq: 73.42 },
+          { note: 'A2', freq: 110.0 },
+          { note: 'D3', freq: 146.83 },
+          { note: 'G3', freq: 196.0 },
+          { note: 'A3', freq: 220.0 },
+          { note: 'D4', freq: 293.66 }
+        ]
+      },
+      {
+        id: 'open-g',
+        label: 'Open G (D G D G B D)',
+        strings: [
+          { note: 'D2', freq: 73.42 },
+          { note: 'G2', freq: 98.0 },
+          { note: 'D3', freq: 146.83 },
+          { note: 'G3', freq: 196.0 },
+          { note: 'B3', freq: 246.94 },
+          { note: 'D4', freq: 293.66 }
+        ]
+      },
+      {
+        id: 'open-d',
+        label: 'Open D (D A D F# A D)',
+        strings: [
+          { note: 'D2', freq: 73.42 },
+          { note: 'A2', freq: 110.0 },
+          { note: 'D3', freq: 146.83 },
+          { note: 'F#3', freq: 185.0 },
+          { note: 'A3', freq: 220.0 },
+          { note: 'D4', freq: 293.66 }
+        ]
+      },
+      {
+        id: 'whole-step-down',
+        label: '2 Notes Flatter (D G C F A D)',
+        strings: [
+          { note: 'D2', freq: 73.42 },
+          { note: 'G2', freq: 98.0 },
+          { note: 'C3', freq: 130.81 },
+          { note: 'F3', freq: 174.61 },
+          { note: 'A3', freq: 220.0 },
+          { note: 'D4', freq: 293.66 }
+        ]
+      }
     ];
+    let activeTunerPresetId = 'standard';
     const SUPPORTED_TIME_SIGNATURES = ['2/4', '3/4', '4/4', '6/8', '2/16', '3/16', '4/16', '6/16'];
     const DEFAULT_CHORD_LIBRARY = {
       C: { baseFret: 1, strings: ['x', 3, 2, 0, 1, 0], fingers: [0, 3, 2, 0, 1, 0] },
@@ -869,12 +964,505 @@ Drop back to 70 BPM for clean finish.`,
       }
     }
 
+    function getYouTubeVideoId(url = '') {
+      const normalized = normalizeYouTubeUrl(url);
+      if (!normalized) return '';
+      try {
+        return new URL(normalized).searchParams.get('v') || '';
+      } catch {
+        return '';
+      }
+    }
+
+    function formatLooperTime(seconds = 0) {
+      const total = Math.max(0, Math.floor(Number(seconds) || 0));
+      const mins = Math.floor(total / 60);
+      const secs = total % 60;
+      return `${mins}:${String(secs).padStart(2, '0')}`;
+    }
+
+    function formatBytes(bytes = 0) {
+      const value = Math.max(0, Number(bytes) || 0);
+      if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(0)} MB`;
+      if (value >= 1024) return `${(value / 1024).toFixed(0)} KB`;
+      return `${value} B`;
+    }
+
+    function sanitizeLooperTitle(raw = '', fallback = 'Untitled media') {
+      const cleaned = String(raw || '').trim();
+      return cleaned || fallback;
+    }
+
+    function getDefaultLooperTitle() {
+      if (looperActiveSource?.title) return sanitizeLooperTitle(looperActiveSource.title);
+      if (looperMode === 'youtube') return 'YouTube Track';
+      if (looperMode === 'video') return 'Uploaded Video';
+      if (looperMode === 'audio') return 'Uploaded Audio';
+      return 'Untitled media';
+    }
+
+    function updateLooperMaxUploadLabel() {
+      const label = document.getElementById('tool-looper-max-size-label');
+      if (label) label.innerText = formatBytes(LOOPER_MAX_UPLOAD_BYTES);
+    }
+
+    function getActiveLooperStatePatch() {
+      return {
+        duration: Number(looperDuration || getLooperDuration() || 0),
+        pointA: Number(looperPointA || 0),
+        pointB: Number(looperPointB || 0),
+        lastPosition: Number(getLooperCurrentTime() || 0),
+        repeatEnabled: !!looperRepeatEnabled,
+        abEnabled: !!looperABEnabled,
+        updatedAt: Date.now()
+      };
+    }
+
+    function hasActiveLooperTrack() {
+      return looperMode !== 'none' && !!looperActiveSource;
+    }
+
+    async function ensureActiveLooperHistoryEntry() {
+      if (activeLooperHistoryId) return activeLooperHistoryId;
+      if (!user || user.isAnonymous || !repository || !hasActiveLooperTrack()) return '';
+
+      if (looperActiveSource.sourceType === 'upload') {
+        if (!looperActiveSource.downloadUrl && looperPendingUploadFile) {
+          try {
+            const uploaded = await uploadLooperFileToStorage(looperPendingUploadFile);
+            looperActiveSource = {
+              ...looperActiveSource,
+              storagePath: uploaded.path,
+              downloadUrl: uploaded.url
+            };
+            looperPendingUploadFile = null;
+          } catch (err) {
+            console.error('Deferred looper upload failed', err);
+            return '';
+          }
+        }
+        if (!looperActiveSource.downloadUrl) return '';
+      }
+
+      const createdId = await createLooperHistoryEntry({
+        title: looperActiveSource.title || getDefaultLooperTitle(),
+        sourceType: looperActiveSource.sourceType || (looperMode === 'youtube' ? 'youtube' : 'upload'),
+        mediaType: looperActiveSource.mediaType || (looperMode === 'video' ? 'video' : 'audio'),
+        youtubeUrl: looperActiveSource.youtubeUrl || '',
+        storagePath: looperActiveSource.storagePath || '',
+        downloadUrl: looperActiveSource.downloadUrl || '',
+        sizeBytes: Number(looperPendingUploadFile?.size || 0),
+        duration: Number(looperDuration || getLooperDuration() || 0)
+      });
+      return createdId || '';
+    }
+
+    function scheduleLooperHistorySave(delayMs = 700) {
+      if (!user || user.isAnonymous || !repository || !hasActiveLooperTrack()) return;
+      if (looperHistorySaveTimer) clearTimeout(looperHistorySaveTimer);
+      looperHistorySaveTimer = setTimeout(() => {
+        looperHistorySaveTimer = null;
+        saveActiveLooperStateNow(false).catch(err => console.error('Looper state auto-save failed', err));
+      }, delayMs);
+    }
+
+    async function upsertActiveLooperHistoryState(forceReload = false) {
+      if (!activeLooperHistoryId || !user || !repository) return;
+      const patch = getActiveLooperStatePatch();
+      try {
+        await repository.updateLooperHistory(user.uid, activeLooperHistoryId, patch);
+        const idx = looperHistory.findIndex(item => item.id === activeLooperHistoryId);
+        if (idx >= 0) looperHistory[idx] = { ...looperHistory[idx], ...patch };
+        looperHistory.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+        renderLooperHistory();
+        if (forceReload) await loadLooperHistory();
+      } catch (e) {
+        console.error('Update looper history failed', e);
+      }
+    }
+
+    async function createLooperHistoryEntry(payload = {}) {
+      if (!user || !repository) return '';
+      try {
+        const createdAt = Date.now();
+        const item = {
+          title: sanitizeLooperTitle(payload.title, getDefaultLooperTitle()),
+          sourceType: payload.sourceType || 'upload',
+          mediaType: payload.mediaType || 'audio',
+          youtubeUrl: payload.youtubeUrl || '',
+          storagePath: payload.storagePath || '',
+          downloadUrl: payload.downloadUrl || '',
+          sizeBytes: payload.sizeBytes || 0,
+          duration: Number(payload.duration || 0),
+          pointA: 0,
+          pointB: Number(payload.duration || 0),
+          lastPosition: 0,
+          repeatEnabled: false,
+          abEnabled: false,
+          createdAt,
+          updatedAt: createdAt
+        };
+        const id = await repository.addLooperHistory(user.uid, item);
+        activeLooperHistoryId = id;
+        looperHistory.unshift({ id, ...item });
+        renderLooperHistory();
+        return id;
+      } catch (e) {
+        console.error('Create looper history failed', e);
+        return '';
+      }
+    }
+
+    async function uploadLooperFileToStorage(file) {
+      if (!storage || !user) throw new Error('Storage is not ready');
+      const safeName = String(file?.name || 'track').replace(/[^a-z0-9._-]+/gi, '_');
+      const ext = safeName.includes('.') ? safeName.slice(safeName.lastIndexOf('.')) : '';
+      const path = `users/${user.uid}/looper_uploads/${Date.now()}_${Math.random().toString(36).slice(2, 8)}${ext}`;
+      const refObj = storageRef(storage, path);
+      await uploadBytes(refObj, file, { contentType: file.type || undefined });
+      const url = await getDownloadURL(refObj);
+      return { path, url };
+    }
+
+    function getLooperAudioEl() {
+      return document.getElementById('tool-looper-audio');
+    }
+
+    function getLooperVideoEl() {
+      return document.getElementById('tool-looper-video');
+    }
+
+    function getActiveLooperMediaElement() {
+      if (looperMode === 'audio') return getLooperAudioEl();
+      if (looperMode === 'video') return getLooperVideoEl();
+      return null;
+    }
+
+    function hideAllLooperPlayers() {
+      document.getElementById('tool-looper-audio')?.classList.add('hidden');
+      document.getElementById('tool-looper-video')?.classList.add('hidden');
+      document.getElementById('tool-looper-youtube-wrap')?.classList.add('hidden');
+      document.getElementById('tool-looper-empty')?.classList.add('hidden');
+    }
+
+    function resetLooperObjectUrl() {
+      if (!looperObjectUrl) return;
+      try { URL.revokeObjectURL(looperObjectUrl); } catch {}
+      looperObjectUrl = '';
+    }
+
+    function stopLooperSyncTimer() {
+      if (looperSyncTimer) {
+        clearInterval(looperSyncTimer);
+        looperSyncTimer = null;
+      }
+      if (looperHistorySaveTimer) {
+        clearTimeout(looperHistorySaveTimer);
+        looperHistorySaveTimer = null;
+      }
+    }
+
+    function getLooperCurrentTime() {
+      if (looperMode === 'youtube' && looperYoutubePlayer?.getCurrentTime) {
+        const value = Number(looperYoutubePlayer.getCurrentTime());
+        return Number.isFinite(value) ? value : 0;
+      }
+      const media = getActiveLooperMediaElement();
+      const value = Number(media?.currentTime || 0);
+      return Number.isFinite(value) ? value : 0;
+    }
+
+    function getLooperDuration() {
+      if (looperMode === 'youtube' && looperYoutubePlayer?.getDuration) {
+        const value = Number(looperYoutubePlayer.getDuration());
+        return Number.isFinite(value) ? value : 0;
+      }
+      const media = getActiveLooperMediaElement();
+      const value = Number(media?.duration || 0);
+      return Number.isFinite(value) ? value : 0;
+    }
+
+    function isLooperPlaying() {
+      if (looperMode === 'youtube' && looperYoutubePlayer?.getPlayerState && window.YT?.PlayerState) {
+        return looperYoutubePlayer.getPlayerState() === window.YT.PlayerState.PLAYING;
+      }
+      const media = getActiveLooperMediaElement();
+      return !!(media && !media.paused && !media.ended);
+    }
+
+    function seekLooperTo(seconds = 0) {
+      const target = Math.max(0, Number(seconds) || 0);
+      if (looperMode === 'youtube' && looperYoutubePlayer?.seekTo) {
+        looperYoutubePlayer.seekTo(target, true);
+        return;
+      }
+      const media = getActiveLooperMediaElement();
+      if (media) media.currentTime = target;
+    }
+
+    function playLooperInternal() {
+      if (looperMode === 'youtube' && looperYoutubePlayer?.playVideo) {
+        looperYoutubePlayer.playVideo();
+        return;
+      }
+      const media = getActiveLooperMediaElement();
+      if (media) media.play().catch(() => {});
+    }
+
+    function pauseLooperInternal() {
+      if (looperMode === 'youtube' && looperYoutubePlayer?.pauseVideo) {
+        looperYoutubePlayer.pauseVideo();
+        return;
+      }
+      const media = getActiveLooperMediaElement();
+      if (media) media.pause();
+    }
+
+    function enforceLooperBounds() {
+      const duration = looperDuration || getLooperDuration();
+      if (!duration || duration <= 0) return;
+      const now = getLooperCurrentTime();
+      if (looperABEnabled) {
+        const a = Math.max(0, Math.min(looperPointA, duration));
+        const b = Math.max(a + 0.2, Math.min(looperPointB || duration, duration));
+        const playing = isLooperPlaying();
+        if (now < a - 0.08 || now >= b - 0.02) {
+          seekLooperTo(a);
+          if (playing && now >= b - 0.02) playLooperInternal();
+        }
+      }
+    }
+
+    function syncLooperTimeUi() {
+      const duration = Math.max(0, looperDuration || getLooperDuration());
+      const current = Math.max(0, getLooperCurrentTime());
+      const safeCurrent = duration > 0 ? Math.min(current, duration) : current;
+      const seek = document.getElementById('tool-looper-seek');
+      const currentLabel = document.getElementById('tool-looper-time-current');
+      const durationLabel = document.getElementById('tool-looper-time-duration');
+      if (seek) {
+        seek.max = String(duration > 0 ? duration : 100);
+        seek.value = String(duration > 0 ? safeCurrent : 0);
+      }
+      if (currentLabel) currentLabel.innerText = formatLooperTime(safeCurrent);
+      if (durationLabel) durationLabel.innerText = formatLooperTime(duration);
+    }
+
+    function syncLooperBoundaryUi() {
+      const duration = Math.max(0, looperDuration || getLooperDuration());
+      const maxValue = duration > 0 ? duration : 0;
+      looperPointA = Math.max(0, Math.min(looperPointA, maxValue));
+      const fallbackB = maxValue || 0;
+      const rawB = looperPointB > 0 ? looperPointB : fallbackB;
+      looperPointB = Math.max(looperPointA + (maxValue > 0 ? 0.2 : 0), Math.min(rawB, maxValue || rawB));
+      if (duration > 0 && looperPointB > duration) looperPointB = duration;
+      const aSlider = document.getElementById('tool-looper-a-slider');
+      const bSlider = document.getElementById('tool-looper-b-slider');
+      const aLabel = document.getElementById('tool-looper-a-label');
+      const bLabel = document.getElementById('tool-looper-b-label');
+      if (aSlider) {
+        aSlider.max = String(maxValue);
+        aSlider.value = String(Math.min(looperPointA, maxValue));
+      }
+      if (bSlider) {
+        bSlider.max = String(maxValue);
+        bSlider.value = String(Math.min(Math.max(looperPointB, looperPointA), maxValue));
+      }
+      if (aLabel) aLabel.innerText = `A ${formatLooperTime(looperPointA)}`;
+      if (bLabel) bLabel.innerText = `B ${formatLooperTime(looperPointB)}`;
+    }
+
+    function refreshLooperUi() {
+      syncLooperTimeUi();
+      syncLooperBoundaryUi();
+      const repeat = document.getElementById('tool-looper-repeat-enabled');
+      const ab = document.getElementById('tool-looper-ab-enabled');
+      if (repeat) repeat.checked = !!looperRepeatEnabled;
+      if (ab) ab.checked = !!looperABEnabled;
+      enforceLooperBounds();
+    }
+
+    function startLooperSyncTimer() {
+      stopLooperSyncTimer();
+      looperSyncTimer = setInterval(() => {
+        refreshLooperUi();
+        if (activeLooperHistoryId && isLooperPlaying()) scheduleLooperHistorySave(1200);
+      }, 120);
+      refreshLooperUi();
+    }
+
+    function destroyLooperYoutubePlayer() {
+      if (!looperYoutubePlayer) return;
+      try { looperYoutubePlayer.destroy(); } catch {}
+      looperYoutubePlayer = null;
+      const holder = document.getElementById('tool-looper-youtube-player');
+      if (holder) holder.innerHTML = '';
+    }
+
+    function stopLooperPlayback() {
+      if (activeLooperHistoryId) saveActiveLooperStateNow(false).catch(() => {});
+      pauseLooperInternal();
+      const audio = getLooperAudioEl();
+      const video = getLooperVideoEl();
+      if (audio) {
+        audio.pause();
+        audio.removeAttribute('src');
+        audio.load();
+      }
+      if (video) {
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+      }
+      destroyLooperYoutubePlayer();
+      stopLooperSyncTimer();
+      resetLooperObjectUrl();
+      looperMode = 'none';
+      looperDuration = 0;
+      looperPointA = 0;
+      looperPointB = 0;
+      looperActiveSource = null;
+      hideAllLooperPlayers();
+      document.getElementById('tool-looper-empty')?.classList.remove('hidden');
+      refreshLooperUi();
+    }
+
+    function activateLooperMode(mode = 'none') {
+      looperMode = mode;
+      hideAllLooperPlayers();
+      if (mode === 'audio') document.getElementById('tool-looper-audio')?.classList.remove('hidden');
+      else if (mode === 'video') document.getElementById('tool-looper-video')?.classList.remove('hidden');
+      else if (mode === 'youtube') document.getElementById('tool-looper-youtube-wrap')?.classList.remove('hidden');
+      else document.getElementById('tool-looper-empty')?.classList.remove('hidden');
+    }
+
+    function handleLooperMediaLoaded() {
+      looperDuration = Math.max(0, getLooperDuration());
+      if (!Number.isFinite(looperPointA)) looperPointA = 0;
+      if (!Number.isFinite(looperPointB) || looperPointB <= 0) looperPointB = looperDuration;
+      refreshLooperUi();
+      startLooperSyncTimer();
+      scheduleLooperHistorySave(120);
+    }
+
+    function handleLooperMediaEnded() {
+      if (looperABEnabled) {
+        seekLooperTo(looperPointA);
+        playLooperInternal();
+        return;
+      }
+      if (looperRepeatEnabled) {
+        seekLooperTo(0);
+        playLooperInternal();
+      }
+    }
+
+    async function ensureYouTubeIframeApi() {
+      if (window.YT?.Player) return;
+      if (window.__gtYouTubeApiPromise) {
+        await window.__gtYouTubeApiPromise;
+        return;
+      }
+      window.__gtYouTubeApiPromise = new Promise((resolve, reject) => {
+        const prev = window.onYouTubeIframeAPIReady;
+        window.onYouTubeIframeAPIReady = () => {
+          try { if (typeof prev === 'function') prev(); } catch {}
+          resolve();
+        };
+        const script = document.createElement('script');
+        script.src = 'https://www.youtube.com/iframe_api';
+        script.async = true;
+        script.onerror = () => reject(new Error('YouTube API load failed'));
+        document.head.appendChild(script);
+      });
+      await window.__gtYouTubeApiPromise;
+    }
+
+    async function loadLooperYouTubeByUrl(url = '', options = {}) {
+      const { fromHistoryEntry = null } = options || {};
+      const videoId = getYouTubeVideoId(url);
+      if (!videoId) {
+        showToast('Enter a valid YouTube link.');
+        return;
+      }
+      resetLooperObjectUrl();
+      const audio = getLooperAudioEl();
+      const video = getLooperVideoEl();
+      if (audio) {
+        audio.pause();
+        audio.removeAttribute('src');
+        audio.load();
+      }
+      if (video) {
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+      }
+      try {
+        await ensureYouTubeIframeApi();
+        destroyLooperYoutubePlayer();
+        activateLooperMode('youtube');
+        const sourceTitle = fromHistoryEntry?.title || `YouTube • ${videoId}`;
+        looperActiveSource = {
+          sourceType: 'youtube',
+          mediaType: 'video',
+          youtubeUrl: normalizeYouTubeUrl(url),
+          title: sourceTitle
+        };
+        looperPendingUploadFile = null;
+        if (!fromHistoryEntry) activeLooperHistoryId = '';
+        looperDuration = Number(fromHistoryEntry?.duration || 0) || 0;
+        looperPointA = Number(fromHistoryEntry?.pointA || 0) || 0;
+        looperPointB = Number(fromHistoryEntry?.pointB || 0) || 0;
+        looperRepeatEnabled = !!fromHistoryEntry?.repeatEnabled;
+        looperABEnabled = !!fromHistoryEntry?.abEnabled;
+        looperYoutubePlayer = new window.YT.Player('tool-looper-youtube-player', {
+          videoId,
+          playerVars: {
+            playsinline: 1,
+            rel: 0,
+            modestbranding: 1
+          },
+          events: {
+            onReady: async () => {
+              looperDuration = Math.max(0, getLooperDuration());
+              if (!looperPointB || looperPointB <= 0) looperPointB = looperDuration;
+              const resumeAt = Math.max(0, Math.min(Number(fromHistoryEntry?.lastPosition || 0), looperDuration || Infinity));
+              if (resumeAt > 0) seekLooperTo(resumeAt);
+              if (!fromHistoryEntry) {
+                activeLooperHistoryId = await createLooperHistoryEntry({
+                  title: sourceTitle,
+                  sourceType: 'youtube',
+                  mediaType: 'video',
+                  youtubeUrl: normalizeYouTubeUrl(url),
+                  duration: looperDuration
+                });
+              } else {
+                activeLooperHistoryId = fromHistoryEntry.id || '';
+                scheduleLooperHistorySave(120);
+              }
+              refreshLooperUi();
+              startLooperSyncTimer();
+            },
+            onStateChange: (event) => {
+              if (window.YT?.PlayerState && event.data === window.YT.PlayerState.ENDED) handleLooperMediaEnded();
+              if (window.YT?.PlayerState && event.data === window.YT.PlayerState.PAUSED) scheduleLooperHistorySave(120);
+            }
+          }
+        });
+      } catch (err) {
+        console.error(err);
+        showToast('Could not load YouTube player.');
+      }
+    }
+
     async function initApp() {
       showLoading(true, "Initializing...");
       try {
         app = initializeApp(firebaseConfig);
         auth = getAuth(app);
         db = getFirestore(app);
+        storage = getStorage(app);
         repository = new FirestoreRepository(db);
 
         const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
@@ -898,7 +1486,9 @@ Drop back to 70 BPM for clean finish.`,
             await loadTrainingArticles();
             await loadChordLibraryData();
             await loadToolRecordings();
+            await loadLooperHistory();
             renderToolRecordings();
+            renderLooperHistory();
             renderChordExplorer();
             renderToolSongsSearch();
             renderProfileSummary();
@@ -908,6 +1498,8 @@ Drop back to 70 BPM for clean finish.`,
           } else {
             user = null;
             updateUserHeaderState();
+            looperHistory = [];
+            renderLooperHistory();
             try {
               await signInAnonymously(auth);
             } catch (e) {
@@ -982,6 +1574,53 @@ Drop back to 70 BPM for clean finish.`,
         console.error("Failed to load tool recordings", e);
         toolRecordings = [];
       }
+    }
+
+    async function loadLooperHistory() {
+      if (!user) {
+        looperHistory = [];
+        return;
+      }
+      try {
+        looperHistory = await repository.loadLooperHistory(user.uid);
+      } catch (e) {
+        console.error("Failed to load looper history", e);
+        looperHistory = [];
+      }
+    }
+
+    function getLooperHistoryTypeLabel(item = {}) {
+      if (item.sourceType === 'youtube') return 'YouTube';
+      if (item.mediaType === 'video') return 'Video';
+      return 'Audio';
+    }
+
+    function renderLooperHistory() {
+      const list = document.getElementById('tool-looper-history-list');
+      if (!list) return;
+      if (!looperHistory.length) {
+        list.innerHTML = `<div class="bg-black/30 border border-gray-800 rounded-xl px-3 py-2 text-sm text-gray-500">No looper history yet.</div>`;
+        return;
+      }
+      list.innerHTML = looperHistory.map(item => `
+        <div class="bg-black/30 border ${item.id === activeLooperHistoryId ? 'border-primary/60' : 'border-gray-800'} rounded-xl px-3 py-3">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <p class="font-semibold text-sm text-white truncate">${escapeHtml(item.title || 'Untitled media')}</p>
+              <p class="text-[11px] text-gray-500 mt-1">${getLooperHistoryTypeLabel(item)} • ${item.updatedAt ? new Date(item.updatedAt).toLocaleString() : 'Saved'}</p>
+              <p class="text-[11px] text-gray-500 mt-1">A ${formatLooperTime(item.pointA || 0)} | B ${formatLooperTime(item.pointB || 0)} | Last ${formatLooperTime(item.lastPosition || 0)}</p>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+              <button onclick="openLooperHistoryItem('${item.id}')" class="w-8 h-8 rounded-full btn-soft btn-press" title="Open">
+                <i class="fas fa-play text-xs"></i>
+              </button>
+              <button onclick="deleteLooperHistoryItem('${item.id}')" class="w-8 h-8 rounded-full btn-soft btn-press" title="Delete">
+                <i class="fas fa-trash text-xs"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      `).join('');
     }
 
     function renderToolRecordings() {
@@ -1197,10 +1836,273 @@ Drop back to 70 BPM for clean finish.`,
       }
     };
 
+    async function attachLooperMediaSource(sourceUrl, mediaType = 'audio', options = {}) {
+      const { fromHistoryEntry = null } = options || {};
+      const isVideo = mediaType === 'video';
+      const target = isVideo ? getLooperVideoEl() : getLooperAudioEl();
+      const other = isVideo ? getLooperAudioEl() : getLooperVideoEl();
+      if (other) {
+        other.pause();
+        other.removeAttribute('src');
+        other.load();
+      }
+      if (!target) return;
+      target.pause();
+      target.src = sourceUrl;
+      target.loop = false;
+      activateLooperMode(isVideo ? 'video' : 'audio');
+      looperDuration = Number(fromHistoryEntry?.duration || 0) || 0;
+      looperPointA = Number(fromHistoryEntry?.pointA || 0) || 0;
+      looperPointB = Number(fromHistoryEntry?.pointB || 0) || 0;
+      looperRepeatEnabled = !!fromHistoryEntry?.repeatEnabled;
+      looperABEnabled = !!fromHistoryEntry?.abEnabled;
+      target.onloadedmetadata = () => {
+        handleLooperMediaLoaded();
+        const resumeAt = Math.max(0, Math.min(Number(fromHistoryEntry?.lastPosition || 0), looperDuration || Infinity));
+        if (resumeAt > 0) seekLooperTo(resumeAt);
+      };
+      target.onended = () => {
+        handleLooperMediaEnded();
+      };
+      target.ontimeupdate = () => {
+        refreshLooperUi();
+        scheduleLooperHistorySave();
+      };
+      target.onpause = () => {
+        scheduleLooperHistorySave(120);
+      };
+      target.load();
+    }
+
+    async function saveActiveLooperStateNow(showFeedback = true) {
+      if (!hasActiveLooperTrack()) {
+        if (showFeedback) showToast('Load track first.');
+        return;
+      }
+      if (!user || user.isAnonymous) {
+        if (showFeedback) showToast('Sign in to save looper history.');
+        return;
+      }
+      if (!activeLooperHistoryId) {
+        const ensuredId = await ensureActiveLooperHistoryEntry();
+        if (!ensuredId) {
+          if (showFeedback) showToast('Could not save history right now.');
+          return;
+        }
+      }
+      await upsertActiveLooperHistoryState(false);
+      if (showFeedback) showToast('Looper state saved.', true);
+    }
+
+    window.saveActiveLooperStateNow = saveActiveLooperStateNow;
+
+    window.handleLooperFileSelected = async function(event) {
+      const file = event?.target?.files?.[0];
+      if (!file) return;
+      if (file.size > LOOPER_MAX_UPLOAD_BYTES) {
+        showToast(`File too large. Max ${formatBytes(LOOPER_MAX_UPLOAD_BYTES)}.`);
+        event.target.value = '';
+        return;
+      }
+      destroyLooperYoutubePlayer();
+      resetLooperObjectUrl();
+      looperObjectUrl = URL.createObjectURL(file);
+      const isVideo = String(file.type || '').startsWith('video/');
+      activeLooperHistoryId = '';
+      looperPendingUploadFile = file;
+      looperActiveSource = {
+        sourceType: 'upload',
+        mediaType: isVideo ? 'video' : 'audio',
+        title: sanitizeLooperTitle(file.name, isVideo ? 'Uploaded Video' : 'Uploaded Audio')
+      };
+      await attachLooperMediaSource(looperObjectUrl, looperActiveSource.mediaType);
+      const youtubeInput = document.getElementById('tool-looper-youtube-url');
+      if (youtubeInput) youtubeInput.value = '';
+      try {
+        const uploaded = await uploadLooperFileToStorage(file);
+        looperActiveSource = {
+          ...looperActiveSource,
+          storagePath: uploaded.path,
+          downloadUrl: uploaded.url
+        };
+        looperPendingUploadFile = null;
+        activeLooperHistoryId = await createLooperHistoryEntry({
+          title: looperActiveSource.title,
+          sourceType: 'upload',
+          mediaType: looperActiveSource.mediaType,
+          downloadUrl: uploaded.url,
+          storagePath: uploaded.path,
+          sizeBytes: file.size,
+          duration: looperDuration
+        });
+        scheduleLooperHistorySave(120);
+      } catch (e) {
+        console.error('Upload looper media failed', e);
+        showToast('Loaded locally, but cloud save failed.');
+      }
+      showToast(`Loaded ${isVideo ? 'video' : 'audio'} file.`, true);
+    };
+
+    window.loadLooperYouTube = async function() {
+      const input = document.getElementById('tool-looper-youtube-url');
+      const value = input?.value?.trim() || '';
+      if (!value) {
+        showToast('Paste a YouTube link first.');
+        return;
+      }
+      const fileInput = document.getElementById('tool-looper-file');
+      if (fileInput) fileInput.value = '';
+      await loadLooperYouTubeByUrl(value);
+    };
+
+    window.openLooperHistoryItem = async function(itemId) {
+      const item = looperHistory.find(entry => entry.id === itemId);
+      if (!item) return;
+      activeLooperHistoryId = item.id;
+      looperPendingUploadFile = null;
+      if (item.sourceType === 'youtube' && item.youtubeUrl) {
+        await loadLooperYouTubeByUrl(item.youtubeUrl, { fromHistoryEntry: item });
+      } else if (item.downloadUrl) {
+        destroyLooperYoutubePlayer();
+        resetLooperObjectUrl();
+        looperActiveSource = {
+          sourceType: 'upload',
+          mediaType: item.mediaType === 'video' ? 'video' : 'audio',
+          title: sanitizeLooperTitle(item.title),
+          storagePath: item.storagePath || '',
+          downloadUrl: item.downloadUrl || ''
+        };
+        await attachLooperMediaSource(item.downloadUrl, looperActiveSource.mediaType, { fromHistoryEntry: item });
+      } else {
+        showToast('This history item has no playable source.');
+      }
+      renderLooperHistory();
+    };
+
+    window.deleteLooperHistoryItem = async function(itemId) {
+      const item = looperHistory.find(entry => entry.id === itemId);
+      if (!item || !user) return;
+      try {
+        if (item.storagePath && storage) {
+          try {
+            await deleteObject(storageRef(storage, item.storagePath));
+          } catch (innerErr) {
+            console.error('Delete storage file failed', innerErr);
+          }
+        }
+        await repository.deleteLooperHistory(user.uid, itemId);
+        looperHistory = looperHistory.filter(entry => entry.id !== itemId);
+        if (activeLooperHistoryId === itemId) activeLooperHistoryId = '';
+        renderLooperHistory();
+        showToast('History item removed.', true);
+      } catch (e) {
+        console.error('Delete looper history failed', e);
+        showToast('Could not delete history item.');
+      }
+    };
+
+    window.toggleLooperPlay = function() {
+      if (looperMode === 'none') {
+        showToast('Load media first.');
+        return;
+      }
+      if (isLooperPlaying()) pauseLooperInternal();
+      else {
+        enforceLooperBounds();
+        playLooperInternal();
+      }
+      scheduleLooperHistorySave();
+      startLooperSyncTimer();
+    };
+
+    window.seekLooperBy = function(delta = 0) {
+      if (looperMode === 'none') return;
+      const duration = looperDuration || getLooperDuration();
+      const next = Math.max(0, Math.min(getLooperCurrentTime() + (Number(delta) || 0), duration || Infinity));
+      seekLooperTo(next);
+      refreshLooperUi();
+      scheduleLooperHistorySave();
+    };
+
+    window.resetLooperPosition = function() {
+      if (looperMode === 'none') return;
+      const target = looperABEnabled ? looperPointA : 0;
+      seekLooperTo(target);
+      refreshLooperUi();
+      scheduleLooperHistorySave();
+    };
+
+    window.onLooperSeekInput = function(value) {
+      if (looperMode === 'none') return;
+      seekLooperTo(Number(value) || 0);
+      refreshLooperUi();
+      scheduleLooperHistorySave();
+    };
+
+    window.toggleLooperRepeat = function(enabled) {
+      looperRepeatEnabled = !!enabled;
+      scheduleLooperHistorySave();
+    };
+
+    window.toggleLooperABLoop = function(enabled) {
+      looperABEnabled = !!enabled;
+      if (looperABEnabled && looperPointB <= looperPointA) {
+        const duration = looperDuration || getLooperDuration();
+        looperPointB = duration || (looperPointA + 0.5);
+      }
+      enforceLooperBounds();
+      refreshLooperUi();
+      scheduleLooperHistorySave();
+    };
+
+    window.onLooperBoundaryInput = function(which, value) {
+      const duration = looperDuration || getLooperDuration();
+      const current = Math.max(0, Math.min(Number(value) || 0, duration || Infinity));
+      if (which === 'a') {
+        looperPointA = current;
+        if (looperPointB < looperPointA + 0.2) looperPointB = Math.min(duration || looperPointA + 0.2, looperPointA + 0.2);
+      } else {
+        looperPointB = current;
+        if (looperPointB < looperPointA + 0.2) looperPointA = Math.max(0, looperPointB - 0.2);
+      }
+      refreshLooperUi();
+      scheduleLooperHistorySave();
+    };
+
+    window.setLooperBoundaryFromCurrent = function(which) {
+      if (looperMode === 'none') return;
+      const now = getLooperCurrentTime();
+      if (which === 'a') looperPointA = now;
+      else looperPointB = now;
+      if (looperPointB < looperPointA + 0.2) {
+        if (which === 'a') looperPointB = looperPointA + 0.2;
+        else looperPointA = Math.max(0, looperPointB - 0.2);
+      }
+      refreshLooperUi();
+      scheduleLooperHistorySave();
+    };
+
+    function initLooperUi() {
+      looperRepeatEnabled = false;
+      looperABEnabled = false;
+      looperPointA = 0;
+      looperPointB = 0;
+      activeLooperHistoryId = '';
+      looperActiveSource = null;
+      looperPendingUploadFile = null;
+      const repeat = document.getElementById('tool-looper-repeat-enabled');
+      const ab = document.getElementById('tool-looper-ab-enabled');
+      if (repeat) repeat.checked = false;
+      if (ab) ab.checked = false;
+      updateLooperMaxUploadLabel();
+      renderLooperHistory();
+      refreshLooperUi();
+    };
+
     window.openToolPage = function(tool, options = {}) {
       const { skipUrl = false, replaceUrl = false } = options || {};
       activeToolPage = tool;
-      const pages = ['metronome', 'recorder', 'chords', 'chord-builder', 'songs', 'ai-song'];
+      const pages = ['metronome', 'recorder', 'chords', 'chord-builder', 'songs', 'looper', 'ai-song'];
       document.getElementById('tools-home-panel')?.classList.add('hidden');
       pages.forEach(page => {
         document.getElementById(`tool-page-${page}`)?.classList.toggle('hidden', page !== tool);
@@ -1215,12 +2117,18 @@ Drop back to 70 BPM for clean finish.`,
             ? 'Add new chords to the database.'
             : tool === 'songs'
               ? 'Find a song quickly.'
+              : tool === 'looper'
+                ? 'Loop full track or A-B sections.'
               : tool === 'ai-song'
                 ? 'Generate a full song draft with Gemini.'
                 : 'Browse and hear the chord library.';
       if (tool === 'chord-builder') updateChordBuilderPreview();
       if (tool === 'chords') renderChordExplorer();
       if (tool === 'songs') renderToolSongsSearch(document.getElementById('tool-song-search')?.value || '');
+      if (tool === 'looper') {
+        refreshLooperUi();
+        renderLooperHistory();
+      }
       if (tool === 'ai-song') {
         const keyInput = document.getElementById('ai-gemini-key');
         if (keyInput) keyInput.value = localStorage.getItem(GEMINI_API_KEY_STORAGE_KEY) || '';
@@ -1234,7 +2142,7 @@ Drop back to 70 BPM for clean finish.`,
       const { skipUrl = false, replaceUrl = false } = options || {};
       activeToolPage = 'home';
       document.getElementById('tools-home-panel')?.classList.remove('hidden');
-      ['metronome', 'recorder', 'chords', 'chord-builder', 'songs', 'ai-song'].forEach(page => {
+      ['metronome', 'recorder', 'chords', 'chord-builder', 'songs', 'looper', 'ai-song'].forEach(page => {
         document.getElementById(`tool-page-${page}`)?.classList.add('hidden');
       });
       document.getElementById('tools-back-btn')?.classList.add('hidden');
@@ -2697,7 +3605,7 @@ Rules:
         if (parts[0] === 'tools') {
           navigate('tools', { skipUrl: true });
           const tool = decodeURIComponent(parts[1] || '');
-          const allowed = new Set(['metronome', 'recorder', 'chords', 'chord-builder', 'songs', 'ai-song']);
+          const allowed = new Set(['metronome', 'recorder', 'chords', 'chord-builder', 'songs', 'looper', 'ai-song']);
           if (tool && allowed.has(tool)) openToolPage(tool, { skipUrl: true });
           else showToolsHome({ skipUrl: true });
           return;
@@ -4220,10 +5128,24 @@ Rules:
       `;
     }
 
+    function getActiveTuningPreset() {
+      return TUNING_PRESETS.find(item => item.id === activeTunerPresetId) || TUNING_PRESETS[0];
+    }
+
+    function getActiveTuningStrings() {
+      return getActiveTuningPreset().strings || [];
+    }
+
+    function populateTunerPresetOptions() {
+      const select = document.getElementById('tuner-preset');
+      if (!select) return;
+      select.innerHTML = TUNING_PRESETS.map(item => `<option value="${item.id}" ${item.id === activeTunerPresetId ? 'selected' : ''}>${item.label}</option>`).join('');
+    }
+
     function renderTuningReference(activeNote = '') {
       const container = document.getElementById('tuner-reference-list');
       if (!container) return;
-      container.innerHTML = STANDARD_TUNING.map(item => `
+      container.innerHTML = getActiveTuningStrings().map(item => `
         <div class="tuning-chip ${activeNote === item.note ? 'active' : ''}">
           <p class="text-primary font-bold">${item.note}</p>
           <p class="text-gray-500 mt-1">${item.freq.toFixed(2)}</p>
@@ -4261,11 +5183,12 @@ Rules:
     }
 
     function closestString(freq) {
-      return STANDARD_TUNING.reduce((best, current) => Math.abs(current.freq - freq) < Math.abs(best.freq - freq) ? current : best);
+      const strings = getActiveTuningStrings();
+      return strings.reduce((best, current) => Math.abs(current.freq - freq) < Math.abs(best.freq - freq) ? current : best);
     }
 
     function getTuningByNote(note = '') {
-      return STANDARD_TUNING.find(item => item.note === note) || null;
+      return getActiveTuningStrings().find(item => item.note === note) || null;
     }
 
     function getTuneStepValue(cents = 0) {
@@ -4293,8 +5216,9 @@ Rules:
       if (!Number.isFinite(freq) || freq <= 0) return freq;
       let bestFreq = freq;
       let bestDistance = Infinity;
+      const strings = getActiveTuningStrings();
       [freq, freq * 0.5, freq * 2].forEach(candidate => {
-        STANDARD_TUNING.forEach(item => {
+        strings.forEach(item => {
           const distance = Math.abs(1200 * Math.log2(candidate / item.freq));
           if (distance < bestDistance) {
             bestDistance = distance;
@@ -4304,6 +5228,16 @@ Rules:
       });
       return bestFreq;
     }
+
+    window.changeTunerPreset = function(presetId) {
+      if (!TUNING_PRESETS.some(item => item.id === presetId)) return;
+      activeTunerPresetId = presetId;
+      resetTunerStabilityState();
+      const noteEl = document.getElementById('tuner-note');
+      if (noteEl) noteEl.innerText = '--';
+      renderTunerMeter(0);
+      renderTuningReference('');
+    };
 
     function resetTunerStabilityState() {
       tunerSmoothedFreq = 0;
@@ -4476,11 +5410,13 @@ Rules:
       populateCapoOptions();
       renderBottomTabs();
       applyUserSettings(DEFAULT_SETTINGS);
+      populateTunerPresetOptions();
       renderTunerMeter(0);
       renderTuningReference('');
       renderToolRecordings();
       setToolRecordingVizIdle();
       renderChordExplorer();
+      initLooperUi();
       renderToolSongsSearch();
       renderBuildInfo();
       showToolsHome({ skipUrl: true });
@@ -4490,6 +5426,7 @@ Rules:
       renderStandaloneMetronomeVisual();
       document.addEventListener('visibilitychange', () => {
         if (document.hidden) {
+          if (activeLooperHistoryId) saveActiveLooperStateNow(false).catch(() => {});
           stopTuner();
           stopStandaloneMetronome();
           if (toolRecorder && toolRecorder.state === 'recording') toolRecorder.stop();
@@ -4513,6 +5450,9 @@ Rules:
       });
       window.addEventListener('popstate', () => {
         applyRouteFromLocation({ replaceUnknown: true }).catch(err => console.error('Popstate route failed', err));
+      });
+      window.addEventListener('beforeunload', () => {
+        stopLooperPlayback();
       });
       initApp();
     };

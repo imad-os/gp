@@ -170,6 +170,86 @@
       color: #ffffff;
     }
     .page-shell { width: 100%; max-width: 72rem; margin: 0 auto; }
+    .looper-mode-group { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }
+    .looper-mode-btn {
+      border-radius: 0.8rem;
+      border: 1px solid #3a3a3a;
+      background: rgba(0, 0, 0, 0.28);
+      color: #d1d5db;
+      padding: 0.6rem 0.75rem;
+      font-size: 0.86rem;
+      font-weight: 700;
+      transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .looper-mode-btn.active {
+      border-color: rgba(187, 134, 252, 0.9);
+      background: rgba(187, 134, 252, 0.2);
+      color: #f5e9ff;
+      box-shadow: 0 0 0 1px rgba(187, 134, 252, 0.22), 0 8px 18px rgba(0, 0, 0, 0.2);
+    }
+    .looper-dual-wrap { position: relative; height: 2.1rem; }
+    .looper-dual-wrap .dual-track {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      height: 0.42rem;
+      border-radius: 999px;
+      background: #2e2e2e;
+    }
+    .looper-dual-wrap .dual-fill {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      height: 0.42rem;
+      border-radius: 999px;
+      background: linear-gradient(90deg, rgba(3,218,198,0.9), rgba(187,134,252,0.95));
+    }
+    .looper-dual-wrap input[type="range"] {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      background: transparent;
+      appearance: none;
+      -webkit-appearance: none;
+      pointer-events: none;
+    }
+    .looper-dual-wrap input[type="range"]::-webkit-slider-runnable-track {
+      height: 0.42rem;
+      background: transparent;
+      border: none;
+    }
+    .looper-dual-wrap input[type="range"]::-moz-range-track {
+      height: 0.42rem;
+      background: transparent;
+      border: none;
+    }
+    .looper-dual-wrap input[type="range"]::-webkit-slider-thumb {
+      appearance: none;
+      -webkit-appearance: none;
+      width: 1.05rem;
+      height: 1.05rem;
+      border-radius: 999px;
+      border: 2px solid #121212;
+      pointer-events: auto;
+      cursor: pointer;
+      margin-top: -5px;
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.12), 0 6px 12px rgba(0,0,0,0.35);
+    }
+    .looper-dual-wrap input[type="range"]::-moz-range-thumb {
+      width: 1.05rem;
+      height: 1.05rem;
+      border-radius: 999px;
+      border: 2px solid #121212;
+      pointer-events: auto;
+      cursor: pointer;
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.12), 0 6px 12px rgba(0,0,0,0.35);
+    }
+    .looper-dual-wrap .range-a::-webkit-slider-thumb { background: #03dac6; }
+    .looper-dual-wrap .range-a::-moz-range-thumb { background: #03dac6; }
+    .looper-dual-wrap .range-b::-webkit-slider-thumb { background: #bb86fc; }
+    .looper-dual-wrap .range-b::-moz-range-thumb { background: #bb86fc; }
   </style>
 </head>
 <body>
@@ -465,7 +545,10 @@
     <main class="flex-1 overflow-hidden p-3 pb-24 scroll-area bg-black/20">
       <div class="page-shell h-full flex flex-col gap-3">
         <div class="bg-surface rounded-2xl p-4 border border-gray-800 text-center shrink-0">
-          <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-2">Tuning Offset</p>
+          <div class="flex items-start justify-between gap-2 mb-2">
+            <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 text-left">Tuning Offset</p>
+            <select id="tuner-preset" onchange="changeTunerPreset(this.value)" class="w-auto min-w-[170px] max-w-[200px] bg-black/30 border border-gray-700 rounded-lg px-2 py-1.5 text-[11px] text-white focus:border-primary focus:outline-none"></select>
+          </div>
           <p id="tuner-note" class="text-5xl sm:text-6xl font-black text-primary">--</p>
           <label class="mt-3 inline-flex items-center gap-2 text-xs text-gray-300 cursor-pointer select-none">
             <input id="tuner-use-system-audio" type="checkbox" class="accent-[#bb86fc]">
@@ -531,6 +614,11 @@
             <span class="tool-nav-icon"><i class="fas fa-magnifying-glass text-lg"></i></span>
             <div class="font-bold text-lg mb-1">Songs</div>
             <p class="text-sm text-gray-400">Search songs quickly and jump straight into the song page.</p>
+          </button>
+          <button onclick="openToolPage('looper')" class="tool-nav-card btn-press">
+            <span class="tool-nav-icon"><i class="fas fa-repeat text-lg"></i></span>
+            <div class="font-bold text-lg mb-1">Looper</div>
+            <p class="text-sm text-gray-400">Upload media or load YouTube, then loop full track or A-B sections.</p>
           </button>
           <button onclick="openToolPage('ai-song')" class="tool-nav-card btn-press sm:col-span-2">
             <span class="tool-nav-icon"><i class="fas fa-wand-magic-sparkles text-lg"></i></span>
@@ -672,6 +760,88 @@
             <button type="submit" class="w-11 h-11 rounded-xl btn-soft btn-press"><i class="fas fa-search"></i></button>
           </form>
           <div id="tool-songs-results" class="space-y-3"></div>
+        </div>
+
+        <div id="tool-page-looper" class="hidden bg-surface rounded-2xl p-5 border border-gray-800">
+          <div class="flex items-center justify-between gap-3 mb-3">
+            <div>
+              <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-1">Tool</p>
+              <h2 class="font-bold text-lg">Looper</h2>
+              <p class="text-sm text-gray-400">Train songs by looping full track or custom A-B section.</p>
+            </div>
+          </div>
+          <div class="space-y-3 mb-4">
+            <label class="block">
+              <span class="text-xs text-gray-400 block mb-1">Upload audio or video</span>
+              <input id="tool-looper-file" type="file" accept="audio/*,video/*" onchange="handleLooperFileSelected(event)" class="w-full text-sm bg-black/30 border border-gray-800 rounded-xl px-3 py-2.5">
+            </label>
+            <p class="text-[11px] text-gray-500">Uploads larger than <span id="tool-looper-max-size-label">25 MB</span> are blocked to keep history fast and stable.</p>
+            <div class="grid sm:grid-cols-[1fr_auto] gap-2">
+              <input id="tool-looper-youtube-url" type="url" placeholder="YouTube link" class="w-full bg-black/30 border border-gray-800 rounded-xl px-4 py-3 outline-none text-white">
+              <button onclick="loadLooperYouTube()" class="bg-primary text-black font-bold py-3 px-5 rounded-xl btn-press">Load YouTube</button>
+            </div>
+          </div>
+
+          <div class="bg-black/30 border border-gray-800 rounded-xl p-3 mb-4">
+            <audio id="tool-looper-audio" class="w-full hidden" controls playsinline></audio>
+            <video id="tool-looper-video" class="w-full hidden rounded-lg bg-black" controls playsinline webkit-playsinline></video>
+            <div id="tool-looper-youtube-wrap" class="hidden">
+              <div id="tool-looper-youtube-player" class="w-full rounded-lg overflow-hidden bg-black aspect-video"></div>
+            </div>
+            <div id="tool-looper-empty" class="text-sm text-gray-500 py-8 text-center">
+              Choose a file or load a YouTube link to start.
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+            <button onclick="toggleLooperPlay()" class="btn-soft rounded-xl py-2.5 btn-press"><i class="fas fa-play mr-1"></i>Play/Pause</button>
+            <button onclick="seekLooperBy(-5)" class="btn-soft rounded-xl py-2.5 btn-press"><i class="fas fa-rotate-left mr-1"></i>-5s</button>
+            <button onclick="seekLooperBy(5)" class="btn-soft rounded-xl py-2.5 btn-press"><i class="fas fa-rotate-right mr-1"></i>+5s</button>
+            <button onclick="resetLooperPosition()" class="btn-soft rounded-xl py-2.5 btn-press"><i class="fas fa-backward-step mr-1"></i>Start</button>
+          </div>
+
+          <div class="mb-4">
+            <div class="flex justify-between text-xs text-gray-400 mb-1">
+              <span id="tool-looper-time-current">0:00</span>
+              <span id="tool-looper-time-duration">0:00</span>
+            </div>
+            <input id="tool-looper-seek" type="range" min="0" max="100" step="0.1" value="0" oninput="onLooperSeekInput(this.value)" class="w-full accent-[#bb86fc]">
+          </div>
+
+          <div class="mb-4">
+            <p class="text-xs uppercase tracking-[0.2em] text-gray-500 mb-2">Loop Mode</p>
+            <div class="looper-mode-group">
+              <button id="tool-looper-mode-full" onclick="toggleLooperFullTrack()" class="looper-mode-btn btn-press" type="button">Repeat Full Track</button>
+              <button id="tool-looper-mode-ab" onclick="toggleLooperABMode()" class="looper-mode-btn btn-press" type="button">Repeat A-B Section</button>
+            </div>
+          </div>
+
+          <div class="bg-black/30 border border-gray-800 rounded-xl p-3">
+            <div class="flex items-center justify-between mb-2">
+              <p class="text-xs uppercase tracking-[0.2em] text-gray-500">A-B Loop</p>
+              <p class="text-xs text-gray-400"><span id="tool-looper-a-label">A 0:00</span> | <span id="tool-looper-b-label">B 0:00</span></p>
+            </div>
+            <div class="looper-dual-wrap mb-3">
+              <div class="dual-track"></div>
+              <div id="tool-looper-ab-fill" class="dual-fill" style="left:0%; right:0%;"></div>
+              <input id="tool-looper-ab-range-a" type="range" min="0" max="0" step="0.1" value="0" oninput="onLooperBoundaryInput('a', this.value)" class="range-a">
+              <input id="tool-looper-ab-range-b" type="range" min="0" max="0" step="0.1" value="0" oninput="onLooperBoundaryInput('b', this.value)" class="range-b">
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <button onclick="setLooperBoundaryFromCurrent('a')" class="btn-soft rounded-xl py-2.5 btn-press">Set A from current</button>
+              <button onclick="setLooperBoundaryFromCurrent('b')" class="btn-soft rounded-xl py-2.5 btn-press">Set B from current</button>
+            </div>
+          </div>
+
+          <div class="mt-4">
+            <div class="flex items-center justify-between gap-3 mb-2">
+              <p class="text-xs uppercase tracking-[0.2em] text-gray-500">History</p>
+              <button onclick="saveActiveLooperStateNow()" class="btn-soft rounded-lg px-3 py-1.5 text-xs btn-press">Save Current State</button>
+            </div>
+            <div id="tool-looper-history-list" class="space-y-2">
+              <div class="bg-black/30 border border-gray-800 rounded-xl px-3 py-2 text-sm text-gray-500">No looper history yet.</div>
+            </div>
+          </div>
         </div>
 
         <div id="tool-page-ai-song" class="hidden bg-surface rounded-2xl p-5 border border-gray-800">
