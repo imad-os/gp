@@ -80,6 +80,8 @@ import { FirestoreRepository } from './modules/repository.js';
     let looperPendingDataUrl = '';
     let looperHistoryCreatePromise = null;
     let looperDeletingHistoryId = '';
+    let looperOpeningHistoryId = '';
+    let looperOpeningProgress = 0;
     let currentSongComments = [];
     let currentSongRatings = [];
     let pendingSongRating = 0;
@@ -1690,19 +1692,23 @@ Drop back to 70 BPM for clean finish.`,
         return;
       }
       list.innerHTML = looperHistory.map(item => `
-        <div class="bg-black/30 border ${item.id === activeLooperHistoryId ? 'border-primary/60' : 'border-gray-800'} rounded-xl px-3 py-3 ${looperDeletingHistoryId === item.id ? 'opacity-70' : ''}">
+        <div class="bg-black/30 border ${item.id === activeLooperHistoryId ? 'border-primary/60' : 'border-gray-800'} rounded-xl px-3 py-3 ${(looperDeletingHistoryId === item.id || looperOpeningHistoryId === item.id) ? 'opacity-70' : ''}">
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
               <p class="font-semibold text-sm text-white truncate">${escapeHtml(item.title || 'Untitled media')}</p>
               <p class="text-[11px] text-gray-500 mt-1">${getLooperHistoryTypeLabel(item)} • ${item.updatedAt ? new Date(item.updatedAt).toLocaleString() : 'Saved'}</p>
               <p class="text-[11px] text-gray-500 mt-1">A ${formatLooperTime(item.pointA || 0)} | B ${formatLooperTime(item.pointB || 0)} | Last ${formatLooperTime(item.lastPosition || 0)}</p>
               ${looperDeletingHistoryId === item.id ? `<p class="text-[11px] text-primary mt-1"><i class="fas fa-spinner fa-spin mr-1"></i>Deleting...</p>` : ''}
+              ${looperOpeningHistoryId === item.id ? `
+                <p class="text-[11px] text-primary mt-1"><i class="fas fa-spinner fa-spin mr-1"></i>Loading... ${Math.max(0, Math.min(100, Math.round(looperOpeningProgress)))}%</p>
+                <div class="mt-1.5 h-1.5 rounded-full bg-gray-800 overflow-hidden"><div class="h-full bg-primary transition-all duration-150" style="width:${Math.max(0, Math.min(100, looperOpeningProgress))}%"></div></div>
+              ` : ''}
             </div>
             <div class="flex items-center gap-2 shrink-0">
-              <button onclick="openLooperHistoryItem('${item.id}')" class="w-8 h-8 rounded-full btn-soft btn-press ${looperDeletingHistoryId === item.id ? 'opacity-50 pointer-events-none' : ''}" title="Open">
+              <button onclick="openLooperHistoryItem('${item.id}')" class="w-8 h-8 rounded-full btn-soft btn-press ${(looperDeletingHistoryId === item.id || looperOpeningHistoryId === item.id) ? 'opacity-50 pointer-events-none' : ''}" title="Open">
                 <i class="fas fa-play text-xs"></i>
               </button>
-              <button onclick="deleteLooperHistoryItem('${item.id}')" class="w-8 h-8 rounded-full btn-soft btn-press ${looperDeletingHistoryId === item.id ? 'opacity-50 pointer-events-none' : ''}" title="Delete">
+              <button onclick="deleteLooperHistoryItem('${item.id}')" class="w-8 h-8 rounded-full btn-soft btn-press ${(looperDeletingHistoryId === item.id || looperOpeningHistoryId === item.id) ? 'opacity-50 pointer-events-none' : ''}" title="Delete">
                 <i class="fas fa-trash text-xs"></i>
               </button>
             </div>
@@ -2035,28 +2041,54 @@ Drop back to 70 BPM for clean finish.`,
     window.openLooperHistoryItem = async function(itemId) {
       const item = looperHistory.find(entry => entry.id === itemId);
       if (!item) return;
+      if (looperOpeningHistoryId) return;
+      looperOpeningHistoryId = itemId;
+      looperOpeningProgress = 6;
+      renderLooperHistory();
       activeLooperHistoryId = item.id;
       looperPendingUploadFile = null;
       looperPendingDataUrl = '';
-      if (item.sourceType === 'youtube' && item.youtubeUrl) {
-        await loadLooperYouTubeByUrl(item.youtubeUrl, { fromHistoryEntry: item });
-      } else if (item.sourceType === 'upload') {
-        destroyLooperYoutubePlayer();
-        resetLooperObjectUrl();
-        const mediaDataUrl = await repository.loadLooperMediaData(user.uid, item.id);
-        if (!mediaDataUrl) {
+      try {
+        if (item.sourceType === 'youtube' && item.youtubeUrl) {
+          looperOpeningProgress = 45;
+          renderLooperHistory();
+          await loadLooperYouTubeByUrl(item.youtubeUrl, { fromHistoryEntry: item });
+          looperOpeningProgress = 100;
+        } else if (item.sourceType === 'upload') {
+          destroyLooperYoutubePlayer();
+          resetLooperObjectUrl();
+          looperOpeningProgress = 12;
+          renderLooperHistory();
+          const mediaDataUrl = await repository.loadLooperMediaData(user.uid, item.id, (progress) => {
+            looperOpeningProgress = Math.max(looperOpeningProgress, progress);
+            renderLooperHistory();
+          });
+          if (!mediaDataUrl) {
+            showToast('This history item has no playable source.');
+            return;
+          }
+          looperActiveSource = {
+            sourceType: 'upload',
+            mediaType: item.mediaType === 'video' ? 'video' : 'audio',
+            title: sanitizeLooperTitle(item.title),
+            mediaStored: true
+          };
+          looperOpeningProgress = 97;
+          renderLooperHistory();
+          await attachLooperMediaSource(mediaDataUrl, looperActiveSource.mediaType, { fromHistoryEntry: item });
+          looperOpeningProgress = 100;
+        } else {
           showToast('This history item has no playable source.');
-          return;
         }
-        looperActiveSource = {
-          sourceType: 'upload',
-          mediaType: item.mediaType === 'video' ? 'video' : 'audio',
-          title: sanitizeLooperTitle(item.title),
-          mediaStored: true
-        };
-        await attachLooperMediaSource(mediaDataUrl, looperActiveSource.mediaType, { fromHistoryEntry: item });
-      } else {
-        showToast('This history item has no playable source.');
+      } finally {
+        renderLooperHistory();
+        setTimeout(() => {
+          if (looperOpeningHistoryId === itemId) {
+            looperOpeningHistoryId = '';
+            looperOpeningProgress = 0;
+            renderLooperHistory();
+          }
+        }, 220);
       }
       renderLooperHistory();
     };
@@ -2166,6 +2198,8 @@ Drop back to 70 BPM for clean finish.`,
       looperPendingDataUrl = '';
       looperHistoryCreatePromise = null;
       looperDeletingHistoryId = '';
+      looperOpeningHistoryId = '';
+      looperOpeningProgress = 0;
       updateLooperMaxUploadLabel();
       renderLooperHistory();
       refreshLooperUi();
