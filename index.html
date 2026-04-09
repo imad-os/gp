@@ -3,6 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <meta name="theme-color" content="#121212">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -335,14 +338,23 @@
         <div>
           <div class="flex items-center justify-between gap-3 mb-3">
             <h2 class="text-lg text-gray-200 font-semibold">Favorite Songs</h2>
+            <button id="home-favorites-show-all" onclick="toggleHomeSection('favorites')" class="hidden btn-soft rounded-lg px-3 py-1.5 text-xs btn-press">Show all</button>
           </div>
           <div id="home-favorites-list" class="space-y-3"></div>
         </div>
         <div>
           <div class="flex items-center justify-between gap-3 mb-3">
             <h2 class="text-lg text-gray-200 font-semibold">Continue Practice</h2>
+            <button id="home-practice-show-all" onclick="toggleHomeSection('practice')" class="hidden btn-soft rounded-lg px-3 py-1.5 text-xs btn-press">Show all</button>
           </div>
           <div id="home-recent-practice-list" class="space-y-3"></div>
+        </div>
+        <div>
+          <div class="flex items-center justify-between gap-3 mb-3">
+            <h2 class="text-lg text-gray-200 font-semibold">Continue Courses</h2>
+            <button id="home-courses-show-all" onclick="toggleHomeSection('courses')" class="hidden btn-soft rounded-lg px-3 py-1.5 text-xs btn-press">Show all</button>
+          </div>
+          <div id="home-continue-courses-list" class="space-y-3"></div>
         </div>
       </div>
     </main>
@@ -452,7 +464,7 @@
           <p id="training-detail-description" class="text-sm text-gray-300 mb-4"></p>
           <div id="training-detail-video-wrap" class="hidden mb-4">
             <div class="rounded-xl overflow-hidden border border-gray-800 bg-black/40 mb-2">
-              <iframe id="training-detail-video-iframe" class="w-full aspect-video" src="" title="Training video" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+              <div id="training-detail-video-player" class="w-full aspect-video"></div>
             </div>
             <a id="training-detail-video-link" href="#" target="_blank" rel="noopener noreferrer" class="text-xs text-primary underline break-all"></a>
           </div>
@@ -610,6 +622,11 @@
             <div class="font-bold text-lg mb-1">Add Chord</div>
             <p class="text-sm text-gray-400">Create a new chord shape and save it to the database.</p>
           </button>
+          <button onclick="openToolPage('guitar-tones')" class="tool-nav-card btn-press">
+            <span class="tool-nav-icon"><i class="fas fa-guitar text-lg"></i></span>
+            <div class="font-bold text-lg mb-1">Guitar Tones</div>
+            <p class="text-sm text-gray-400">Upload open-string samples and build realistic dynamic chord playback.</p>
+          </button>
           <button onclick="openToolPage('songs')" class="tool-nav-card btn-press">
             <span class="tool-nav-icon"><i class="fas fa-magnifying-glass text-lg"></i></span>
             <div class="font-bold text-lg mb-1">Songs</div>
@@ -713,17 +730,6 @@
           </div>
           <div class="space-y-3 mb-4">
             <input id="tool-chord-name" type="text" oninput="updateChordBuilderPreview()" placeholder="Chord name (example: Gm7)" class="w-full bg-black/30 border border-gray-800 rounded-xl px-4 py-3 outline-none text-white">
-            <label class="bg-black/30 border border-gray-800 rounded-xl px-3 py-2 text-xs text-gray-300 block">
-              Chord Sound File (optional)
-              <input id="tool-chord-sample-file" type="file" accept="audio/*,.mp3,.wav,.flac,.m4a,.aac,.ogg,.opus" onchange="handleChordSampleFileSelected(event)" class="mt-2 w-full text-xs">
-            </label>
-            <div class="bg-black/30 border border-gray-800 rounded-xl px-3 py-2">
-              <p id="tool-chord-sample-label" class="text-xs text-gray-400">No sample selected.</p>
-              <div class="flex gap-2 mt-2">
-                <button id="btn-tool-chord-sample-play" type="button" onclick="playChordBuilderSamplePreview()" class="btn-soft rounded-lg px-3 py-1.5 text-xs btn-press"><i class="fas fa-play mr-1"></i>Preview</button>
-                <button id="btn-tool-chord-sample-clear" type="button" onclick="clearChordBuilderSample()" class="btn-soft rounded-lg px-3 py-1.5 text-xs btn-press"><i class="fas fa-trash mr-1"></i>Clear</button>
-              </div>
-            </div>
             <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
               <label class="bg-black/30 border border-gray-800 rounded-xl px-3 py-2 text-xs text-gray-300">E6
                 <select id="tool-chord-string-e6" onchange="updateChordBuilderPreview()" class="mt-1 w-full bg-transparent outline-none text-white">
@@ -763,6 +769,67 @@
           </button>
         </div>
 
+        <div id="tool-page-guitar-tones" class="hidden bg-surface rounded-2xl p-5 border border-gray-800">
+          <div class="flex items-center justify-between gap-3 mb-3">
+            <div>
+              <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-1">Tool</p>
+              <h2 class="font-bold text-lg">Guitar Tones</h2>
+              <p class="text-sm text-gray-400">Upload open-string samples (E2 A2 D3 G3 B3 E4) to build dynamic chord sound.</p>
+            </div>
+            <button id="btn-guitar-tone-add" onclick="toggleGuitarToneEditor()" class="btn-soft rounded-xl px-4 py-2 text-sm font-bold btn-press">
+              <i class="fas fa-plus mr-2"></i>Add
+            </button>
+          </div>
+          <div id="tool-guitar-tone-editor" class="hidden space-y-3 mb-4 bg-black/20 border border-gray-800 rounded-xl p-3">
+            <input id="tool-guitar-tone-name" type="text" placeholder="Tone name (example: Nylon Warm)" class="w-full bg-black/30 border border-gray-800 rounded-xl px-4 py-3 outline-none text-white">
+            <label class="inline-flex items-center gap-2 text-xs text-gray-300">
+              <input id="tool-guitar-tone-use-urls" type="checkbox" onchange="toggleGuitarToneUseUrls(this.checked)" class="accent-[#bb86fc]">
+              Use URLs
+            </label>
+            <div id="tool-guitar-tone-upload-wrap" class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              <label class="bg-black/30 border border-gray-800 rounded-xl px-3 py-2 text-xs text-gray-300">E2
+                <input id="tool-guitar-tone-file-e2" type="file" accept="audio/*,.mp3,.wav,.flac,.m4a,.aac,.ogg,.opus,.aiff,.alac,.wma" onchange="handleGuitarToneFileSelected('E2', event)" class="mt-2 w-full text-[11px]">
+              </label>
+              <label class="bg-black/30 border border-gray-800 rounded-xl px-3 py-2 text-xs text-gray-300">A2
+                <input id="tool-guitar-tone-file-a2" type="file" accept="audio/*,.mp3,.wav,.flac,.m4a,.aac,.ogg,.opus,.aiff,.alac,.wma" onchange="handleGuitarToneFileSelected('A2', event)" class="mt-2 w-full text-[11px]">
+              </label>
+              <label class="bg-black/30 border border-gray-800 rounded-xl px-3 py-2 text-xs text-gray-300">D3
+                <input id="tool-guitar-tone-file-d3" type="file" accept="audio/*,.mp3,.wav,.flac,.m4a,.aac,.ogg,.opus,.aiff,.alac,.wma" onchange="handleGuitarToneFileSelected('D3', event)" class="mt-2 w-full text-[11px]">
+              </label>
+              <label class="bg-black/30 border border-gray-800 rounded-xl px-3 py-2 text-xs text-gray-300">G3
+                <input id="tool-guitar-tone-file-g3" type="file" accept="audio/*,.mp3,.wav,.flac,.m4a,.aac,.ogg,.opus,.aiff,.alac,.wma" onchange="handleGuitarToneFileSelected('G3', event)" class="mt-2 w-full text-[11px]">
+              </label>
+              <label class="bg-black/30 border border-gray-800 rounded-xl px-3 py-2 text-xs text-gray-300">B3
+                <input id="tool-guitar-tone-file-b3" type="file" accept="audio/*,.mp3,.wav,.flac,.m4a,.aac,.ogg,.opus,.aiff,.alac,.wma" onchange="handleGuitarToneFileSelected('B3', event)" class="mt-2 w-full text-[11px]">
+              </label>
+              <label class="bg-black/30 border border-gray-800 rounded-xl px-3 py-2 text-xs text-gray-300">E4
+                <input id="tool-guitar-tone-file-e4" type="file" accept="audio/*,.mp3,.wav,.flac,.m4a,.aac,.ogg,.opus,.aiff,.alac,.wma" onchange="handleGuitarToneFileSelected('E4', event)" class="mt-2 w-full text-[11px]">
+              </label>
+            </div>
+            <div id="tool-guitar-tone-url-wrap" class="hidden grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <input id="tool-guitar-tone-url-e2" type="url" placeholder="E2 URL (audio file)" class="w-full bg-black/30 border border-gray-800 rounded-xl px-3 py-2 outline-none text-white text-xs">
+              <input id="tool-guitar-tone-url-a2" type="url" placeholder="A2 URL (audio file)" class="w-full bg-black/30 border border-gray-800 rounded-xl px-3 py-2 outline-none text-white text-xs">
+              <input id="tool-guitar-tone-url-d3" type="url" placeholder="D3 URL (audio file)" class="w-full bg-black/30 border border-gray-800 rounded-xl px-3 py-2 outline-none text-white text-xs">
+              <input id="tool-guitar-tone-url-g3" type="url" placeholder="G3 URL (audio file)" class="w-full bg-black/30 border border-gray-800 rounded-xl px-3 py-2 outline-none text-white text-xs">
+              <input id="tool-guitar-tone-url-b3" type="url" placeholder="B3 URL (audio file)" class="w-full bg-black/30 border border-gray-800 rounded-xl px-3 py-2 outline-none text-white text-xs">
+              <input id="tool-guitar-tone-url-e4" type="url" placeholder="E4 URL (audio file)" class="w-full bg-black/30 border border-gray-800 rounded-xl px-3 py-2 outline-none text-white text-xs">
+            </div>
+            <p id="tool-guitar-tone-editor-status" class="text-xs text-gray-500">Upload at least one open-string sample to create a tone.</p>
+            <div class="grid grid-cols-2 gap-2">
+              <button onclick="saveGuitarToneProfile()" class="bg-primary text-black font-bold py-3 rounded-xl btn-press shadow-[0_0_20px_rgba(187,134,252,0.25)]">
+                <i class="fas fa-save mr-2"></i>Save Tone
+              </button>
+              <button onclick="toggleGuitarToneEditor()" class="btn-soft font-bold py-3 rounded-xl btn-press">
+                <i class="fas fa-times mr-2"></i>Cancel
+              </button>
+            </div>
+          </div>
+          <p class="text-xs text-gray-500 mb-2">Existing tones</p>
+          <div id="tool-guitar-tones-list" class="space-y-2">
+            <div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-500">No guitar tones yet.</div>
+          </div>
+        </div>
+
         <div id="tool-page-songs" class="hidden bg-surface rounded-2xl p-5 border border-gray-800">
           <div class="flex items-center justify-between gap-3 mb-3">
             <div>
@@ -793,7 +860,7 @@
             </label>
             <p class="text-[11px] text-gray-500">Uploads larger than <span id="tool-looper-max-size-label">10 MB</span> are blocked to keep history fast and stable.</p>
             <div class="grid sm:grid-cols-[1fr_auto] gap-2">
-              <input id="tool-looper-youtube-url" type="url" placeholder="YouTube link" class="w-full bg-black/30 border border-gray-800 rounded-xl px-4 py-3 outline-none text-white">
+              <input id="tool-looper-youtube-url" type="text" placeholder="YouTube link or title" class="w-full bg-black/30 border border-gray-800 rounded-xl px-4 py-3 outline-none text-white">
               <button onclick="loadLooperYouTube()" class="bg-primary text-black font-bold py-3 px-5 rounded-xl btn-press">Load YouTube</button>
             </div>
           </div>
@@ -838,6 +905,10 @@
               <button id="tool-looper-mode-full" onclick="toggleLooperFullTrack()" class="looper-mode-btn btn-press" type="button">Repeat Full Track</button>
               <button id="tool-looper-mode-ab" onclick="toggleLooperABMode()" class="looper-mode-btn btn-press" type="button">Repeat A-B Section</button>
             </div>
+            <label class="mt-3 inline-flex items-center gap-2 text-xs text-gray-300">
+              <input id="tool-looper-app-bg" type="checkbox" onchange="toggleLooperAppBackground(this.checked)" class="accent-[#bb86fc]">
+              App background (keep playing when changing app pages)
+            </label>
           </div>
 
           <div class="bg-black/30 border border-gray-800 rounded-xl p-3">
@@ -936,6 +1007,12 @@
             <span id="settings-text-size-label" class="text-primary font-bold text-sm">14 px</span>
           </div>
           <input id="settings-text-size" type="range" min="11" max="24" value="14" oninput="previewTextSize(this.value)" class="w-full accent-[#bb86fc]">
+          <div class="mt-4 bg-black/30 rounded-xl border border-gray-800 p-3">
+            <label class="text-[10px] uppercase tracking-[0.2em] text-gray-500 block mb-2">Guitar Tone</label>
+            <select id="settings-guitar-tone" class="w-full bg-transparent text-white outline-none">
+              <option value="">Default Synth (No samples)</option>
+            </select>
+          </div>
           <button onclick="saveSettings()" class="mt-4 bg-primary text-black font-bold py-3 px-6 rounded-full btn-press shadow-[0_0_20px_rgba(187,134,252,0.35)]">
             <i class="fas fa-save mr-2"></i> Save Settings
           </button>
@@ -1143,7 +1220,7 @@
     </main>
   </div>
 
-  <script type="module" src="app/main.js"></script>
+  <script type="module" src="app/main.js?v=20260409a"></script>
   <div id="tabbar-wrap" class="hidden fixed bottom-0 left-0 right-0 z-30 px-3 pb-3 pt-2">
     <nav class="ios-tabbar max-w-2xl mx-auto border border-gray-800 rounded-[28px] px-2 py-2 flex items-center gap-1">
       <div id="bottom-tabbar" class="flex items-center w-full"></div>

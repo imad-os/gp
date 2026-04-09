@@ -234,9 +234,39 @@ export class FirestoreRepository {
     return created.id;
   }
 
-  async saveChordSampleData(chordId, dataUrl) {
-    const chunksRef = collection(this.db, 'chords', chordId, 'sample_chunks');
-    const existing = await getDocs(chunksRef);
+  async loadGuitarTones() {
+    const tonesRef = collection(this.db, 'guitar_tones');
+    const snap = await getDocs(tonesRef);
+    return snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => {
+        const nameA = String(a.name || '').toLowerCase();
+        const nameB = String(b.name || '').toLowerCase();
+        return nameA.localeCompare(nameB);
+      });
+  }
+
+  async saveGuitarTone(toneData, editingToneId = null) {
+    if (editingToneId) {
+      await setDoc(doc(this.db, 'guitar_tones', editingToneId), toneData, { merge: true });
+      return editingToneId;
+    }
+    const created = await addDoc(collection(this.db, 'guitar_tones'), toneData);
+    return created.id;
+  }
+
+  async deleteGuitarTone(toneId) {
+    const chunksRef = collection(this.db, 'guitar_tones', toneId, 'string_chunks');
+    const snap = await getDocs(chunksRef);
+    for (const entry of snap.docs) {
+      await deleteDoc(entry.ref);
+    }
+    await deleteDoc(doc(this.db, 'guitar_tones', toneId));
+  }
+
+  async saveGuitarToneStringData(toneId, stringKey, dataUrl) {
+    const chunksRef = collection(this.db, 'guitar_tones', toneId, 'string_chunks');
+    const existing = await getDocs(query(chunksRef, where('stringKey', '==', stringKey)));
     for (const entry of existing.docs) {
       await deleteDoc(entry.ref);
     }
@@ -246,26 +276,26 @@ export class FirestoreRepository {
     for (let i = 0; i < chunkCount; i += 1) {
       const start = i * CHUNK_SIZE;
       const part = source.slice(start, start + CHUNK_SIZE);
-      const chunkId = String(i).padStart(5, '0');
-      await setDoc(doc(chunksRef, chunkId), { index: i, data: part });
+      const chunkId = `${stringKey}-${String(i).padStart(5, '0')}`;
+      await setDoc(doc(chunksRef, chunkId), { stringKey, index: i, data: part });
     }
     return chunkCount;
   }
 
-  async loadChordSampleData(chordId) {
-    const chunksRef = collection(this.db, 'chords', chordId, 'sample_chunks');
-    const snap = await getDocs(chunksRef);
+  async loadGuitarToneStringData(toneId, stringKey) {
+    const chunksRef = collection(this.db, 'guitar_tones', toneId, 'string_chunks');
+    const snap = await getDocs(query(chunksRef, where('stringKey', '==', stringKey), limit(500)));
     if (snap.empty) return '';
     return snap.docs
       .map(d => ({ id: d.id, ...d.data() }))
-      .sort((a, b) => (a.index ?? Number(a.id)) - (b.index ?? Number(b.id)))
+      .sort((a, b) => (a.index ?? Number(String(a.id).split('-').pop())) - (b.index ?? Number(String(b.id).split('-').pop())))
       .map(entry => String(entry.data || ''))
       .join('');
   }
 
-  async deleteChordSampleData(chordId) {
-    const chunksRef = collection(this.db, 'chords', chordId, 'sample_chunks');
-    const snap = await getDocs(chunksRef);
+  async deleteGuitarToneStringData(toneId, stringKey) {
+    const chunksRef = collection(this.db, 'guitar_tones', toneId, 'string_chunks');
+    const snap = await getDocs(query(chunksRef, where('stringKey', '==', stringKey)));
     for (const entry of snap.docs) {
       await deleteDoc(entry.ref);
     }

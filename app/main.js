@@ -63,11 +63,14 @@ import { FirestoreRepository } from './modules/repository.js';
     let toolRecordingVizAnimationId = null;
     let selectedChordReference = 'C';
     let chordBuilderEditingId = '';
-    let chordBuilderSampleDataUrl = '';
-    let chordBuilderSampleFileName = '';
-    let chordBuilderSampleRemoved = false;
-    let chordSampleLoadPromises = new Map();
-    let activeChordSampleAudios = [];
+    let guitarToneProfiles = [];
+    let guitarToneEditingId = '';
+    let guitarTonePendingSamples = {};
+    let guitarToneSampleLoadPromises = new Map();
+    let activeChordToneAudios = [];
+    let activeChordToneTimers = [];
+    let guitarToneUseUrls = false;
+    let guitarToneEditorOpen = false;
     let activeToolPage = 'home';
     let looperMode = 'none';
     let looperObjectUrl = '';
@@ -76,6 +79,7 @@ import { FirestoreRepository } from './modules/repository.js';
     let looperDuration = 0;
     let looperRepeatEnabled = false;
     let looperABEnabled = false;
+    let looperAppBackgroundEnabled = false;
     let looperPointA = 0;
     let looperPointB = 0;
     let looperHistory = [];
@@ -98,6 +102,14 @@ import { FirestoreRepository } from './modules/repository.js';
     let pendingTrainingArticleRating = 0;
     let editingTrainingArticleId = null;
     let activeTrainingArticleCategory = 'trainings';
+    let trainingVideoPlayer = null;
+    let trainingVideoSyncTimer = null;
+    let trainingVideoLastSavedSec = -1;
+    let homeSectionExpanded = {
+      favorites: false,
+      practice: false,
+      courses: false
+    };
     let lastNonPracticePath = '/';
     let tunerStream = null;
     let tunerAnalyser = null;
@@ -116,14 +128,18 @@ import { FirestoreRepository } from './modules/repository.js';
     const METRONOME_STORAGE_KEY = 'guitartrainer.metronome.settings';
     const GEMINI_API_KEY_STORAGE_KEY = 'guitartrainer.gemini.apiKey';
     const LOOPER_MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
-    const CHORD_SAMPLE_MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+    const GUITAR_TONE_MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+    const GUITAR_TONE_STRING_KEYS = ['E2', 'A2', 'D3', 'G3', 'B3', 'E4'];
+    const GUITAR_OPEN_STRING_MIDI = [40, 45, 50, 55, 59, 64];
     const APP_BUILD = {
       version: 'v2026.04.06.3',
     };
     const DEFAULT_SETTINGS = {
       practiceTextSize: 14,
       favoriteSongIds: [],
-      recentPractice: []
+      recentPractice: [],
+      recentCourses: [],
+      activeGuitarToneId: ''
     };
     let userSettings = { ...DEFAULT_SETTINGS };
     let practiceValidationStates = [];
@@ -575,6 +591,31 @@ Drop back to 70 BPM for clean finish.`,
       if (commentsEl) commentsEl.innerText = String(trainingArticles.filter(article => article.ownerId && user && article.ownerId === user.uid).length);
     }
 
+    function getActiveGuitarToneProfile() {
+      const targetId = String(userSettings?.activeGuitarToneId || '').trim();
+      if (targetId) {
+        const matched = guitarToneProfiles.find(item => item.id === targetId);
+        if (matched) return matched;
+      }
+      return null;
+    }
+
+    function renderGuitarToneSettingsOptions() {
+      const select = document.getElementById('settings-guitar-tone');
+      if (!select) return;
+      const activeId = String(userSettings?.activeGuitarToneId || '').trim();
+      const options = [
+        `<option value="">Default Synth (No samples)</option>`,
+        ...guitarToneProfiles.map(profile => `<option value="${profile.id}">${escapeHtml(profile.name)}</option>`)
+      ];
+      select.innerHTML = options.join('');
+      if (activeId && guitarToneProfiles.some(profile => profile.id === activeId)) {
+        select.value = activeId;
+      } else {
+        select.value = '';
+      }
+    }
+
     window.openProfilePage = function(options = {}) {
       navigate('profile', options);
       renderProfileSummary();
@@ -742,11 +783,25 @@ Drop back to 70 BPM for clean finish.`,
           ? raw.fingers.map(v => Number(v) || 0)
           : strings.map(v => (v === 'x' || v === 0 ? 0 : 1))
       };
-      normalized.hasSample = !!raw.hasSample;
-      normalized.sampleDataUrl = typeof raw.sampleDataUrl === 'string' ? raw.sampleDataUrl : '';
-      normalized.sampleUpdatedAt = Number(raw.sampleUpdatedAt || 0) || 0;
       normalized.shapeKey = normalizeChordShapeKey(normalized.strings);
       return normalized;
+    }
+
+    function normalizeGuitarToneProfile(raw = {}) {
+      const name = String(raw.name || '').trim();
+      const availableMap = {};
+      GUITAR_TONE_STRING_KEYS.forEach(key => {
+        availableMap[key] = !!raw?.availableStrings?.[key];
+      });
+      return {
+        id: raw.id || '',
+        name: name || 'Untitled Tone',
+        ownerId: raw.ownerId || '',
+        createdBy: raw.createdBy || '',
+        availableStrings: availableMap,
+        updatedAt: Number(raw.updatedAt || 0) || 0,
+        createdAt: Number(raw.createdAt || 0) || 0
+      };
     }
 
     function refreshChordLibraryFromEntries(entries = []) {
@@ -989,6 +1044,52 @@ Drop back to 70 BPM for clean finish.`,
       }
     }
 
+    async function searchYouTubeFirstVideoByTitle(queryText = '') {
+      const query = String(queryText || '').trim();
+      if (!query) return '';
+      const providers = [
+        {
+          url: `https://piped.video/api/v1/search?q=${encodeURIComponent(query)}&filter=videos`,
+          pick: (data) => {
+            const rows = Array.isArray(data?.items) ? data.items : (Array.isArray(data) ? data : []);
+            const first = rows.find(item => (item?.type === 'stream' || item?.type === 'video') && (item?.url || item?.id));
+            const id = String(first?.id || '').trim() || String(first?.url || '').split('/').pop();
+            return id ? `https://www.youtube.com/watch?v=${id}` : '';
+          }
+        },
+        {
+          url: `https://inv.nadeko.net/api/v1/search?q=${encodeURIComponent(query)}&type=video`,
+          pick: (data) => {
+            const rows = Array.isArray(data) ? data : [];
+            const first = rows.find(item => (item?.type === 'video' || item?.videoId) && item?.videoId);
+            const id = String(first?.videoId || '').trim();
+            return id ? `https://www.youtube.com/watch?v=${id}` : '';
+          }
+        },
+        {
+          url: `https://yewtu.be/api/v1/search?q=${encodeURIComponent(query)}&type=video`,
+          pick: (data) => {
+            const rows = Array.isArray(data) ? data : [];
+            const first = rows.find(item => (item?.type === 'video' || item?.videoId) && item?.videoId);
+            const id = String(first?.videoId || '').trim();
+            return id ? `https://www.youtube.com/watch?v=${id}` : '';
+          }
+        }
+      ];
+      for (const provider of providers) {
+        try {
+          const res = await fetch(provider.url);
+          if (!res.ok) continue;
+          const data = await res.json();
+          const candidate = normalizeYouTubeUrl(provider.pick(data));
+          if (candidate) return candidate;
+        } catch {
+          // Try next provider.
+        }
+      }
+      return '';
+    }
+
     function formatLooperTime(seconds = 0) {
       const total = Math.max(0, Math.floor(Number(seconds) || 0));
       const mins = Math.floor(total / 60);
@@ -1034,7 +1135,7 @@ Drop back to 70 BPM for clean finish.`,
         duration: Number(looperDuration || getLooperDuration() || 0),
         pointA: Number(looperPointA || 0),
         pointB: Number(looperPointB || 0),
-        lastPosition: Number(getLooperCurrentTime() || 0),
+        lastPosition: 0,
         repeatEnabled: !!looperRepeatEnabled,
         abEnabled: !!looperABEnabled,
         updatedAt: Date.now()
@@ -1187,6 +1288,32 @@ Drop back to 70 BPM for clean finish.`,
         reader.onerror = () => reject(reader.error || new Error('Read failed'));
         reader.readAsDataURL(file);
       });
+    }
+
+    function blobToDataUrl(blob) {
+      return new Promise((resolve, reject) => {
+        if (!blob) {
+          reject(new Error('Missing blob'));
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(reader.error || new Error('Blob read failed'));
+        reader.readAsDataURL(blob);
+      });
+    }
+
+    async function fetchAudioUrlAsDataUrl(url) {
+      const target = String(url || '').trim();
+      if (!target) throw new Error('Missing URL');
+      const response = await fetch(target, { mode: 'cors' });
+      if (!response.ok) throw new Error(`Download failed (${response.status})`);
+      const blob = await response.blob();
+      if (!blob || !blob.size) throw new Error('Empty file');
+      if (blob.size > GUITAR_TONE_MAX_UPLOAD_BYTES) {
+        throw new Error(`File too large (max ${formatBytes(GUITAR_TONE_MAX_UPLOAD_BYTES)})`);
+      }
+      return blobToDataUrl(blob);
     }
 
     function getLooperAudioEl() {
@@ -1374,11 +1501,24 @@ Drop back to 70 BPM for clean finish.`,
       scheduleLooperHistorySave();
     }
 
+    function renderLooperBackgroundOption() {
+      const checkbox = document.getElementById('tool-looper-app-bg');
+      if (!checkbox) return;
+      checkbox.checked = !!looperAppBackgroundEnabled;
+    }
+
+    window.toggleLooperAppBackground = function(value) {
+      looperAppBackgroundEnabled = !!value;
+      renderLooperBackgroundOption();
+      showToast(looperAppBackgroundEnabled ? 'Looper background in-app playback enabled.' : 'Looper will stop when leaving looper page.', true);
+    };
+
     function refreshLooperUi() {
       if (looperRepeatEnabled && looperABEnabled) looperRepeatEnabled = false;
       syncLooperTimeUi();
       syncLooperBoundaryUi();
       renderLooperModeButtons();
+      renderLooperBackgroundOption();
       enforceLooperBounds();
     }
 
@@ -1528,8 +1668,8 @@ Drop back to 70 BPM for clean finish.`,
             onReady: async () => {
               looperDuration = Math.max(0, getLooperDuration());
               if (!looperPointB || looperPointB <= 0) looperPointB = looperDuration;
-              const resumeAt = Math.max(0, Math.min(Number(fromHistoryEntry?.lastPosition || 0), looperDuration || Infinity));
-              if (resumeAt > 0) seekLooperTo(resumeAt);
+              const startAt = looperABEnabled ? looperPointA : 0;
+              if (startAt > 0) seekLooperTo(startAt);
               if (!fromHistoryEntry) {
                 activeLooperHistoryId = await createLooperHistoryEntry({
                   title: sourceTitle,
@@ -1585,6 +1725,7 @@ Drop back to 70 BPM for clean finish.`,
             await loadSongs();
             await loadTrainingArticles();
             await loadChordLibraryData();
+            await loadGuitarToneProfiles();
             await loadToolRecordings();
             await loadLooperHistory();
             renderToolRecordings();
@@ -1647,6 +1788,7 @@ Drop back to 70 BPM for clean finish.`,
       }
       renderTrainingArticleLists();
       refreshTrainingAddButtons();
+      renderHomeDashboard();
       renderProfileSummary();
     }
 
@@ -1655,12 +1797,10 @@ Drop back to 70 BPM for clean finish.`,
         const seedDefaults = user && !user.isAnonymous ? toDefaultChordEntries() : [];
         const raw = await repository.loadChords(seedDefaults);
         chordEntries = raw.map(normalizeChordEntry).filter(entry => entry.name && entry.nameKey);
-        chordSampleLoadPromises.clear();
         refreshChordLibraryFromEntries(chordEntries);
       } catch (e) {
         console.error("Failed to load chord library", e);
         chordEntries = toDefaultChordEntries().map(normalizeChordEntry);
-        chordSampleLoadPromises.clear();
         refreshChordLibraryFromEntries(chordEntries);
       }
     }
@@ -1710,7 +1850,7 @@ Drop back to 70 BPM for clean finish.`,
             <div class="min-w-0">
               <p class="font-semibold text-sm text-white truncate">${escapeHtml(item.title || 'Untitled media')}</p>
               <p class="text-[11px] text-gray-500 mt-1">${getLooperHistoryTypeLabel(item)} • ${item.updatedAt ? new Date(item.updatedAt).toLocaleString() : 'Saved'}</p>
-              <p class="text-[11px] text-gray-500 mt-1">A ${formatLooperTime(item.pointA || 0)} | B ${formatLooperTime(item.pointB || 0)} | Last ${formatLooperTime(item.lastPosition || 0)}</p>
+              <p class="text-[11px] text-gray-500 mt-1">A ${formatLooperTime(item.pointA || 0)} | B ${formatLooperTime(item.pointB || 0)}</p>
               ${looperDeletingHistoryId === item.id ? `<p class="text-[11px] text-primary mt-1"><i class="fas fa-spinner fa-spin mr-1"></i>Deleting...</p>` : ''}
               ${looperOpeningHistoryId === item.id ? `
                 <p class="text-[11px] text-primary mt-1"><i class="fas fa-spinner fa-spin mr-1"></i>Loading... ${Math.max(0, Math.min(100, Math.round(looperOpeningProgress)))}%</p>
@@ -1859,108 +1999,6 @@ Drop back to 70 BPM for clean finish.`,
       return chordEntries.find(entry => entry.nameKey === key) || null;
     }
 
-    function renderChordBuilderSampleUi() {
-      const label = document.getElementById('tool-chord-sample-label');
-      const playBtn = document.getElementById('btn-tool-chord-sample-play');
-      const clearBtn = document.getElementById('btn-tool-chord-sample-clear');
-      if (label) {
-        label.innerText = chordBuilderSampleDataUrl
-          ? `Sample ready${chordBuilderSampleFileName ? `: ${chordBuilderSampleFileName}` : ''}`
-          : (chordBuilderEditingId ? 'No sample (existing sample will be removed if you save).' : 'No sample selected.');
-      }
-      if (playBtn) playBtn.classList.toggle('opacity-40', !chordBuilderSampleDataUrl);
-      if (playBtn) playBtn.classList.toggle('pointer-events-none', !chordBuilderSampleDataUrl);
-      if (clearBtn) clearBtn.classList.toggle('opacity-40', !chordBuilderSampleDataUrl && !chordBuilderEditingId);
-      if (clearBtn) clearBtn.classList.toggle('pointer-events-none', !chordBuilderSampleDataUrl && !chordBuilderEditingId);
-    }
-
-    async function getChordSampleDataUrl(chordName) {
-      const key = normalizeChordNameKey(chordName);
-      const entry = chordEntries.find(item => item.nameKey === key);
-      if (!entry?.id) return '';
-      if (entry.sampleDataUrl) return entry.sampleDataUrl;
-      if (!entry.hasSample) return '';
-      if (chordSampleLoadPromises.has(entry.id)) return chordSampleLoadPromises.get(entry.id);
-      const promise = repository.loadChordSampleData(entry.id)
-        .then(dataUrl => {
-          entry.sampleDataUrl = String(dataUrl || '');
-          return entry.sampleDataUrl;
-        })
-        .catch(err => {
-          console.error('Load chord sample failed', err);
-          return '';
-        })
-        .finally(() => {
-          chordSampleLoadPromises.delete(entry.id);
-        });
-      chordSampleLoadPromises.set(entry.id, promise);
-      return promise;
-    }
-
-    async function playChordSampleData(dataUrl) {
-      const src = String(dataUrl || '').trim();
-      if (!src) return false;
-      const audio = new Audio(src);
-      audio.preload = 'auto';
-      audio.currentTime = 0;
-      audio.volume = 1;
-      activeChordSampleAudios.push(audio);
-      audio.onended = () => {
-        activeChordSampleAudios = activeChordSampleAudios.filter(item => item !== audio);
-      };
-      try {
-        await audio.play();
-        return true;
-      } catch {
-        activeChordSampleAudios = activeChordSampleAudios.filter(item => item !== audio);
-        return false;
-      }
-    }
-
-    function stopActiveChordSamples() {
-      if (!activeChordSampleAudios.length) return;
-      activeChordSampleAudios.forEach(audio => {
-        try {
-          audio.pause();
-          audio.currentTime = 0;
-        } catch {}
-      });
-      activeChordSampleAudios = [];
-    }
-
-    window.handleChordSampleFileSelected = async function(event) {
-      const file = event?.target?.files?.[0];
-      if (!file) return;
-      if (file.size > CHORD_SAMPLE_MAX_UPLOAD_BYTES) {
-        showToast(`Chord sample too large. Max ${formatBytes(CHORD_SAMPLE_MAX_UPLOAD_BYTES)}.`);
-        event.target.value = '';
-        return;
-      }
-      try {
-        chordBuilderSampleDataUrl = await readFileAsDataUrl(file);
-        chordBuilderSampleFileName = String(file.name || '').trim();
-        chordBuilderSampleRemoved = false;
-        renderChordBuilderSampleUi();
-      } catch (err) {
-        console.error('Read chord sample failed', err);
-        showToast('Could not read sample file.');
-      }
-    };
-
-    window.playChordBuilderSamplePreview = async function() {
-      if (!chordBuilderSampleDataUrl) return;
-      await playChordSampleData(chordBuilderSampleDataUrl);
-    };
-
-    window.clearChordBuilderSample = function() {
-      chordBuilderSampleDataUrl = '';
-      chordBuilderSampleFileName = '';
-      chordBuilderSampleRemoved = true;
-      const input = document.getElementById('tool-chord-sample-file');
-      if (input) input.value = '';
-      renderChordBuilderSampleUi();
-    };
-
     window.loadSelectedChordToBuilder = async function() {
       const entry = getSelectedChordEntry();
       if (!entry) {
@@ -1975,11 +2013,7 @@ Drop back to 70 BPM for clean finish.`,
         const el = document.getElementById(id);
         if (el) el.value = String(values[idx]);
       });
-      chordBuilderSampleRemoved = false;
-      chordBuilderSampleFileName = '';
-      chordBuilderSampleDataUrl = await getChordSampleDataUrl(entry.name);
       updateChordBuilderPreview();
-      renderChordBuilderSampleUi();
       openToolPage('chord-builder');
       showToast(`Loaded ${entry.name} for editing.`, true);
     };
@@ -2007,19 +2041,13 @@ Drop back to 70 BPM for clean finish.`,
 
     function resetChordBuilder() {
       chordBuilderEditingId = '';
-      chordBuilderSampleDataUrl = '';
-      chordBuilderSampleFileName = '';
-      chordBuilderSampleRemoved = false;
       const nameEl = document.getElementById('tool-chord-name');
       if (nameEl) nameEl.value = '';
-      const sampleEl = document.getElementById('tool-chord-sample-file');
-      if (sampleEl) sampleEl.value = '';
       ['tool-chord-string-e6', 'tool-chord-string-a', 'tool-chord-string-d', 'tool-chord-string-g', 'tool-chord-string-b', 'tool-chord-string-e1'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = 'x';
       });
       updateChordBuilderPreview();
-      renderChordBuilderSampleUi();
     }
 
     window.updateChordBuilderPreview = updateChordBuilderPreview;
@@ -2074,21 +2102,10 @@ Drop back to 70 BPM for clean finish.`,
         strings,
         fingers: strings.map(v => (v === 'x' || v === 0 ? 0 : 1)),
         createdAt: targetEntry?.createdAt || Date.now(),
-        createdBy: targetEntry?.createdBy || user.uid,
-        hasSample: !!(chordBuilderSampleDataUrl || (targetEntry?.hasSample && !chordBuilderSampleRemoved)),
-        sampleUpdatedAt: chordBuilderSampleDataUrl ? Date.now() : (targetEntry?.sampleUpdatedAt || 0)
+        createdBy: targetEntry?.createdBy || user.uid
       };
       try {
-        const chordId = await repository.saveChord(chordPayload, targetEntry?.id || null);
-        if (chordBuilderSampleDataUrl) {
-          await repository.saveChordSampleData(chordId, chordBuilderSampleDataUrl);
-          chordPayload.hasSample = true;
-          chordPayload.sampleUpdatedAt = Date.now();
-        } else if (targetEntry?.hasSample && chordBuilderSampleRemoved) {
-          await repository.deleteChordSampleData(chordId);
-          chordPayload.hasSample = false;
-          chordPayload.sampleUpdatedAt = Date.now();
-        }
+        await repository.saveChord(chordPayload, targetEntry?.id || null);
         await loadChordLibraryData();
         renderChordExplorer();
         resetChordBuilder();
@@ -2096,6 +2113,304 @@ Drop back to 70 BPM for clean finish.`,
       } catch (e) {
         console.error("Save chord failed", e);
         showToast("Could not save chord.");
+      }
+    };
+
+    function getToneStringInputId(stringKey) {
+      return `tool-guitar-tone-file-${stringKey.toLowerCase()}`;
+    }
+
+    function setGuitarToneEditorOpen(open = false) {
+      guitarToneEditorOpen = !!open;
+      const panel = document.getElementById('tool-guitar-tone-editor');
+      const addBtn = document.getElementById('btn-guitar-tone-add');
+      if (panel) panel.classList.toggle('hidden', !guitarToneEditorOpen);
+      if (addBtn) {
+        addBtn.innerHTML = guitarToneEditorOpen
+          ? '<i class="fas fa-times mr-2"></i>Close'
+          : '<i class="fas fa-plus mr-2"></i>Add';
+      }
+    }
+
+    window.toggleGuitarToneEditor = function() {
+      if (guitarToneEditorOpen) {
+        resetGuitarToneEditor();
+        setGuitarToneEditorOpen(false);
+      } else {
+        resetGuitarToneEditor();
+        setGuitarToneEditorOpen(true);
+      }
+    };
+
+    function getToneSampleCacheKey(toneId, stringKey) {
+      return `${toneId}::${stringKey}`;
+    }
+
+    function resetGuitarToneEditor() {
+      guitarToneEditingId = '';
+      guitarTonePendingSamples = {};
+      guitarToneUseUrls = false;
+      const nameInput = document.getElementById('tool-guitar-tone-name');
+      if (nameInput) nameInput.value = '';
+      GUITAR_TONE_STRING_KEYS.forEach(stringKey => {
+        const input = document.getElementById(getToneStringInputId(stringKey));
+        if (input) input.value = '';
+        const urlInput = document.getElementById(`tool-guitar-tone-url-${stringKey.toLowerCase()}`);
+        if (urlInput) urlInput.value = '';
+      });
+      const modeCheckbox = document.getElementById('tool-guitar-tone-use-urls');
+      if (modeCheckbox) modeCheckbox.checked = false;
+      updateGuitarToneInputModeUi();
+      renderGuitarToneEditorStatus();
+    }
+
+    function updateGuitarToneInputModeUi() {
+      const uploadWrap = document.getElementById('tool-guitar-tone-upload-wrap');
+      const urlWrap = document.getElementById('tool-guitar-tone-url-wrap');
+      if (uploadWrap) uploadWrap.classList.toggle('hidden', guitarToneUseUrls);
+      if (urlWrap) urlWrap.classList.toggle('hidden', !guitarToneUseUrls);
+    }
+
+    window.toggleGuitarToneUseUrls = function(value) {
+      guitarToneUseUrls = !!value;
+      updateGuitarToneInputModeUi();
+      renderGuitarToneEditorStatus();
+    };
+
+    function renderGuitarToneEditorStatus() {
+      const label = document.getElementById('tool-guitar-tone-editor-status');
+      if (!label) return;
+      const pendingKeys = Object.keys(guitarTonePendingSamples);
+      if (!pendingKeys.length) {
+        const base = guitarToneUseUrls
+          ? 'Use direct file URLs for the strings you want to set or replace.'
+          : 'Upload files for the strings you want to set or replace.';
+        label.innerText = guitarToneEditingId ? `Editing existing tone. ${base}` : `New tone. ${base}`;
+        return;
+      }
+      label.innerText = `Ready: ${pendingKeys.join(', ')} sample${pendingKeys.length > 1 ? 's' : ''} selected.`;
+    }
+
+    window.handleGuitarToneFileSelected = async function(stringKey, event) {
+      const key = String(stringKey || '').toUpperCase();
+      if (!GUITAR_TONE_STRING_KEYS.includes(key)) return;
+      const file = event?.target?.files?.[0];
+      if (!file) {
+        delete guitarTonePendingSamples[key];
+        renderGuitarToneEditorStatus();
+        return;
+      }
+      if (file.size > GUITAR_TONE_MAX_UPLOAD_BYTES) {
+        showToast(`${key} sample too large. Max ${formatBytes(GUITAR_TONE_MAX_UPLOAD_BYTES)}.`);
+        event.target.value = '';
+        return;
+      }
+      try {
+        const dataUrl = await readFileAsDataUrl(file);
+        guitarTonePendingSamples[key] = {
+          dataUrl,
+          name: String(file.name || '').trim(),
+          size: Number(file.size || 0)
+        };
+        renderGuitarToneEditorStatus();
+      } catch (err) {
+        console.error('Read guitar tone sample failed', err);
+        showToast(`Could not read ${key} sample.`);
+      }
+    };
+
+    async function loadGuitarToneProfiles() {
+      try {
+        const raw = await repository.loadGuitarTones();
+        guitarToneProfiles = raw.map(normalizeGuitarToneProfile);
+      } catch (e) {
+        console.error('Failed to load guitar tones', e);
+        guitarToneProfiles = [];
+      }
+      const activeId = String(userSettings?.activeGuitarToneId || '').trim();
+      if (activeId && !guitarToneProfiles.some(item => item.id === activeId)) {
+        userSettings = { ...userSettings, activeGuitarToneId: '' };
+      }
+      renderGuitarToneSettingsOptions();
+      renderGuitarToneProfilesList();
+    }
+
+    function clearGuitarToneCacheForProfile(profileId) {
+      const prefix = `${profileId}::`;
+      for (const key of [...guitarToneSampleLoadPromises.keys()]) {
+        if (key.startsWith(prefix)) guitarToneSampleLoadPromises.delete(key);
+      }
+    }
+
+    window.loadGuitarToneToEditor = function(profileId) {
+      const profile = guitarToneProfiles.find(item => item.id === profileId);
+      if (!profile) return;
+      guitarToneEditingId = profile.id;
+      guitarTonePendingSamples = {};
+       guitarToneUseUrls = false;
+      const nameInput = document.getElementById('tool-guitar-tone-name');
+      if (nameInput) nameInput.value = profile.name || '';
+      GUITAR_TONE_STRING_KEYS.forEach(stringKey => {
+        const input = document.getElementById(getToneStringInputId(stringKey));
+        if (input) input.value = '';
+        const urlInput = document.getElementById(`tool-guitar-tone-url-${stringKey.toLowerCase()}`);
+        if (urlInput) urlInput.value = '';
+      });
+      const modeCheckbox = document.getElementById('tool-guitar-tone-use-urls');
+      if (modeCheckbox) modeCheckbox.checked = false;
+      updateGuitarToneInputModeUi();
+      renderGuitarToneEditorStatus();
+      setGuitarToneEditorOpen(true);
+      showToast(`Loaded "${profile.name}" for editing.`, true);
+    };
+
+    window.selectGuitarToneProfile = async function(profileId) {
+      userSettings = { ...userSettings, activeGuitarToneId: profileId || '' };
+      renderGuitarToneSettingsOptions();
+      renderGuitarToneProfilesList();
+      if (!user || user.isAnonymous) {
+        showToast('Sign in to save selected guitar tone.');
+        return;
+      }
+      try {
+        await repository.saveUserSettings(user.uid, { activeGuitarToneId: userSettings.activeGuitarToneId || '' });
+        showToast('Guitar tone selected.', true);
+      } catch (e) {
+        console.error('Select guitar tone failed', e);
+        showToast('Could not save guitar tone selection.');
+      }
+    };
+
+    window.deleteGuitarToneProfile = async function(profileId) {
+      if (!user || user.isAnonymous) {
+        showToast('Sign in to delete guitar tones.');
+        return;
+      }
+      const profile = guitarToneProfiles.find(item => item.id === profileId);
+      if (!profile) return;
+      if (profile.ownerId && profile.ownerId !== user.uid) {
+        showToast('You can only delete tones you created.');
+        return;
+      }
+      try {
+        await repository.deleteGuitarTone(profile.id);
+        clearGuitarToneCacheForProfile(profile.id);
+        if (userSettings.activeGuitarToneId === profile.id) {
+          userSettings = { ...userSettings, activeGuitarToneId: '' };
+          await repository.saveUserSettings(user.uid, { activeGuitarToneId: '' });
+        }
+        await loadGuitarToneProfiles();
+        showToast('Guitar tone deleted.', true);
+      } catch (e) {
+        console.error('Delete guitar tone failed', e);
+        showToast('Could not delete guitar tone.');
+      }
+    };
+
+    function renderGuitarToneProfilesList() {
+      const list = document.getElementById('tool-guitar-tones-list');
+      if (!list) return;
+      if (!guitarToneProfiles.length) {
+        list.innerHTML = `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-500">No guitar tones yet.</div>`;
+        return;
+      }
+      const activeId = String(userSettings?.activeGuitarToneId || '');
+      list.innerHTML = guitarToneProfiles.map(profile => {
+        const available = GUITAR_TONE_STRING_KEYS.filter(key => profile.availableStrings?.[key]);
+        const active = profile.id === activeId;
+        const mine = !!user && profile.ownerId === user.uid;
+        return `
+          <div class="bg-black/30 border ${active ? 'border-primary/60' : 'border-gray-800'} rounded-xl px-3 py-3">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <p class="font-semibold text-sm text-white truncate">${escapeHtml(profile.name)}</p>
+                <p class="text-[11px] text-gray-500 mt-1">${available.length}/6 strings available${active ? ' • Active' : ''}</p>
+                <p class="text-[11px] text-gray-500 mt-1">${available.join(', ') || 'No samples'}</p>
+              </div>
+              <div class="flex items-center gap-2 shrink-0">
+                <button onclick="selectGuitarToneProfile('${profile.id}')" class="w-8 h-8 rounded-full btn-soft btn-press" title="Use this tone"><i class="fas fa-check text-xs"></i></button>
+                <button onclick="loadGuitarToneToEditor('${profile.id}')" class="w-8 h-8 rounded-full btn-soft btn-press" title="View"><i class="fas fa-eye text-xs"></i></button>
+                ${mine ? `<button onclick="loadGuitarToneToEditor('${profile.id}')" class="w-8 h-8 rounded-full btn-soft btn-press" title="Edit"><i class="fas fa-pen text-xs"></i></button>` : ''}
+                ${mine ? `<button onclick="deleteGuitarToneProfile('${profile.id}')" class="w-8 h-8 rounded-full btn-soft btn-press" title="Delete"><i class="fas fa-trash text-xs"></i></button>` : ''}
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    window.resetGuitarToneEditor = function() {
+      resetGuitarToneEditor();
+    };
+
+    window.saveGuitarToneProfile = async function() {
+      if (!user || user.isAnonymous) {
+        showToast('Create an account to save guitar tones.');
+        return;
+      }
+      const name = String(document.getElementById('tool-guitar-tone-name')?.value || '').trim();
+      if (!name) {
+        showToast('Enter a guitar tone name.');
+        return;
+      }
+      if (guitarToneUseUrls) {
+        guitarTonePendingSamples = {};
+        try {
+          for (const key of GUITAR_TONE_STRING_KEYS) {
+            const input = document.getElementById(`tool-guitar-tone-url-${key.toLowerCase()}`);
+            const rawUrl = String(input?.value || '').trim();
+            if (!rawUrl) continue;
+            const dataUrl = await fetchAudioUrlAsDataUrl(rawUrl);
+            guitarTonePendingSamples[key] = {
+              dataUrl,
+              name: rawUrl,
+              size: 0
+            };
+          }
+        } catch (err) {
+          console.error('URL sample fetch failed', err);
+          showToast(`Could not load URL sample: ${err?.message || 'unknown error'}`);
+          return;
+        }
+      }
+      const pendingKeys = Object.keys(guitarTonePendingSamples);
+      if (!pendingKeys.length && !guitarToneEditingId) {
+        showToast(guitarToneUseUrls ? 'Add at least one valid audio URL.' : 'Upload at least one string sample.');
+        return;
+      }
+      const editingEntry = guitarToneEditingId ? guitarToneProfiles.find(item => item.id === guitarToneEditingId) : null;
+      if (editingEntry?.ownerId && editingEntry.ownerId !== user.uid) {
+        showToast('You can only edit tones you created.');
+        return;
+      }
+      const availableStrings = { ...(editingEntry?.availableStrings || {}) };
+      pendingKeys.forEach(key => {
+        availableStrings[key] = true;
+      });
+      const payload = {
+        name,
+        ownerId: editingEntry?.ownerId || user.uid,
+        createdBy: editingEntry?.createdBy || user.uid,
+        createdAt: editingEntry?.createdAt || Date.now(),
+        updatedAt: Date.now(),
+        availableStrings
+      };
+      try {
+        const toneId = await repository.saveGuitarTone(payload, editingEntry?.id || null);
+        for (const key of pendingKeys) {
+          await repository.saveGuitarToneStringData(toneId, key, guitarTonePendingSamples[key].dataUrl);
+          guitarToneSampleLoadPromises.set(getToneSampleCacheKey(toneId, key), Promise.resolve(guitarTonePendingSamples[key].dataUrl));
+        }
+        await loadGuitarToneProfiles();
+        if (!userSettings.activeGuitarToneId) {
+          await selectGuitarToneProfile(toneId);
+        }
+        resetGuitarToneEditor();
+        setGuitarToneEditorOpen(false);
+        showToast(editingEntry ? 'Guitar tone updated.' : 'Guitar tone saved.', true);
+      } catch (e) {
+        console.error('Save guitar tone failed', e);
+        showToast('Could not save guitar tone.');
       }
     };
 
@@ -2121,8 +2436,8 @@ Drop back to 70 BPM for clean finish.`,
       looperABEnabled = !!fromHistoryEntry?.abEnabled;
       target.onloadedmetadata = () => {
         handleLooperMediaLoaded();
-        const resumeAt = Math.max(0, Math.min(Number(fromHistoryEntry?.lastPosition || 0), looperDuration || Infinity));
-        if (resumeAt > 0) seekLooperTo(resumeAt);
+        const startAt = looperABEnabled ? looperPointA : 0;
+        if (startAt > 0) seekLooperTo(startAt);
       };
       target.onended = () => {
         handleLooperMediaEnded();
@@ -2199,12 +2514,25 @@ Drop back to 70 BPM for clean finish.`,
       const input = document.getElementById('tool-looper-youtube-url');
       const value = input?.value?.trim() || '';
       if (!value) {
-        showToast('Paste a YouTube link first.');
+        showToast('Paste a YouTube link or type a title.');
         return;
       }
       const fileInput = document.getElementById('tool-looper-file');
       if (fileInput) fileInput.value = '';
-      await loadLooperYouTubeByUrl(value);
+      const directUrl = normalizeYouTubeUrl(value);
+      if (directUrl) {
+        await loadLooperYouTubeByUrl(directUrl);
+        return;
+      }
+      showToast('Searching YouTube...');
+      const foundUrl = await searchYouTubeFirstVideoByTitle(value);
+      if (!foundUrl) {
+        showToast('No result found from title search. Try a direct YouTube link.');
+        return;
+      }
+      if (input) input.value = foundUrl;
+      showToast('Loaded first result from title search.', true);
+      await loadLooperYouTubeByUrl(foundUrl);
     };
 
     window.openLooperHistoryItem = async function(itemId) {
@@ -2359,6 +2687,7 @@ Drop back to 70 BPM for clean finish.`,
     function initLooperUi() {
       looperRepeatEnabled = false;
       looperABEnabled = false;
+      looperAppBackgroundEnabled = false;
       looperPointA = 0;
       looperPointB = 0;
       activeLooperHistoryId = '';
@@ -2376,11 +2705,17 @@ Drop back to 70 BPM for clean finish.`,
 
     window.openToolPage = function(tool, options = {}) {
       const { skipUrl = false, replaceUrl = false } = options || {};
+      if (tool !== 'looper' && !looperAppBackgroundEnabled && hasActiveLooperTrack()) {
+        stopLooperPlayback();
+      }
       activeToolPage = tool;
-      const pages = ['metronome', 'recorder', 'chords', 'chord-builder', 'songs', 'looper', 'ai-song'];
+      const pages = ['metronome', 'recorder', 'chords', 'chord-builder', 'guitar-tones', 'songs', 'looper', 'ai-song'];
       document.getElementById('tools-home-panel')?.classList.add('hidden');
       pages.forEach(page => {
-        document.getElementById(`tool-page-${page}`)?.classList.toggle('hidden', page !== tool);
+        const el = document.getElementById(`tool-page-${page}`);
+        if (!el) return;
+        if (page === tool) el.classList.remove('hidden');
+        else el.classList.add('hidden');
       });
       document.getElementById('tools-back-btn')?.classList.remove('hidden');
       const subtitle = document.getElementById('tools-header-subtitle');
@@ -2390,6 +2725,8 @@ Drop back to 70 BPM for clean finish.`,
           ? 'Save and replay short clips.'
           : tool === 'chord-builder'
             ? 'Add new chords to the database.'
+            : tool === 'guitar-tones'
+              ? 'Upload open-string samples and build dynamic guitar tones.'
             : tool === 'songs'
               ? 'Find a song quickly.'
               : tool === 'looper'
@@ -2398,8 +2735,12 @@ Drop back to 70 BPM for clean finish.`,
                 ? 'Generate a full song draft with Gemini.'
                 : 'Browse and hear the chord library.';
       if (tool === 'chord-builder') updateChordBuilderPreview();
-      if (tool === 'chord-builder') renderChordBuilderSampleUi();
       if (tool === 'chords') renderChordExplorer();
+      if (tool === 'guitar-tones') {
+        setGuitarToneEditorOpen(false);
+        renderGuitarToneEditorStatus();
+        renderGuitarToneProfilesList();
+      }
       if (tool === 'songs') renderToolSongsSearch(document.getElementById('tool-song-search')?.value || '');
       if (tool === 'looper') {
         refreshLooperUi();
@@ -2418,8 +2759,9 @@ Drop back to 70 BPM for clean finish.`,
       const { skipUrl = false, replaceUrl = false } = options || {};
       activeToolPage = 'home';
       document.getElementById('tools-home-panel')?.classList.remove('hidden');
-      ['metronome', 'recorder', 'chords', 'chord-builder', 'songs', 'looper', 'ai-song'].forEach(page => {
-        document.getElementById(`tool-page-${page}`)?.classList.add('hidden');
+      ['metronome', 'recorder', 'chords', 'chord-builder', 'guitar-tones', 'songs', 'looper', 'ai-song'].forEach(page => {
+        const el = document.getElementById(`tool-page-${page}`);
+        if (el) el.classList.add('hidden');
       });
       document.getElementById('tools-back-btn')?.classList.add('hidden');
       const subtitle = document.getElementById('tools-header-subtitle');
@@ -2623,6 +2965,111 @@ Rules:
       return 'Trainings';
     }
 
+    function normalizeRecentCourses(entries = []) {
+      if (!Array.isArray(entries)) return [];
+      return entries
+        .map(item => ({
+          articleId: String(item?.articleId || '').trim(),
+          positionSec: Math.max(0, Math.floor(Number(item?.positionSec || 0))),
+          updatedAt: Number(item?.updatedAt || 0) || 0
+        }))
+        .filter(item => !!item.articleId);
+    }
+
+    function getRecentCourseEntry(articleId) {
+      const targetId = String(articleId || '').trim();
+      if (!targetId) return null;
+      const list = normalizeRecentCourses(userSettings.recentCourses || []);
+      return list.find(item => item.articleId === targetId) || null;
+    }
+
+    async function rememberRecentCourseProgress(articleId, positionSec = 0) {
+      const targetId = String(articleId || '').trim();
+      if (!targetId) return;
+      const safeSec = Math.max(0, Math.floor(Number(positionSec || 0)));
+      const now = Date.now();
+      const current = normalizeRecentCourses(userSettings.recentCourses || []);
+      const next = [{ articleId: targetId, positionSec: safeSec, updatedAt: now }, ...current.filter(item => item.articleId !== targetId)].slice(0, 20);
+      await persistUserSettingsPartial({ recentCourses: next });
+      renderHomeDashboard();
+    }
+
+    function stopTrainingVideoSync() {
+      if (trainingVideoSyncTimer) {
+        clearInterval(trainingVideoSyncTimer);
+        trainingVideoSyncTimer = null;
+      }
+    }
+
+    async function saveCurrentTrainingVideoProgress() {
+      if (!trainingVideoPlayer || !currentTrainingArticle || currentTrainingArticle.category !== 'courses') return;
+      let currentSec = 0;
+      try {
+        currentSec = Math.max(0, Math.floor(Number(trainingVideoPlayer.getCurrentTime?.() || 0)));
+      } catch {
+        currentSec = 0;
+      }
+      if (currentSec <= 0) return;
+      if (Math.abs(currentSec - trainingVideoLastSavedSec) < 2) return;
+      trainingVideoLastSavedSec = currentSec;
+      await rememberRecentCourseProgress(currentTrainingArticle.id, currentSec);
+    }
+
+    function stopTrainingVideoPlayer() {
+      stopTrainingVideoSync();
+      if (trainingVideoPlayer) {
+        try { trainingVideoPlayer.destroy(); } catch {}
+        trainingVideoPlayer = null;
+      }
+      trainingVideoLastSavedSec = -1;
+      const holder = document.getElementById('training-detail-video-player');
+      if (holder) holder.innerHTML = '';
+    }
+
+    async function startTrainingVideoPlayer(article, startAtSec = 0) {
+      if (!article?.youtubeUrl) return;
+      const videoId = getYouTubeVideoId(article.youtubeUrl);
+      if (!videoId) return;
+      await ensureYouTubeIframeApi();
+      stopTrainingVideoPlayer();
+      trainingVideoPlayer = new window.YT.Player('training-detail-video-player', {
+        videoId,
+        playerVars: {
+          playsinline: 1,
+          rel: 0,
+          modestbranding: 1,
+          start: Math.max(0, Math.floor(Number(startAtSec || 0)))
+        },
+        events: {
+          onReady: async () => {
+            if (startAtSec > 0) {
+              try { trainingVideoPlayer.seekTo(startAtSec, true); } catch {}
+            }
+          },
+          onStateChange: async (event) => {
+            if (!window.YT?.PlayerState) return;
+            if (event.data === window.YT.PlayerState.PLAYING) {
+              if (article.category === 'courses') {
+                await rememberRecentCourseProgress(article.id, Math.max(0, Math.floor(Number(trainingVideoPlayer.getCurrentTime?.() || 0))));
+              }
+              stopTrainingVideoSync();
+              if (article.category === 'courses') {
+                trainingVideoSyncTimer = setInterval(() => {
+                  saveCurrentTrainingVideoProgress().catch(() => {});
+                }, 2500);
+              }
+            } else if (event.data === window.YT.PlayerState.PAUSED) {
+              if (article.category === 'courses') await saveCurrentTrainingVideoProgress();
+              stopTrainingVideoSync();
+            } else if (event.data === window.YT.PlayerState.ENDED) {
+              if (article.category === 'courses') await rememberRecentCourseProgress(article.id, 0);
+              stopTrainingVideoSync();
+            }
+          }
+        }
+      });
+    }
+
     function refreshTrainingAddButtons() {
       const canEdit = !!user && !user.isAnonymous;
       ['trainings', 'dailies', 'courses'].forEach(category => {
@@ -2750,6 +3197,10 @@ Rules:
 
     window.openTrainingPage = function(page, options = {}) {
       const { skipUrl = false, replaceUrl = false } = options || {};
+      if (page !== 'article-detail') {
+        saveCurrentTrainingVideoProgress().catch(() => {});
+        stopTrainingVideoPlayer();
+      }
       activeTrainingArticleCategory = ['trainings', 'dailies', 'courses'].includes(page) ? page : activeTrainingArticleCategory;
       document.getElementById('training-home-panel')?.classList.add('hidden');
       ['trainings', 'dailies', 'courses', 'article-detail', 'article-editor', 'strumming'].forEach(id => {
@@ -2774,6 +3225,8 @@ Rules:
 
     window.showTrainingHome = function(options = {}) {
       const { skipUrl = false, replaceUrl = false } = options || {};
+      saveCurrentTrainingVideoProgress().catch(() => {});
+      stopTrainingVideoPlayer();
       document.getElementById('training-home-panel')?.classList.remove('hidden');
       ['trainings', 'dailies', 'courses', 'article-detail', 'article-editor', 'strumming'].forEach(id => {
         document.getElementById(`training-page-${id}`)?.classList.add('hidden');
@@ -2811,18 +3264,17 @@ Rules:
       }
       const videoWrap = document.getElementById('training-detail-video-wrap');
       const videoLink = document.getElementById('training-detail-video-link');
-      const videoIframe = document.getElementById('training-detail-video-iframe');
       if (article.articleType === 'video' && article.youtubeUrl) {
-        const embed = getYouTubeEmbedUrl(article.youtubeUrl);
-        if (videoIframe) videoIframe.src = embed || '';
         if (videoLink) {
           videoLink.href = article.youtubeUrl;
           videoLink.innerText = 'Open on YouTube';
         }
         videoWrap?.classList.remove('hidden');
+        const savedEntry = getRecentCourseEntry(article.id);
+        await startTrainingVideoPlayer(article, savedEntry?.positionSec || 0);
       } else {
         videoWrap?.classList.add('hidden');
-        if (videoIframe) videoIframe.src = '';
+        stopTrainingVideoPlayer();
         if (videoLink) {
           videoLink.href = '#';
           videoLink.innerText = '';
@@ -3277,7 +3729,7 @@ Rules:
       updateAddPatternPreviewButtons();
       await playAddPatternPulse(patternText[0] || '.', true, true);
       if ((patternText[0] || '.') !== '.' && (patternText[0] || '.') !== 'X' && previewChord) {
-        playChordPreview(previewChord, patternText[0] || 'D');
+        playChordPreview(previewChord, patternText[0] || 'D', document.getElementById('add-capo')?.value || 'No capo');
       }
       addPatternPreviewStepIndex = 1;
       addPatternPreviewTimer = setInterval(() => {
@@ -3291,7 +3743,7 @@ Rules:
         const char = patternText[idx] || '.';
         playAddPatternPulse(char, isBarStart, isBeatStart);
         if (char !== '.' && char !== 'X' && previewChord) {
-          playChordPreview(previewChord, char);
+          playChordPreview(previewChord, char, document.getElementById('add-capo')?.value || 'No capo');
         }
         addPatternPreviewStepIndex += 1;
       }, slotMs);
@@ -3360,10 +3812,19 @@ Rules:
       `;
     }
 
+    function normalizeChordLookupName(chordName) {
+      return String(chordName || '')
+        .replace(/[<>()[\]{}]/g, '')
+        .replace(/\s+/g, '')
+        .trim();
+    }
+
     function getChordDiagramData(chordName) {
-      const normalized = String(chordName || '').trim();
+      const normalized = normalizeChordLookupName(chordName);
       if (CHORD_LIBRARY[normalized]) return CHORD_LIBRARY[normalized];
-      const fallback = normalized.replace(/maj7|maj|7|sus4|sus2|sus|add\d+|dim|aug/g, '');
+      const slashRoot = normalized.split('/')[0];
+      if (CHORD_LIBRARY[slashRoot]) return CHORD_LIBRARY[slashRoot];
+      const fallback = slashRoot.replace(/maj7|maj|7|sus4|sus2|sus|add\d+|dim|aug/g, '');
       return CHORD_LIBRARY[fallback] || null;
     }
 
@@ -3461,7 +3922,28 @@ Rules:
       return NOTE_NAMES[(idx + semitones + 12) % 12];
     }
 
+    function getChordVoicingData(chordName, capoOffset = 0) {
+      const shape = getChordDiagramData(chordName);
+      if (!shape?.strings?.length) return [];
+      const voices = [];
+      shape.strings.forEach((fretValue, stringIdx) => {
+        if (String(fretValue).toLowerCase() === 'x') return;
+        const fret = Math.max(0, Number(fretValue) || 0);
+        const semitones = fret + Math.max(0, Number(capoOffset) || 0);
+        const midi = GUITAR_OPEN_STRING_MIDI[stringIdx] + semitones;
+        const freq = 440 * Math.pow(2, (midi - 69) / 12);
+        voices.push({
+          stringIdx,
+          semitones,
+          freq
+        });
+      });
+      return voices;
+    }
+
     function chordToFrequencies(chordName, capoOffset = 0) {
+      const voiced = getChordVoicingData(chordName, capoOffset).map(item => item.freq);
+      if (voiced.length) return voiced;
       const match = String(chordName || '').trim().match(/^([A-G][#b]?)(.*)$/);
       if (!match) return [];
       const baseRoot = transposeNoteName(match[1], capoOffset);
@@ -3483,6 +3965,81 @@ Rules:
       return intervals.map(interval => 440 * Math.pow(2, ((midiBase + interval) - 69) / 12));
     }
 
+    async function getGuitarToneStringDataUrl(profileId, stringKey) {
+      if (!profileId || !stringKey) return '';
+      const cacheKey = getToneSampleCacheKey(profileId, stringKey);
+      if (guitarToneSampleLoadPromises.has(cacheKey)) {
+        return guitarToneSampleLoadPromises.get(cacheKey);
+      }
+      const promise = repository.loadGuitarToneStringData(profileId, stringKey)
+        .then(dataUrl => {
+          const value = String(dataUrl || '');
+          if (!value) guitarToneSampleLoadPromises.delete(cacheKey);
+          return value;
+        })
+        .catch(err => {
+          console.error('Load guitar tone string failed', err);
+          guitarToneSampleLoadPromises.delete(cacheKey);
+          return '';
+        });
+      guitarToneSampleLoadPromises.set(cacheKey, promise);
+      return promise;
+    }
+
+    function stopActiveChordTonePlayers() {
+      if (activeChordToneTimers.length) {
+        activeChordToneTimers.forEach(timerId => clearTimeout(timerId));
+        activeChordToneTimers = [];
+      }
+      if (!activeChordToneAudios.length) return;
+      activeChordToneAudios.forEach(audio => {
+        try {
+          audio.pause();
+          audio.currentTime = 0;
+        } catch {}
+      });
+      activeChordToneAudios = [];
+    }
+
+    async function playChordFromSelectedGuitarTone(chordName, direction = 'D', capoOffset = 0) {
+      const profile = getActiveGuitarToneProfile();
+      if (!profile?.id) return false;
+      const voices = getChordVoicingData(chordName, capoOffset);
+      if (!voices.length) return false;
+      const normalizedDirection = strumTypeToRaw(direction);
+      const orderedVoices = normalizedDirection === 'U' ? [...voices].reverse() : voices;
+      const audioPayload = await Promise.all(orderedVoices.map(async voice => {
+        const stringKey = GUITAR_TONE_STRING_KEYS[voice.stringIdx];
+        if (!profile.availableStrings?.[stringKey]) return null;
+        const dataUrl = await getGuitarToneStringDataUrl(profile.id, stringKey);
+        if (!dataUrl) return null;
+        return { voice, dataUrl };
+      }));
+      if (!audioPayload.length || audioPayload.some(item => !item)) return false;
+      stopActiveChordTonePlayers();
+      audioPayload.forEach((item, idx) => {
+        const audio = new Audio(item.dataUrl);
+        audio.preload = 'auto';
+        audio.currentTime = 0;
+        audio.volume = 0.92;
+        audio.playbackRate = Math.max(0.35, Math.min(4, Math.pow(2, item.voice.semitones / 12)));
+        audio.preservesPitch = false;
+        audio.mozPreservesPitch = false;
+        audio.webkitPreservesPitch = false;
+        activeChordToneAudios.push(audio);
+        audio.onended = () => {
+          activeChordToneAudios = activeChordToneAudios.filter(entry => entry !== audio);
+        };
+        const timer = setTimeout(() => {
+          audio.play().catch(() => {
+            activeChordToneAudios = activeChordToneAudios.filter(entry => entry !== audio);
+          });
+        }, idx * 22);
+        activeChordToneTimers.push(timer);
+      });
+      return true;
+    }
+
     async function ensureAudioReady() {
       if (!audioCtx) audioCtx = new AudioContext();
       if (audioCtx.state === 'suspended') {
@@ -3492,7 +4049,7 @@ Rules:
     }
 
     function stopActiveChordPreview(release = 0.05) {
-      stopActiveChordSamples();
+      stopActiveChordTonePlayers();
       if (!audioCtx || !activeChordVoices.length) return;
       const now = audioCtx.currentTime;
       activeChordVoices.forEach(({ osc, gain }) => {
@@ -3506,19 +4063,17 @@ Rules:
       activeChordVoices = [];
     }
 
-    async function playChordPreview(chordName, direction = 'D') {
+    async function playChordPreview(chordName, direction = 'D', capoLabel = null) {
       if (!practiceChordAudioEnabled || !chordName) return;
-      const sampleDataUrl = await getChordSampleDataUrl(chordName);
-      if (sampleDataUrl) {
-        const samplePlayed = await playChordSampleData(sampleDataUrl);
-        if (samplePlayed) return;
-      }
+      const capoOffset = getCapoOffset(capoLabel || currentSong?.capo || 'No capo');
+      const tonePlayed = await playChordFromSelectedGuitarTone(chordName, direction, capoOffset);
+      if (tonePlayed) return;
       const ctx = await ensureAudioReady();
       if (!ctx) return;
-      const freqs = chordToFrequencies(chordName, getCapoOffset(currentSong?.capo || 'No capo'));
+      const freqs = chordToFrequencies(chordName, capoOffset);
       if (!freqs.length) return;
       const now = ctx.currentTime;
-      const ordered = direction === 'U' ? [...freqs].reverse() : freqs;
+      const ordered = strumTypeToRaw(direction) === 'U' ? [...freqs].reverse() : freqs;
       activeChordVoices = [];
       ordered.forEach((freq, idx) => {
         const osc = ctx.createOscillator();
@@ -3859,12 +4414,19 @@ Rules:
       if (id === 'training') showTrainingHome();
       if (id !== 'tuner') stopTuner();
       if (id !== 'tools') {
+        if (!looperAppBackgroundEnabled && hasActiveLooperTrack()) {
+          stopLooperPlayback();
+        }
         stopStandaloneMetronome();
         if (toolRecorder && toolRecorder.state === 'recording') toolRecorder.stop();
         else stopToolRecordingStream();
         updateToolRecordingUI(false);
       }
       if (id !== 'training') stopTrainingPlayback();
+      if (id !== 'training') {
+        saveCurrentTrainingVideoProgress().catch(() => {});
+        stopTrainingVideoPlayer();
+      }
       if (id !== 'add-song') stopAddPatternPreview();
       if (!skipUrl && !isHandlingRouteChange) {
         pushUrlPath(pathOverride || buildPathForView(id), { replace: replaceUrl });
@@ -3902,7 +4464,7 @@ Rules:
         if (parts[0] === 'tools') {
           navigate('tools', { skipUrl: true });
           const tool = decodeURIComponent(parts[1] || '');
-          const allowed = new Set(['metronome', 'recorder', 'chords', 'chord-builder', 'songs', 'looper', 'ai-song']);
+          const allowed = new Set(['metronome', 'recorder', 'chords', 'chord-builder', 'guitar-tones', 'songs', 'looper', 'ai-song']);
           if (tool && allowed.has(tool)) openToolPage(tool, { skipUrl: true });
           else showToolsHome({ skipUrl: true });
           return;
@@ -4024,6 +4586,8 @@ Rules:
       if (modalSlider) modalSlider.value = size;
       if (settingsLabel) settingsLabel.innerText = `${size} px`;
       if (modalLabel) modalLabel.innerText = `${size} px`;
+      renderGuitarToneSettingsOptions();
+      renderGuitarToneProfilesList();
       renderProfileSummary();
     }
 
@@ -4054,9 +4618,11 @@ Rules:
     window.saveSettings = async function(source = 'page') {
       const sliderId = source === 'modal' ? 'modal-text-size' : 'settings-text-size';
       const size = parseInt(document.getElementById(sliderId).value, 10) || DEFAULT_SETTINGS.practiceTextSize;
+      const selectedTone = String(document.getElementById('settings-guitar-tone')?.value || '').trim();
       const nextSettings = {
         ...userSettings,
-        practiceTextSize: size
+        practiceTextSize: size,
+        activeGuitarToneId: selectedTone
       };
       applyUserSettings(nextSettings);
       if (!user || user.isAnonymous) {
@@ -4437,6 +5003,50 @@ Rules:
       };
     }
 
+    function buildContinueCourseCard(article, positionSec = 0) {
+      const levelLabel = article.level === 'advance' ? 'Advance' : (article.level === 'medium' ? 'Medium' : 'Beginner');
+      const safePos = Math.max(0, Math.floor(Number(positionSec || 0)));
+      const image = article.imageUrl
+        ? `<img src="${escapeHtml(article.imageUrl)}" alt="" class="w-16 h-16 rounded-xl object-cover border border-gray-700">`
+        : `<div class="w-16 h-16 rounded-xl border border-gray-700 bg-black/40 flex items-center justify-center text-primary"><i class="fas fa-play"></i></div>`;
+      return `
+        <button onclick="openCourseFromHome('${article.id}')" class="w-full text-left tool-nav-card btn-press">
+          <div class="flex items-start gap-3">
+            ${image}
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 mb-1">
+                <span class="text-[10px] uppercase tracking-[0.2em] text-gray-400">${levelLabel}</span>
+                <span class="text-[10px] uppercase tracking-[0.2em] text-gray-500">•</span>
+                <span class="text-[10px] uppercase tracking-[0.2em] text-gray-400">Video</span>
+              </div>
+              <p class="font-bold text-white truncate">${escapeHtml(article.title || 'Untitled')}</p>
+              <p class="text-xs text-gray-400 mt-1 line-clamp-2">${escapeHtml(article.description || 'Continue where you left off.')}</p>
+              <p class="text-[11px] text-primary mt-2">Continue at ${formatLooperTime(safePos)}</p>
+            </div>
+            <i class="fas fa-chevron-right text-primary mt-1"></i>
+          </div>
+        </button>
+      `;
+    }
+
+    window.openCourseFromHome = async function(articleId) {
+      const article = trainingArticles.find(item => item.id === articleId);
+      if (!article) {
+        showToast('Course not found.');
+        return;
+      }
+      navigate('training', { skipUrl: true });
+      await openTrainingArticleDetail(articleId, { skipUrl: true });
+      pushUrlPath(`/training/${encodeURIComponent(article.category || 'courses')}/${encodeURIComponent(articleId)}`);
+    };
+
+    window.toggleHomeSection = function(sectionKey) {
+      const key = String(sectionKey || '').trim();
+      if (!['favorites', 'practice', 'courses'].includes(key)) return;
+      homeSectionExpanded[key] = !homeSectionExpanded[key];
+      renderHomeDashboard();
+    };
+
     function buildSongDashboardCard(song, options = {}) {
       const stepProgress = userProgress && currentSong?.id === song.id ? userProgress : null;
       const progress = options.progress || stepProgress || { step1: { p: 0 }, step2: { p: 0 }, step3: { p: 0 } };
@@ -4487,11 +5097,43 @@ Rules:
       const recentSongs = recentEntries
         .map(entry => ({ song: songs.find(song => song.id === entry.songId), progress: entry.progress }))
         .filter(entry => entry.song);
+      const recentCourses = normalizeRecentCourses(userSettings.recentCourses || [])
+        .map(entry => ({
+          article: trainingArticles.find(item => item.id === entry.articleId && item.category === 'courses'),
+          positionSec: entry.positionSec
+        }))
+        .filter(item => !!item.article);
 
       const favoritesContainer = document.getElementById('home-favorites-list');
       const recentContainer = document.getElementById('home-recent-practice-list');
-      if (favoritesContainer) favoritesContainer.innerHTML = favorites.length ? favorites.map(song => buildSongDashboardCard(song)).join('') : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No favorite songs yet.</div>`;
-      if (recentContainer) recentContainer.innerHTML = recentSongs.length ? recentSongs.map(({ song, progress }) => buildSongDashboardCard(song, { progress })).join('') : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No started practice songs yet.</div>`;
+      const coursesContainer = document.getElementById('home-continue-courses-list');
+      const favoritesShowAllBtn = document.getElementById('home-favorites-show-all');
+      const practiceShowAllBtn = document.getElementById('home-practice-show-all');
+      const coursesShowAllBtn = document.getElementById('home-courses-show-all');
+
+      const favoritesVisible = homeSectionExpanded.favorites ? favorites : favorites.slice(0, 5);
+      const practiceVisible = homeSectionExpanded.practice ? recentSongs : recentSongs.slice(0, 5);
+      const coursesVisible = homeSectionExpanded.courses ? recentCourses : recentCourses.slice(0, 5);
+
+      if (favoritesShowAllBtn) {
+        const hasMore = favorites.length > 5;
+        favoritesShowAllBtn.classList.toggle('hidden', !hasMore);
+        favoritesShowAllBtn.innerText = homeSectionExpanded.favorites ? 'Show less' : 'Show all';
+      }
+      if (practiceShowAllBtn) {
+        const hasMore = recentSongs.length > 5;
+        practiceShowAllBtn.classList.toggle('hidden', !hasMore);
+        practiceShowAllBtn.innerText = homeSectionExpanded.practice ? 'Show less' : 'Show all';
+      }
+      if (coursesShowAllBtn) {
+        const hasMore = recentCourses.length > 5;
+        coursesShowAllBtn.classList.toggle('hidden', !hasMore);
+        coursesShowAllBtn.innerText = homeSectionExpanded.courses ? 'Show less' : 'Show all';
+      }
+
+      if (favoritesContainer) favoritesContainer.innerHTML = favorites.length ? favoritesVisible.map(song => buildSongDashboardCard(song)).join('') : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No favorite songs yet.</div>`;
+      if (recentContainer) recentContainer.innerHTML = recentSongs.length ? practiceVisible.map(({ song, progress }) => buildSongDashboardCard(song, { progress })).join('') : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No started practice songs yet.</div>`;
+      if (coursesContainer) coursesContainer.innerHTML = recentCourses.length ? coursesVisible.map(({ article, positionSec }) => buildContinueCourseCard(article, positionSec)).join('') : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No started courses yet.</div>`;
 
       const practiceShortcuts = document.getElementById('training-practice-shortcuts');
       if (practiceShortcuts) practiceShortcuts.innerHTML = recentSongs.length ? recentSongs.slice(0, 4).map(({ song, progress }) => buildSongDashboardCard(song, { progress })).join('') : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">Start from a song on Home to see it here.</div>`;
@@ -5721,6 +6363,9 @@ Rules:
       renderToolRecordings();
       setToolRecordingVizIdle();
       renderChordExplorer();
+      resetGuitarToneEditor();
+      setGuitarToneEditorOpen(false);
+      renderGuitarToneSettingsOptions();
       initLooperUi();
       renderToolSongsSearch();
       renderBuildInfo();
@@ -5731,6 +6376,7 @@ Rules:
       renderStandaloneMetronomeVisual();
       document.addEventListener('visibilitychange', () => {
         if (document.hidden) {
+          saveCurrentTrainingVideoProgress().catch(() => {});
           if (activeLooperHistoryId) saveActiveLooperStateNow(false).catch(() => {});
           stopTuner();
           stopStandaloneMetronome();
