@@ -62,6 +62,12 @@ import { FirestoreRepository } from './modules/repository.js';
     let toolRecordingSource = null;
     let toolRecordingVizAnimationId = null;
     let selectedChordReference = 'C';
+    let chordBuilderEditingId = '';
+    let chordBuilderSampleDataUrl = '';
+    let chordBuilderSampleFileName = '';
+    let chordBuilderSampleRemoved = false;
+    let chordSampleLoadPromises = new Map();
+    let activeChordSampleAudios = [];
     let activeToolPage = 'home';
     let looperMode = 'none';
     let looperObjectUrl = '';
@@ -110,6 +116,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const METRONOME_STORAGE_KEY = 'guitartrainer.metronome.settings';
     const GEMINI_API_KEY_STORAGE_KEY = 'guitartrainer.gemini.apiKey';
     const LOOPER_MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+    const CHORD_SAMPLE_MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
     const APP_BUILD = {
       version: 'v2026.04.06.3',
     };
@@ -728,12 +735,16 @@ Drop back to 70 BPM for clean finish.`,
         id: raw.id || '',
         name,
         nameKey: normalizeChordNameKey(name),
+        createdBy: raw.createdBy || '',
         baseFret: Math.max(1, Number(raw.baseFret) || 1),
         strings,
         fingers: Array.isArray(raw.fingers) && raw.fingers.length === 6
           ? raw.fingers.map(v => Number(v) || 0)
           : strings.map(v => (v === 'x' || v === 0 ? 0 : 1))
       };
+      normalized.hasSample = !!raw.hasSample;
+      normalized.sampleDataUrl = typeof raw.sampleDataUrl === 'string' ? raw.sampleDataUrl : '';
+      normalized.sampleUpdatedAt = Number(raw.sampleUpdatedAt || 0) || 0;
       normalized.shapeKey = normalizeChordShapeKey(normalized.strings);
       return normalized;
     }
@@ -1644,10 +1655,12 @@ Drop back to 70 BPM for clean finish.`,
         const seedDefaults = user && !user.isAnonymous ? toDefaultChordEntries() : [];
         const raw = await repository.loadChords(seedDefaults);
         chordEntries = raw.map(normalizeChordEntry).filter(entry => entry.name && entry.nameKey);
+        chordSampleLoadPromises.clear();
         refreshChordLibraryFromEntries(chordEntries);
       } catch (e) {
         console.error("Failed to load chord library", e);
         chordEntries = toDefaultChordEntries().map(normalizeChordEntry);
+        chordSampleLoadPromises.clear();
         refreshChordLibraryFromEntries(chordEntries);
       }
     }
@@ -1841,6 +1854,136 @@ Drop back to 70 BPM for clean finish.`,
       await playChordPreview(selectedChordReference, 'D', 'No capo');
     };
 
+    function getSelectedChordEntry() {
+      const key = normalizeChordNameKey(selectedChordReference);
+      return chordEntries.find(entry => entry.nameKey === key) || null;
+    }
+
+    function renderChordBuilderSampleUi() {
+      const label = document.getElementById('tool-chord-sample-label');
+      const playBtn = document.getElementById('btn-tool-chord-sample-play');
+      const clearBtn = document.getElementById('btn-tool-chord-sample-clear');
+      if (label) {
+        label.innerText = chordBuilderSampleDataUrl
+          ? `Sample ready${chordBuilderSampleFileName ? `: ${chordBuilderSampleFileName}` : ''}`
+          : (chordBuilderEditingId ? 'No sample (existing sample will be removed if you save).' : 'No sample selected.');
+      }
+      if (playBtn) playBtn.classList.toggle('opacity-40', !chordBuilderSampleDataUrl);
+      if (playBtn) playBtn.classList.toggle('pointer-events-none', !chordBuilderSampleDataUrl);
+      if (clearBtn) clearBtn.classList.toggle('opacity-40', !chordBuilderSampleDataUrl && !chordBuilderEditingId);
+      if (clearBtn) clearBtn.classList.toggle('pointer-events-none', !chordBuilderSampleDataUrl && !chordBuilderEditingId);
+    }
+
+    async function getChordSampleDataUrl(chordName) {
+      const key = normalizeChordNameKey(chordName);
+      const entry = chordEntries.find(item => item.nameKey === key);
+      if (!entry?.id) return '';
+      if (entry.sampleDataUrl) return entry.sampleDataUrl;
+      if (!entry.hasSample) return '';
+      if (chordSampleLoadPromises.has(entry.id)) return chordSampleLoadPromises.get(entry.id);
+      const promise = repository.loadChordSampleData(entry.id)
+        .then(dataUrl => {
+          entry.sampleDataUrl = String(dataUrl || '');
+          return entry.sampleDataUrl;
+        })
+        .catch(err => {
+          console.error('Load chord sample failed', err);
+          return '';
+        })
+        .finally(() => {
+          chordSampleLoadPromises.delete(entry.id);
+        });
+      chordSampleLoadPromises.set(entry.id, promise);
+      return promise;
+    }
+
+    async function playChordSampleData(dataUrl) {
+      const src = String(dataUrl || '').trim();
+      if (!src) return false;
+      const audio = new Audio(src);
+      audio.preload = 'auto';
+      audio.currentTime = 0;
+      audio.volume = 1;
+      activeChordSampleAudios.push(audio);
+      audio.onended = () => {
+        activeChordSampleAudios = activeChordSampleAudios.filter(item => item !== audio);
+      };
+      try {
+        await audio.play();
+        return true;
+      } catch {
+        activeChordSampleAudios = activeChordSampleAudios.filter(item => item !== audio);
+        return false;
+      }
+    }
+
+    function stopActiveChordSamples() {
+      if (!activeChordSampleAudios.length) return;
+      activeChordSampleAudios.forEach(audio => {
+        try {
+          audio.pause();
+          audio.currentTime = 0;
+        } catch {}
+      });
+      activeChordSampleAudios = [];
+    }
+
+    window.handleChordSampleFileSelected = async function(event) {
+      const file = event?.target?.files?.[0];
+      if (!file) return;
+      if (file.size > CHORD_SAMPLE_MAX_UPLOAD_BYTES) {
+        showToast(`Chord sample too large. Max ${formatBytes(CHORD_SAMPLE_MAX_UPLOAD_BYTES)}.`);
+        event.target.value = '';
+        return;
+      }
+      try {
+        chordBuilderSampleDataUrl = await readFileAsDataUrl(file);
+        chordBuilderSampleFileName = String(file.name || '').trim();
+        chordBuilderSampleRemoved = false;
+        renderChordBuilderSampleUi();
+      } catch (err) {
+        console.error('Read chord sample failed', err);
+        showToast('Could not read sample file.');
+      }
+    };
+
+    window.playChordBuilderSamplePreview = async function() {
+      if (!chordBuilderSampleDataUrl) return;
+      await playChordSampleData(chordBuilderSampleDataUrl);
+    };
+
+    window.clearChordBuilderSample = function() {
+      chordBuilderSampleDataUrl = '';
+      chordBuilderSampleFileName = '';
+      chordBuilderSampleRemoved = true;
+      const input = document.getElementById('tool-chord-sample-file');
+      if (input) input.value = '';
+      renderChordBuilderSampleUi();
+    };
+
+    window.loadSelectedChordToBuilder = async function() {
+      const entry = getSelectedChordEntry();
+      if (!entry) {
+        showToast('Select a chord first.');
+        return;
+      }
+      chordBuilderEditingId = entry.id || '';
+      const nameEl = document.getElementById('tool-chord-name');
+      if (nameEl) nameEl.value = entry.name || '';
+      const values = entry.strings || ['x', 'x', 'x', 'x', 'x', 'x'];
+      ['tool-chord-string-e6', 'tool-chord-string-a', 'tool-chord-string-d', 'tool-chord-string-g', 'tool-chord-string-b', 'tool-chord-string-e1'].forEach((id, idx) => {
+        const el = document.getElementById(id);
+        if (el) el.value = String(values[idx]);
+      });
+      chordBuilderSampleRemoved = false;
+      chordBuilderSampleFileName = '';
+      chordBuilderSampleDataUrl = await getChordSampleDataUrl(entry.name);
+      updateChordBuilderPreview();
+      renderChordBuilderSampleUi();
+      openToolPage('chord-builder');
+      showToast(`Loaded ${entry.name} for editing.`, true);
+    };
+
     function getChordBuilderStrings() {
       const ids = ['tool-chord-string-e6', 'tool-chord-string-a', 'tool-chord-string-d', 'tool-chord-string-g', 'tool-chord-string-b', 'tool-chord-string-e1'];
       return ids.map(id => {
@@ -1863,13 +2006,20 @@ Drop back to 70 BPM for clean finish.`,
     }
 
     function resetChordBuilder() {
+      chordBuilderEditingId = '';
+      chordBuilderSampleDataUrl = '';
+      chordBuilderSampleFileName = '';
+      chordBuilderSampleRemoved = false;
       const nameEl = document.getElementById('tool-chord-name');
       if (nameEl) nameEl.value = '';
+      const sampleEl = document.getElementById('tool-chord-sample-file');
+      if (sampleEl) sampleEl.value = '';
       ['tool-chord-string-e6', 'tool-chord-string-a', 'tool-chord-string-d', 'tool-chord-string-g', 'tool-chord-string-b', 'tool-chord-string-e1'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = 'x';
       });
       updateChordBuilderPreview();
+      renderChordBuilderSampleUi();
     }
 
     window.updateChordBuilderPreview = updateChordBuilderPreview;
@@ -1895,16 +2045,25 @@ Drop back to 70 BPM for clean finish.`,
       const shapeKey = normalizeChordShapeKey(strings);
       const duplicateByName = chordEntries.find(entry => entry.nameKey === nameKey);
       const duplicateByShape = chordEntries.find(entry => entry.shapeKey === shapeKey);
-      if (duplicateByName && duplicateByShape) {
+      const isEditingExisting = !!chordBuilderEditingId;
+      const editingEntry = isEditingExisting ? chordEntries.find(entry => entry.id === chordBuilderEditingId) : null;
+      const duplicateByNameIsOther = duplicateByName && duplicateByName.id !== chordBuilderEditingId;
+      const duplicateByShapeIsOther = duplicateByShape && duplicateByShape.id !== chordBuilderEditingId;
+      if (duplicateByNameIsOther && duplicateByShapeIsOther) {
         showToast(`Already exists: name "${duplicateByName.name}" and shape match.`);
         return;
       }
-      if (duplicateByName) {
+      if (duplicateByNameIsOther) {
         showToast(`Chord name "${duplicateByName.name}" already exists.`);
         return;
       }
-      if (duplicateByShape) {
+      if (duplicateByShapeIsOther) {
         showToast(`Chord shape already exists as "${duplicateByShape.name}".`);
+        return;
+      }
+      const targetEntry = editingEntry || duplicateByName || null;
+      if (targetEntry?.createdBy && targetEntry.createdBy !== user.uid) {
+        showToast("You can only edit chords you created.");
         return;
       }
       const minFret = strings.filter(v => typeof v === 'number' && v > 0).reduce((min, v) => Math.min(min, v), Infinity);
@@ -1914,16 +2073,26 @@ Drop back to 70 BPM for clean finish.`,
         baseFret,
         strings,
         fingers: strings.map(v => (v === 'x' || v === 0 ? 0 : 1)),
-        createdAt: Date.now(),
-        createdBy: user.uid
+        createdAt: targetEntry?.createdAt || Date.now(),
+        createdBy: targetEntry?.createdBy || user.uid,
+        hasSample: !!(chordBuilderSampleDataUrl || (targetEntry?.hasSample && !chordBuilderSampleRemoved)),
+        sampleUpdatedAt: chordBuilderSampleDataUrl ? Date.now() : (targetEntry?.sampleUpdatedAt || 0)
       };
       try {
-        await repository.saveChord(chordPayload);
-        chordEntries.push(normalizeChordEntry(chordPayload));
-        refreshChordLibraryFromEntries(chordEntries);
+        const chordId = await repository.saveChord(chordPayload, targetEntry?.id || null);
+        if (chordBuilderSampleDataUrl) {
+          await repository.saveChordSampleData(chordId, chordBuilderSampleDataUrl);
+          chordPayload.hasSample = true;
+          chordPayload.sampleUpdatedAt = Date.now();
+        } else if (targetEntry?.hasSample && chordBuilderSampleRemoved) {
+          await repository.deleteChordSampleData(chordId);
+          chordPayload.hasSample = false;
+          chordPayload.sampleUpdatedAt = Date.now();
+        }
+        await loadChordLibraryData();
         renderChordExplorer();
         resetChordBuilder();
-        showToast("Chord added to library.", true);
+        showToast(targetEntry ? "Chord updated." : "Chord added to library.", true);
       } catch (e) {
         console.error("Save chord failed", e);
         showToast("Could not save chord.");
@@ -2229,6 +2398,7 @@ Drop back to 70 BPM for clean finish.`,
                 ? 'Generate a full song draft with Gemini.'
                 : 'Browse and hear the chord library.';
       if (tool === 'chord-builder') updateChordBuilderPreview();
+      if (tool === 'chord-builder') renderChordBuilderSampleUi();
       if (tool === 'chords') renderChordExplorer();
       if (tool === 'songs') renderToolSongsSearch(document.getElementById('tool-song-search')?.value || '');
       if (tool === 'looper') {
@@ -3078,6 +3248,12 @@ Rules:
       osc.stop(now + decay + 0.01);
     }
 
+    function getFirstChordFromAddEditor() {
+      const rawText = document.getElementById('add-chords-text')?.value || '';
+      const parsed = parseRawText(rawText, 4);
+      return parsed?.flatChords?.[0]?.chord || '';
+    }
+
     window.toggleAddPatternPreview = async function(entryId) {
       if (addPatternPreviewEntryId === entryId) {
         stopAddPatternPreview();
@@ -3093,12 +3269,16 @@ Rules:
       const slotMs = (60 / bpm) * 1000 / subdivisionsPerBeat;
       const totalSlots = getPatternSlotCount(beatsPerBar, subdivisionsPerBeat);
       const loops = 2;
+      const previewChord = getFirstChordFromAddEditor();
       stopAddPatternPreview();
       addPatternPreviewEntryId = entryId;
       addPatternPreviewTotalSteps = totalSlots * loops;
       addPatternPreviewStepIndex = 0;
       updateAddPatternPreviewButtons();
       await playAddPatternPulse(patternText[0] || '.', true, true);
+      if ((patternText[0] || '.') !== '.' && (patternText[0] || '.') !== 'X' && previewChord) {
+        playChordPreview(previewChord, patternText[0] || 'D');
+      }
       addPatternPreviewStepIndex = 1;
       addPatternPreviewTimer = setInterval(() => {
         if (addPatternPreviewStepIndex >= addPatternPreviewTotalSteps) {
@@ -3108,7 +3288,11 @@ Rules:
         const idx = addPatternPreviewStepIndex % totalSlots;
         const isBeatStart = idx % subdivisionsPerBeat === 0;
         const isBarStart = idx === 0;
-        playAddPatternPulse(patternText[idx] || '.', isBarStart, isBeatStart);
+        const char = patternText[idx] || '.';
+        playAddPatternPulse(char, isBarStart, isBeatStart);
+        if (char !== '.' && char !== 'X' && previewChord) {
+          playChordPreview(previewChord, char);
+        }
         addPatternPreviewStepIndex += 1;
       }, slotMs);
     };
@@ -3308,6 +3492,7 @@ Rules:
     }
 
     function stopActiveChordPreview(release = 0.05) {
+      stopActiveChordSamples();
       if (!audioCtx || !activeChordVoices.length) return;
       const now = audioCtx.currentTime;
       activeChordVoices.forEach(({ osc, gain }) => {
@@ -3322,8 +3507,14 @@ Rules:
     }
 
     async function playChordPreview(chordName, direction = 'D') {
+      if (!practiceChordAudioEnabled || !chordName) return;
+      const sampleDataUrl = await getChordSampleDataUrl(chordName);
+      if (sampleDataUrl) {
+        const samplePlayed = await playChordSampleData(sampleDataUrl);
+        if (samplePlayed) return;
+      }
       const ctx = await ensureAudioReady();
-      if (!ctx || !practiceChordAudioEnabled || !chordName) return;
+      if (!ctx) return;
       const freqs = chordToFrequencies(chordName, getCapoOffset(currentSong?.capo || 'No capo'));
       if (!freqs.length) return;
       const now = ctx.currentTime;
@@ -4505,6 +4696,14 @@ Rules:
           })
           .catch(err => console.error("Background progress load failed", err));
       }
+    };
+
+    window.startSongQuickPreview = function() {
+      if (!currentSong) return;
+      startPractice(0);
+      setTimeout(() => {
+        if (!isPlaying) togglePlay();
+      }, 160);
     };
 
     window.openSongDetails = async function(id, options = {}) {

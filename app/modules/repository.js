@@ -225,9 +225,50 @@ export class FirestoreRepository {
     return snap.docs.map(d => ({ id: d.id, ...d.data() }));
   }
 
-  async saveChord(chordData) {
+  async saveChord(chordData, editingChordId = null) {
+    if (editingChordId) {
+      await setDoc(doc(this.db, 'chords', editingChordId), chordData, { merge: true });
+      return editingChordId;
+    }
     const created = await addDoc(collection(this.db, 'chords'), chordData);
     return created.id;
+  }
+
+  async saveChordSampleData(chordId, dataUrl) {
+    const chunksRef = collection(this.db, 'chords', chordId, 'sample_chunks');
+    const existing = await getDocs(chunksRef);
+    for (const entry of existing.docs) {
+      await deleteDoc(entry.ref);
+    }
+    const CHUNK_SIZE = 350000;
+    const source = String(dataUrl || '');
+    const chunkCount = Math.max(1, Math.ceil(source.length / CHUNK_SIZE));
+    for (let i = 0; i < chunkCount; i += 1) {
+      const start = i * CHUNK_SIZE;
+      const part = source.slice(start, start + CHUNK_SIZE);
+      const chunkId = String(i).padStart(5, '0');
+      await setDoc(doc(chunksRef, chunkId), { index: i, data: part });
+    }
+    return chunkCount;
+  }
+
+  async loadChordSampleData(chordId) {
+    const chunksRef = collection(this.db, 'chords', chordId, 'sample_chunks');
+    const snap = await getDocs(chunksRef);
+    if (snap.empty) return '';
+    return snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (a.index ?? Number(a.id)) - (b.index ?? Number(b.id)))
+      .map(entry => String(entry.data || ''))
+      .join('');
+  }
+
+  async deleteChordSampleData(chordId) {
+    const chunksRef = collection(this.db, 'chords', chordId, 'sample_chunks');
+    const snap = await getDocs(chunksRef);
+    for (const entry of snap.docs) {
+      await deleteDoc(entry.ref);
+    }
   }
 
   async loadTrainingArticles() {

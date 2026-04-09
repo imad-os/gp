@@ -693,9 +693,14 @@
             <span id="chord-explorer-current" class="text-sm font-bold text-primary">C</span>
           </div>
           <div id="chord-explorer-grid" class="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-4"></div>
-          <button onclick="playSelectedChordReference()" class="bg-primary text-black font-bold py-3 px-8 rounded-full btn-press shadow-[0_0_20px_rgba(187,134,252,0.25)]">
-            <i class="fas fa-volume-up mr-2"></i> Play Chord
-          </button>
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="playSelectedChordReference()" class="bg-primary text-black font-bold py-3 px-4 rounded-full btn-press shadow-[0_0_20px_rgba(187,134,252,0.25)]">
+              <i class="fas fa-volume-up mr-2"></i> Play
+            </button>
+            <button onclick="loadSelectedChordToBuilder()" class="btn-soft font-bold py-3 px-4 rounded-full btn-press">
+              <i class="fas fa-pen mr-2"></i> Edit
+            </button>
+          </div>
         </div>
 
         <div id="tool-page-chord-builder" class="hidden bg-surface rounded-2xl p-5 border border-gray-800">
@@ -708,6 +713,17 @@
           </div>
           <div class="space-y-3 mb-4">
             <input id="tool-chord-name" type="text" oninput="updateChordBuilderPreview()" placeholder="Chord name (example: Gm7)" class="w-full bg-black/30 border border-gray-800 rounded-xl px-4 py-3 outline-none text-white">
+            <label class="bg-black/30 border border-gray-800 rounded-xl px-3 py-2 text-xs text-gray-300 block">
+              Chord Sound File (optional)
+              <input id="tool-chord-sample-file" type="file" accept="audio/*,.mp3,.wav,.flac,.m4a,.aac,.ogg,.opus" onchange="handleChordSampleFileSelected(event)" class="mt-2 w-full text-xs">
+            </label>
+            <div class="bg-black/30 border border-gray-800 rounded-xl px-3 py-2">
+              <p id="tool-chord-sample-label" class="text-xs text-gray-400">No sample selected.</p>
+              <div class="flex gap-2 mt-2">
+                <button id="btn-tool-chord-sample-play" type="button" onclick="playChordBuilderSamplePreview()" class="btn-soft rounded-lg px-3 py-1.5 text-xs btn-press"><i class="fas fa-play mr-1"></i>Preview</button>
+                <button id="btn-tool-chord-sample-clear" type="button" onclick="clearChordBuilderSample()" class="btn-soft rounded-lg px-3 py-1.5 text-xs btn-press"><i class="fas fa-trash mr-1"></i>Clear</button>
+              </div>
+            </div>
             <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
               <label class="bg-black/30 border border-gray-800 rounded-xl px-3 py-2 text-xs text-gray-300">E6
                 <select id="tool-chord-string-e6" onchange="updateChordBuilderPreview()" class="mt-1 w-full bg-transparent outline-none text-white">
@@ -773,7 +789,7 @@
           <div class="space-y-3 mb-4">
             <label class="block">
               <span class="text-xs text-gray-400 block mb-1">Upload audio or video</span>
-              <input id="tool-looper-file" type="file" accept="audio/*,video/*" onchange="handleLooperFileSelected(event)" class="w-full text-sm bg-black/30 border border-gray-800 rounded-xl px-3 py-2.5">
+              <input id="tool-looper-file" type="file" accept=".mp3,.flac,.wav,.m4a,.aac,.ogg,.opus,.wma,.aiff,.alac,.mp4,.m4v,.mov,.webm,.mkv,.avi,.wmv,.3gp,audio/*,video/*" onchange="handleLooperFileSelected(event)" class="w-full text-sm bg-black/30 border border-gray-800 rounded-xl px-3 py-2.5">
             </label>
             <p class="text-[11px] text-gray-500">Uploads larger than <span id="tool-looper-max-size-label">10 MB</span> are blocked to keep history fast and stable.</p>
             <div class="grid sm:grid-cols-[1fr_auto] gap-2">
@@ -793,11 +809,19 @@
             </div>
           </div>
 
-          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
-            <button onclick="toggleLooperPlay()" class="btn-soft rounded-xl py-2.5 btn-press"><i class="fas fa-play mr-1"></i>Play/Pause</button>
-            <button onclick="seekLooperBy(-5)" class="btn-soft rounded-xl py-2.5 btn-press"><i class="fas fa-rotate-left mr-1"></i>-5s</button>
-            <button onclick="seekLooperBy(5)" class="btn-soft rounded-xl py-2.5 btn-press"><i class="fas fa-rotate-right mr-1"></i>+5s</button>
-            <button onclick="resetLooperPosition()" class="btn-soft rounded-xl py-2.5 btn-press"><i class="fas fa-backward-step mr-1"></i>Start</button>
+          <div class="grid grid-cols-4 gap-2 mb-4">
+            <button onclick="toggleLooperPlay()" class="btn-soft rounded-xl py-2.5 btn-press" title="Play/Pause" aria-label="Play or pause">
+              <i class="fas fa-play"></i>
+            </button>
+            <button onclick="seekLooperBy(-5)" class="btn-soft rounded-xl py-2.5 btn-press" title="Back 5 seconds" aria-label="Back 5 seconds">
+              <i class="fas fa-rotate-left"></i>
+            </button>
+            <button onclick="seekLooperBy(5)" class="btn-soft rounded-xl py-2.5 btn-press" title="Forward 5 seconds" aria-label="Forward 5 seconds">
+              <i class="fas fa-rotate-right"></i>
+            </button>
+            <button onclick="resetLooperPosition()" class="btn-soft rounded-xl py-2.5 btn-press" title="Go to start" aria-label="Go to start">
+              <i class="fas fa-backward-step"></i>
+            </button>
           </div>
 
           <div class="mb-4">
@@ -1020,7 +1044,10 @@
       </div>
       <div class="space-y-3" id="practice-steps-container"></div>
       <div class="mt-6">
-        <button onclick="startPractice(0)" class="w-full bg-primary font-bold py-4 rounded-2xl btn-press shadow-[0_0_20px_rgba(187,134,252,0.25)]">Open Preview</button>
+        <div class="grid grid-cols-2 gap-2">
+          <button onclick="startPractice(0)" class="w-full bg-primary font-bold py-4 rounded-2xl btn-press shadow-[0_0_20px_rgba(187,134,252,0.25)]">Open Preview</button>
+          <button onclick="startSongQuickPreview()" class="w-full btn-soft font-bold py-4 rounded-2xl btn-press"><i class="fas fa-play mr-2"></i>Play Song</button>
+        </div>
       </div>
       <div class="bg-surface rounded-xl p-5 mt-6 border border-gray-800 shadow-xl">
         <div class="flex items-center justify-between mb-3">
