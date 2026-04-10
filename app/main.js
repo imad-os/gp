@@ -31,6 +31,7 @@ import { FirestoreRepository } from './modules/repository.js';
     let animationId;
     let lastProgressSaveAtMs = 0;
     let currentStepMode = 1;
+    let activePlaybackTotalBeats = 0;
     let activeStrumPattern = [];
     let practicePatternAssignments = [];
     let activePatternAssignmentIndex = -1;
@@ -92,6 +93,13 @@ import { FirestoreRepository } from './modules/repository.js';
     let looperDeletingHistoryId = '';
     let looperOpeningHistoryId = '';
     let looperOpeningProgress = 0;
+    let tabsPreviewTimerIds = [];
+    let tabsPreviewSessionId = 0;
+    let tabsPreviewHistory = [];
+    let tabsPreviewActiveHistoryId = '';
+    let tabsPreviewPlayingHistoryId = '';
+    let activeSongTabEvents = [];
+    let nextSongTabEventIndex = 0;
     let currentSongComments = [];
     let currentSongRatings = [];
     let pendingSongRating = 0;
@@ -127,6 +135,8 @@ import { FirestoreRepository } from './modules/repository.js';
     let trainingBeatIndex = 0;
     const METRONOME_STORAGE_KEY = 'guitartrainer.metronome.settings';
     const GEMINI_API_KEY_STORAGE_KEY = 'guitartrainer.gemini.apiKey';
+    const TABS_PREVIEW_HISTORY_STORAGE_KEY = 'guitartrainer.tabs.history.v1';
+    const TABS_PREVIEW_HISTORY_LIMIT = 80;
     const LOOPER_MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
     const GUITAR_TONE_MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
     const GUITAR_TONE_STRING_KEYS = ['E2', 'A2', 'D3', 'G3', 'B3', 'E4'];
@@ -148,6 +158,8 @@ import { FirestoreRepository } from './modules/repository.js';
 
     const CAPO_OPTIONS = ["No capo", "1st fret", "2nd fret", "3rd fret", "4th fret", "5th fret", "6th fret", "7th fret", "8th fret", "9th fret", "10th fret", "11th fret", "12th fret"];
     const TAB_VIEWS = new Set(['home', 'training', 'tuner', 'tools', 'profile']);
+    const TABS_COLUMNS_PER_BEAT = 4;
+    const TABS_PREVIEW_PART_GAP_COLUMNS = 2;
     const TUNING_PRESETS = [
       {
         id: 'standard',
@@ -1168,6 +1180,173 @@ Drop back to 70 BPM for clean finish.`,
       return looperMode !== 'none' && !!looperActiveSource;
     }
 
+    function setTabsPreviewStatus(text = '', isError = false) {
+      const el = document.getElementById('tool-tabs-status');
+      if (!el) return;
+      el.innerText = text || 'Paste tabs then tap Preview.';
+      el.classList.toggle('text-danger', !!isError);
+      el.classList.toggle('text-gray-500', !isError);
+    }
+
+    function sanitizeTabsPreviewTitle(raw = '') {
+      const cleaned = String(raw || '').trim();
+      return cleaned || 'Untitled Tabs';
+    }
+
+    function normalizeTabsPreviewTitleKey(raw = '') {
+      return sanitizeTabsPreviewTitle(raw).toLowerCase();
+    }
+
+    function readTabsPreviewHistoryFromStorage() {
+      try {
+        const raw = localStorage.getItem(TABS_PREVIEW_HISTORY_STORAGE_KEY);
+        const parsed = JSON.parse(raw || '[]');
+        if (!Array.isArray(parsed)) return [];
+        return parsed
+          .map(entry => ({
+            id: String(entry?.id || ''),
+            title: sanitizeTabsPreviewTitle(entry?.title || ''),
+            bpm: Math.max(40, Math.min(240, parseInt(entry?.bpm, 10) || 96)),
+            timing: String(entry?.timing || '').trim(),
+            text: String(entry?.text || ''),
+            createdAt: Number(entry?.createdAt || Date.now()),
+            updatedAt: Number(entry?.updatedAt || Date.now())
+          }))
+          .filter(entry => entry.id && entry.text.trim())
+          .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+          .slice(0, TABS_PREVIEW_HISTORY_LIMIT);
+      } catch {
+        return [];
+      }
+    }
+
+    function persistTabsPreviewHistory() {
+      try {
+        localStorage.setItem(TABS_PREVIEW_HISTORY_STORAGE_KEY, JSON.stringify(tabsPreviewHistory.slice(0, TABS_PREVIEW_HISTORY_LIMIT)));
+      } catch (err) {
+        console.error('Could not save tabs preview history', err);
+      }
+    }
+
+    function loadTabsPreviewHistory() {
+      tabsPreviewHistory = readTabsPreviewHistoryFromStorage();
+    }
+
+    function renderTabsPreviewHistory() {
+      const list = document.getElementById('tool-tabs-history-list');
+      if (!list) return;
+      if (!tabsPreviewHistory.length) {
+        list.innerHTML = `<div class="bg-black/30 border border-gray-800 rounded-xl px-3 py-2 text-sm text-gray-500">No tabs history yet.</div>`;
+        return;
+      }
+      list.innerHTML = tabsPreviewHistory.map(item => `
+        <div class="bg-black/30 border ${item.id === tabsPreviewActiveHistoryId ? 'border-primary/60' : 'border-gray-800'} rounded-xl px-3 py-3 ${tabsPreviewPlayingHistoryId === item.id ? 'opacity-80' : ''}">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <p class="font-semibold text-sm text-white truncate">${escapeHtml(item.title || 'Untitled Tabs')}</p>
+              <p class="text-[11px] text-gray-500 mt-1">${item.bpm} BPM • ${item.updatedAt ? new Date(item.updatedAt).toLocaleString() : 'Saved'}</p>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+              <button onclick="playTabsPreviewHistoryItem('${item.id}')" class="w-8 h-8 rounded-full btn-soft btn-press" title="Play">
+                <i class="fas fa-play text-xs"></i>
+              </button>
+              <button onclick="loadTabsPreviewHistoryItem('${item.id}')" class="w-8 h-8 rounded-full btn-soft btn-press" title="Load">
+                <i class="fas fa-arrow-up-right-from-square text-xs"></i>
+              </button>
+              <button onclick="deleteTabsPreviewHistoryItem('${item.id}')" class="w-8 h-8 rounded-full btn-soft btn-press" title="Delete">
+                <i class="fas fa-trash text-xs"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    window.saveTabsPreviewHistoryItem = function() {
+      const text = String(document.getElementById('tool-tabs-text')?.value || '');
+      const bpm = Math.max(40, Math.min(240, parseInt(document.getElementById('tool-tabs-bpm')?.value || '96', 10) || 96));
+      const timing = String(document.getElementById('tool-tabs-timing')?.value || '').trim();
+      const titleInput = document.getElementById('tool-tabs-title');
+      const title = sanitizeTabsPreviewTitle(titleInput?.value || '');
+      if (!text.trim()) {
+        setTabsPreviewStatus('Cannot save empty tabs text.', true);
+        return;
+      }
+      const now = Date.now();
+      const titleKey = normalizeTabsPreviewTitleKey(title);
+      const byTitle = tabsPreviewHistory
+        .filter(entry => normalizeTabsPreviewTitleKey(entry.title) === titleKey)
+        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0] || null;
+      const entry = {
+        id: byTitle?.id || `tabs-${now}-${Math.floor(Math.random() * 10000)}`,
+        title,
+        bpm,
+        timing,
+        text,
+        createdAt: byTitle?.createdAt || now,
+        updatedAt: now
+      };
+      if (byTitle) {
+        const idx = tabsPreviewHistory.findIndex(item => item.id === byTitle.id);
+        if (idx >= 0) tabsPreviewHistory[idx] = entry;
+      } else {
+        tabsPreviewHistory.unshift(entry);
+      }
+      tabsPreviewHistory = tabsPreviewHistory
+        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+        .slice(0, TABS_PREVIEW_HISTORY_LIMIT);
+      tabsPreviewActiveHistoryId = entry.id;
+      if (titleInput) titleInput.value = entry.title;
+      persistTabsPreviewHistory();
+      renderTabsPreviewHistory();
+      setTabsPreviewStatus(`Saved "${entry.title}".`);
+    };
+
+    window.loadTabsPreviewHistoryItem = function(itemId = '') {
+      const item = tabsPreviewHistory.find(entry => entry.id === itemId);
+      if (!item) return;
+      tabsPreviewActiveHistoryId = item.id;
+      const titleInput = document.getElementById('tool-tabs-title');
+      const textInput = document.getElementById('tool-tabs-text');
+      const bpmInput = document.getElementById('tool-tabs-bpm');
+      const timingInput = document.getElementById('tool-tabs-timing');
+      if (titleInput) titleInput.value = item.title || '';
+      if (textInput) textInput.value = item.text || '';
+      if (bpmInput) bpmInput.value = String(item.bpm || 96);
+      if (timingInput) timingInput.value = String(item.timing || '1 & 2 & 3 & 4 &');
+      renderTabsPreviewHistory();
+      setTabsPreviewStatus(`Loaded "${item.title}".`);
+    };
+
+    window.deleteTabsPreviewHistoryItem = function(itemId = '') {
+      const item = tabsPreviewHistory.find(entry => entry.id === itemId);
+      if (!item) return;
+      tabsPreviewHistory = tabsPreviewHistory.filter(entry => entry.id !== itemId);
+      if (tabsPreviewActiveHistoryId === itemId) tabsPreviewActiveHistoryId = '';
+      if (tabsPreviewPlayingHistoryId === itemId) tabsPreviewPlayingHistoryId = '';
+      persistTabsPreviewHistory();
+      renderTabsPreviewHistory();
+      setTabsPreviewStatus(`Deleted "${item.title}".`);
+    };
+
+    function updateLooperNowPlayingIndicator() {
+      const btn = document.getElementById('btn-looper-now-playing');
+      const label = document.getElementById('looper-now-playing-label');
+      if (!btn || !label) return;
+      const onLooperPage = activeTab === 'tools' && activeToolPage === 'looper';
+      const shouldShow = hasActiveLooperTrack() && isLooperPlaying() && !onLooperPage;
+      btn.classList.toggle('hidden', !shouldShow);
+      if (!shouldShow) return;
+      const title = sanitizeLooperTitle(looperActiveSource?.title, 'Looper');
+      label.innerText = title.length > 30 ? `${title.slice(0, 30)}...` : title;
+      btn.title = `Playing now: ${title}. Open looper.`;
+    }
+
+    window.openLooperFromIndicator = function() {
+      navigate('tools');
+      openToolPage('looper');
+    };
+
     async function ensureActiveLooperHistoryEntry() {
       if (activeLooperHistoryId) return activeLooperHistoryId;
       if (!user || user.isAnonymous || !repository || !hasActiveLooperTrack()) return '';
@@ -1542,6 +1721,7 @@ Drop back to 70 BPM for clean finish.`,
       renderLooperModeButtons();
       renderLooperBackgroundOption();
       enforceLooperBounds();
+      updateLooperNowPlayingIndicator();
     }
 
     function startLooperSyncTimer() {
@@ -1587,6 +1767,7 @@ Drop back to 70 BPM for clean finish.`,
       hideAllLooperPlayers();
       document.getElementById('tool-looper-empty')?.classList.remove('hidden');
       refreshLooperUi();
+      updateLooperNowPlayingIndicator();
     }
 
     function activateLooperMode(mode = 'none') {
@@ -2734,6 +2915,7 @@ Drop back to 70 BPM for clean finish.`,
       updateLooperMaxUploadLabel();
       renderLooperHistory();
       refreshLooperUi();
+      updateLooperNowPlayingIndicator();
     };
 
     window.openToolPage = function(tool, options = {}) {
@@ -2742,7 +2924,8 @@ Drop back to 70 BPM for clean finish.`,
         stopLooperPlayback();
       }
       activeToolPage = tool;
-      const pages = ['metronome', 'recorder', 'chords', 'chord-builder', 'guitar-tones', 'songs', 'looper', 'ai-song'];
+      const pages = ['metronome', 'recorder', 'chords', 'chord-builder', 'guitar-tones', 'songs', 'looper', 'tabs-preview', 'ai-song'];
+      if (tool !== 'tabs-preview') stopTabsPreviewPlayback();
       document.getElementById('tools-home-panel')?.classList.add('hidden');
       pages.forEach(page => {
         const el = document.getElementById(`tool-page-${page}`);
@@ -2764,6 +2947,8 @@ Drop back to 70 BPM for clean finish.`,
               ? 'Find a song quickly.'
               : tool === 'looper'
                 ? 'Loop full track or A-B sections.'
+              : tool === 'tabs-preview'
+                ? 'Paste tabs and preview real notes.'
               : tool === 'ai-song'
                 ? 'Generate a full song draft with Gemini.'
                 : 'Browse and hear the chord library.';
@@ -2779,6 +2964,11 @@ Drop back to 70 BPM for clean finish.`,
         refreshLooperUi();
         renderLooperHistory();
       }
+      if (tool === 'tabs-preview') {
+        setTabsPreviewStatus('Paste tabs then tap Preview.');
+        renderTabsPreviewHistory();
+      }
+      updateLooperNowPlayingIndicator();
       if (tool === 'ai-song') {
         const keyInput = document.getElementById('ai-gemini-key');
         if (keyInput) keyInput.value = localStorage.getItem(GEMINI_API_KEY_STORAGE_KEY) || '';
@@ -2792,13 +2982,15 @@ Drop back to 70 BPM for clean finish.`,
       const { skipUrl = false, replaceUrl = false } = options || {};
       activeToolPage = 'home';
       document.getElementById('tools-home-panel')?.classList.remove('hidden');
-      ['metronome', 'recorder', 'chords', 'chord-builder', 'guitar-tones', 'songs', 'looper', 'ai-song'].forEach(page => {
+      stopTabsPreviewPlayback();
+      ['metronome', 'recorder', 'chords', 'chord-builder', 'guitar-tones', 'songs', 'looper', 'tabs-preview', 'ai-song'].forEach(page => {
         const el = document.getElementById(`tool-page-${page}`);
         if (el) el.classList.add('hidden');
       });
       document.getElementById('tools-back-btn')?.classList.add('hidden');
       const subtitle = document.getElementById('tools-header-subtitle');
       if (subtitle) subtitle.innerText = 'Choose a tool.';
+      updateLooperNowPlayingIndicator();
       if (!skipUrl && !isHandlingRouteChange) {
         pushUrlPath('/tools', { replace: replaceUrl });
       }
@@ -4118,6 +4310,299 @@ Rules:
       return true;
     }
 
+    function frequencyFromStringFret(stringIdx = 0, fret = 0) {
+      const safeStringIdx = Math.max(0, Math.min(5, Number(stringIdx) || 0));
+      const safeFret = Math.max(0, Number(fret) || 0);
+      const midi = GUITAR_OPEN_STRING_MIDI[safeStringIdx] + safeFret;
+      return 440 * Math.pow(2, (midi - 69) / 12);
+    }
+
+    async function playTabNoteFromSelectedGuitarTone(stringIdx = 0, fret = 0) {
+      const profile = getActiveGuitarToneProfile();
+      const safeStringIdx = Math.max(0, Math.min(5, Number(stringIdx) || 0));
+      const safeFret = Math.max(0, Number(fret) || 0);
+      if (profile?.id) {
+        const stringKey = GUITAR_TONE_STRING_KEYS[safeStringIdx];
+        if (profile.availableStrings?.[stringKey]) {
+          const dataUrl = await getGuitarToneStringDataUrl(profile.id, stringKey);
+          if (dataUrl) {
+            const audio = new Audio(dataUrl);
+            audio.preload = 'auto';
+            audio.currentTime = 0;
+            audio.volume = 0.94;
+            audio.playbackRate = Math.max(0.35, Math.min(4, Math.pow(2, safeFret / 12)));
+            audio.preservesPitch = false;
+            audio.mozPreservesPitch = false;
+            audio.webkitPreservesPitch = false;
+            audio.play().catch(() => {});
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    async function playTabNote(stringIdx = 0, fret = 0) {
+      const tonePlayed = await playTabNoteFromSelectedGuitarTone(stringIdx, fret);
+      if (tonePlayed) return;
+      const ctx = await ensureAudioReady();
+      if (!ctx) return;
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.value = frequencyFromStringFret(stringIdx, fret);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.linearRampToValueAtTime(0.22, now + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.035, now + 0.22);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.15);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 1.18);
+    }
+
+    function mapTabLabelToStringIdx(label = '') {
+      const raw = String(label || '').trim();
+      if (raw === 'e') return 5;
+      if (raw === 'B' || raw === 'b') return 4;
+      if (raw === 'G' || raw === 'g') return 3;
+      if (raw === 'D' || raw === 'd') return 2;
+      if (raw === 'A' || raw === 'a') return 1;
+      if (raw === 'E') return 0;
+      return null;
+    }
+
+    function parseTabEventsFromRows(rows = [], colOffset = 0) {
+      const events = [];
+      const maxLen = rows.reduce((max, row) => Math.max(max, row.content.length), 0);
+      if (!maxLen) return { events, maxLen };
+      for (let col = 0; col < maxLen; col += 1) {
+        rows.forEach(row => {
+          const ch = row.content[col] || '';
+          if (!/\d/.test(ch)) return;
+          const prev = row.content[col - 1] || '';
+          if (/\d/.test(prev)) return;
+          let end = col + 1;
+          while (end < row.content.length && /\d/.test(row.content[end])) end += 1;
+          const fret = parseInt(row.content.slice(col, end), 10);
+          if (!Number.isFinite(fret)) return;
+          events.push({ col: colOffset + col, stringIdx: row.stringIdx, fret });
+        });
+      }
+      events.sort((a, b) => (a.col - b.col) || (a.stringIdx - b.stringIdx));
+      return { events, maxLen };
+    }
+
+    function parseTimedTabEventsFromRows(rows = [], timingText = '', colOffset = 0) {
+      const timingTokens = String(timingText || '').trim().split(/\s+/).filter(Boolean);
+      if (!timingTokens.length) return { events: [], maxLen: 0, usedTiming: false };
+      const rowTokensList = rows.map(row => String(row?.content || '').trim().split(/\s+/).filter(Boolean));
+      const maxTokenLen = rowTokensList.reduce((max, tokens) => Math.max(max, tokens.length), 0);
+      if (!maxTokenLen) return { events: [], maxLen: 0, usedTiming: false };
+
+      const slotCount = Math.max(1, timingTokens.length);
+      const beatsFromTiming = timingTokens.reduce((best, token) => {
+        const asNum = parseInt(token, 10);
+        return Number.isFinite(asNum) ? Math.max(best, asNum) : best;
+      }, 0);
+      const beatsPerCycle = Math.max(1, beatsFromTiming || 4);
+      const totalColumns = beatsPerCycle * TABS_COLUMNS_PER_BEAT;
+      const columnsPerSlot = totalColumns / slotCount;
+      const events = [];
+      rowTokensList.forEach((tokens, rowIdx) => {
+        tokens.forEach((token, tokenIdx) => {
+          if (!/^\d+$/.test(token)) return;
+          const fret = parseInt(token, 10);
+          if (!Number.isFinite(fret)) return;
+          const normalizedCol = tokenIdx * columnsPerSlot;
+          events.push({
+            col: colOffset + normalizedCol,
+            stringIdx: rows[rowIdx].stringIdx,
+            fret
+          });
+        });
+      });
+      events.sort((a, b) => (a.col - b.col) || (a.stringIdx - b.stringIdx));
+      return { events, maxLen: Math.max(totalColumns, maxTokenLen * columnsPerSlot), usedTiming: true };
+    }
+
+    function collectTabGroupsFromLines(lines = []) {
+      const groups = [];
+      let current = [];
+      let startLine = 0;
+      const flush = () => {
+        if (!current.length) return;
+        groups.push({ startLine, rows: current });
+        current = [];
+      };
+      lines.forEach((line, lineIdx) => {
+        const trimmed = String(line || '').trim();
+        if (!trimmed) {
+          flush();
+          return;
+        }
+        const match = trimmed.match(/^([eEbBgGdDaA])\|(.+?)(?:\|)?\s*$/);
+        if (!match) {
+          flush();
+          return;
+        }
+        const stringIdx = mapTabLabelToStringIdx(match[1]);
+        if (stringIdx === null) {
+          flush();
+          return;
+        }
+        if (!current.length) startLine = lineIdx;
+        current.push({ stringIdx, content: match[2] || '' });
+      });
+      flush();
+      return groups;
+    }
+
+    function parseTabsPreviewText(text = '', timingText = '') {
+      const lines = String(text || '').replace(/\r/g, '').split('\n');
+      const groups = collectTabGroupsFromLines(lines);
+      const events = [];
+      let timelineCol = 0;
+      let partCount = 0;
+      groups.forEach(group => {
+        const timed = parseTimedTabEventsFromRows(group.rows, timingText, timelineCol);
+        const fallback = parseTabEventsFromRows(group.rows, timelineCol);
+        const partEvents = (timed.usedTiming && timed.events.length) ? timed.events : fallback.events;
+        const maxLen = timed.usedTiming ? Math.max(timed.maxLen, fallback.maxLen || 0) : fallback.maxLen;
+        if (!maxLen) return;
+        partCount += 1;
+        events.push(...partEvents);
+        timelineCol += maxLen + TABS_PREVIEW_PART_GAP_COLUMNS;
+      });
+
+      events.sort((a, b) => (a.col - b.col) || (a.stringIdx - b.stringIdx));
+      return { events, partCount };
+    }
+
+    function stopTabsPreviewPlayback() {
+      if (tabsPreviewTimerIds.length) {
+        tabsPreviewTimerIds.forEach(timer => clearTimeout(timer));
+        tabsPreviewTimerIds = [];
+      }
+      tabsPreviewPlayingHistoryId = '';
+      if (document.getElementById('tool-tabs-history-list')) renderTabsPreviewHistory();
+      tabsPreviewSessionId += 1;
+    }
+
+    window.stopTabsPreview = function() {
+      stopTabsPreviewPlayback();
+      tabsPreviewPlayingHistoryId = '';
+      renderTabsPreviewHistory();
+      setTabsPreviewStatus('Stopped.');
+    };
+
+    async function playTabsPreviewFromSource({ text = '', bpm = 96, title = '', timing = '' } = {}) {
+      const { events, partCount } = parseTabsPreviewText(text, timing);
+      if (!events.length) {
+        setTabsPreviewStatus('No playable tab notes found. Use lines like e|--0--1--|', true);
+        return;
+      }
+      stopTabsPreviewPlayback();
+      const sessionId = tabsPreviewSessionId;
+      const msPerColumn = (60_000 / bpm) / TABS_COLUMNS_PER_BEAT;
+      const firstCol = events[0].col;
+      const lastCol = events[events.length - 1].col;
+      const sourceLabel = title ? ` from "${title}"` : '';
+      setTabsPreviewStatus(`Playing ${events.length} note${events.length > 1 ? 's' : ''} across ${partCount} part${partCount === 1 ? '' : 's'}${sourceLabel}...`);
+      await ensureAudioReady();
+      events.forEach((event, idx) => {
+        const atMs = Math.max(0, (event.col - firstCol) * msPerColumn);
+        const timer = setTimeout(() => {
+          if (sessionId !== tabsPreviewSessionId) return;
+          playTabNote(event.stringIdx, event.fret);
+        }, atMs + (idx % 2 ? 3 : 0));
+        tabsPreviewTimerIds.push(timer);
+      });
+      const endTimer = setTimeout(() => {
+        if (sessionId !== tabsPreviewSessionId) return;
+        tabsPreviewTimerIds = [];
+        setTabsPreviewStatus(`Finished (${Math.max(0, lastCol - firstCol + 1)} columns at ${bpm} BPM).`, false);
+        tabsPreviewPlayingHistoryId = '';
+        renderTabsPreviewHistory();
+      }, Math.max(0, (lastCol - firstCol + 1) * msPerColumn) + 420);
+      tabsPreviewTimerIds.push(endTimer);
+    }
+
+    window.playTabsPreview = async function() {
+      const textarea = document.getElementById('tool-tabs-text');
+      const bpmInput = document.getElementById('tool-tabs-bpm');
+      const titleInput = document.getElementById('tool-tabs-title');
+      const timingInput = document.getElementById('tool-tabs-timing');
+      const text = textarea?.value || '';
+      const bpm = Math.max(40, Math.min(240, parseInt(bpmInput?.value || '96', 10) || 96));
+      const title = sanitizeTabsPreviewTitle(titleInput?.value || '');
+      const timing = String(timingInput?.value || '').trim();
+      tabsPreviewPlayingHistoryId = tabsPreviewActiveHistoryId || '';
+      renderTabsPreviewHistory();
+      await playTabsPreviewFromSource({ text, bpm, title, timing });
+    };
+
+    window.playTabsPreviewHistoryItem = async function(itemId = '') {
+      const item = tabsPreviewHistory.find(entry => entry.id === itemId);
+      if (!item) return;
+      tabsPreviewPlayingHistoryId = item.id;
+      tabsPreviewActiveHistoryId = item.id;
+      renderTabsPreviewHistory();
+      await playTabsPreviewFromSource({
+        text: item.text || '',
+        bpm: Math.max(40, Math.min(240, parseInt(item.bpm, 10) || 96)),
+        title: sanitizeTabsPreviewTitle(item.title || ''),
+        timing: String(item.timing || '').trim()
+      });
+    };
+
+    function buildSongTabTimelineByRawLine(rawText = '', beatsPerBar = 4) {
+      const lines = String(rawText || '').replace(/\r/g, '').split('\n');
+      const lineBeat = new Array(lines.length).fill(0);
+      let currentTime = 0;
+      for (let i = 0; i < lines.length; i += 1) {
+        const line = String(lines[i] || '');
+        lineBeat[i] = currentTime;
+        if (isTagLine(line)) continue;
+        if (!isChordLine(line)) continue;
+        const tokens = stripLeadingWhitespace(line).replace(/\s+$/, '').match(/[^\s]+/g) || [];
+        const chordCount = tokens.filter(token => !/^x\d+$/i.test(token)).length;
+        currentTime += chordCount * beatsPerBar;
+        if (i + 1 < lines.length) {
+          const next = lines[i + 1];
+          if (!isChordLine(next) && !isTagLine(next) && String(next || '').trim() !== '') {
+            i += 1;
+            lineBeat[i] = currentTime;
+          }
+        }
+      }
+      return lineBeat;
+    }
+
+    function buildSongTabPlaybackEvents(song = null) {
+      const rawText = String(song?.rawText || '');
+      if (!rawText.trim()) return { events: [], maxBeat: 0 };
+      const beatsPerBar = getBeatsPerBarFromSignature(song?.timeSignature || '4/4');
+      const lines = rawText.replace(/\r/g, '').split('\n');
+      const groups = collectTabGroupsFromLines(lines);
+      if (!groups.length) return { events: [], maxBeat: 0 };
+      const timelineByLine = buildSongTabTimelineByRawLine(rawText, beatsPerBar);
+      const events = [];
+      let maxBeat = 0;
+      groups.forEach(group => {
+        const anchorBeat = Math.max(0, Number(timelineByLine[group.startLine] || 0));
+        const { events: groupEvents } = parseTabEventsFromRows(group.rows, 0);
+        groupEvents.forEach(event => {
+          const beat = anchorBeat + (event.col / TABS_COLUMNS_PER_BEAT);
+          maxBeat = Math.max(maxBeat, beat);
+          events.push({ beat, stringIdx: event.stringIdx, fret: event.fret });
+        });
+      });
+      events.sort((a, b) => (a.beat - b.beat) || (a.stringIdx - b.stringIdx));
+      return { events, maxBeat };
+    }
+
     async function ensureAudioReady() {
       if (!audioCtx) audioCtx = new AudioContext();
       if (audioCtx.state === 'suspended') {
@@ -4492,6 +4977,7 @@ Rules:
       if (id === 'training') showTrainingHome();
       if (id !== 'tuner') stopTuner();
       if (id !== 'tools') {
+        stopTabsPreviewPlayback();
         if (!looperAppBackgroundEnabled && hasActiveLooperTrack()) {
           stopLooperPlayback();
         }
@@ -4509,6 +4995,7 @@ Rules:
       if (!skipUrl && !isHandlingRouteChange) {
         pushUrlPath(pathOverride || buildPathForView(id), { replace: replaceUrl });
       }
+      updateLooperNowPlayingIndicator();
     };
 
     async function applyRouteFromLocation({ replaceUnknown = true } = {}) {
@@ -4542,7 +5029,7 @@ Rules:
         if (parts[0] === 'tools') {
           navigate('tools', { skipUrl: true });
           const tool = decodeURIComponent(parts[1] || '');
-          const allowed = new Set(['metronome', 'recorder', 'chords', 'chord-builder', 'guitar-tones', 'songs', 'looper', 'ai-song']);
+          const allowed = new Set(['metronome', 'recorder', 'chords', 'chord-builder', 'guitar-tones', 'songs', 'looper', 'tabs-preview', 'ai-song']);
           if (tool && allowed.has(tool)) openToolPage(tool, { skipUrl: true });
           else showToolsHome({ skipUrl: true });
           return;
@@ -5642,6 +6129,9 @@ Rules:
         userProgressSongId = currentSong.id;
       }
       currentStepMode = step;
+      activePlaybackTotalBeats = Math.max(1, Number(currentSong.totalBeats || 0));
+      activeSongTabEvents = [];
+      nextSongTabEventIndex = 0;
       currentBpm = currentSong.bpm;
       document.getElementById('practice-bpm').value = currentBpm;
       updatePracticeBpmLabel(currentBpm);
@@ -5714,6 +6204,12 @@ Rules:
         const normalizedPreview = currentSong.strumming.map(s => ({ ...s, raw: s.raw || '.' }));
         activeStrumPattern = normalizedPreview;
         practicePatternAssignments = [{ startBeat: 0, pattern: normalizedPreview, timeSignature: normalizeTimeSignature(currentSong.timeSignature || '4/4'), tagKey: '' }];
+        const { events: songTabEvents, maxBeat: songTabMaxBeat } = buildSongTabPlaybackEvents(currentSong);
+        activeSongTabEvents = songTabEvents;
+        nextSongTabEventIndex = 0;
+        if (songTabMaxBeat > activePlaybackTotalBeats) {
+          activePlaybackTotalBeats = Math.ceil(songTabMaxBeat + 1);
+        }
         practiceValidationStates = new Array(activeStrumPattern.length).fill(null);
         updatePreviewPlayButton();
         UI.renderPatternVisualizer('practice-preview-pattern', normalizedPreview, beatsPerBar, -1, [], subdivisionsPerBeat);
@@ -5857,7 +6353,8 @@ Rules:
     function updateUI() {
       if(!isPlaying) return;
       const beat = (audioCtx.currentTime - startTime) / (60 / currentBpm);
-      const percent = Math.min(100, (beat / currentSong.totalBeats) * 100);
+      const totalBeats = Math.max(1, Number(activePlaybackTotalBeats || currentSong?.totalBeats || 1));
+      const percent = Math.min(100, (beat / totalBeats) * 100);
       setPracticeProgressDisplay(percent);
 
       const nowMs = Date.now();
@@ -5903,6 +6400,14 @@ Rules:
         }
       }
 
+      if (currentStepMode === 0 && activeSongTabEvents.length) {
+        while (nextSongTabEventIndex < activeSongTabEvents.length && beat >= activeSongTabEvents[nextSongTabEventIndex].beat) {
+          const event = activeSongTabEvents[nextSongTabEventIndex];
+          playTabNote(event.stringIdx, event.fret);
+          nextSongTabEventIndex += 1;
+        }
+      }
+
       // Dual Chord/Line Highlighting Logic
       if(currentStepMode !== 2 && currentSong.chords && currentSong.chords.length > 0) {
         if (activeChord) {
@@ -5929,7 +6434,7 @@ Rules:
         }
       }
 
-      if(beat >= currentSong.totalBeats) {
+      if(beat >= totalBeats) {
         if (currentStepMode > 0) saveProg(100);
         if (currentStepMode > 0 && user && !user.isAnonymous) {
           bumpSongStat('completed').then(() => {
@@ -6003,6 +6508,9 @@ Rules:
       practicePausedByBlur = false;
       cancelAnimationFrame(animationId);
       lastPlayedStrumIndex = -1;
+      activeSongTabEvents = [];
+      nextSongTabEventIndex = 0;
+      activePlaybackTotalBeats = Math.max(1, Number(currentSong?.totalBeats || 1));
       stopActiveChordPreview(0.03);
       stopPracticeDetection();
       
@@ -6467,6 +6975,8 @@ Rules:
       setGuitarToneEditorOpen(false);
       renderGuitarToneSettingsOptions();
       initLooperUi();
+      loadTabsPreviewHistory();
+      renderTabsPreviewHistory();
       renderToolSongsSearch();
       renderBuildInfo();
       refreshLibraryAdminButtons();

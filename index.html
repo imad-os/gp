@@ -257,6 +257,26 @@
     .looper-dual-wrap .range-b::-webkit-slider-thumb { background: #bb86fc; }
     .looper-dual-wrap .range-b::-moz-range-thumb { background: #bb86fc; }
   </style>
+
+<script type="module">
+  // Import the functions you need from the SDKs you need
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.0/firebase-app.js";
+  // TODO: Add SDKs for Firebase products that you want to use
+  // https://firebase.google.com/docs/web/setup#available-libraries
+
+  // Your web app's Firebase configuration
+  const firebaseConfig = {
+    apiKey: "AIzaSyD-J0dAS2C7_KCpupKpvB_lLhi55TkbWTQ",
+    authDomain: "guitarpractice-dfa4b.firebaseapp.com",
+    projectId: "guitarpractice-dfa4b",
+    storageBucket: "guitarpractice-dfa4b.firebasestorage.app",
+    messagingSenderId: "282086325190",
+    appId: "1:282086325190:web:b3ec1bca510460e87a50c7"
+  };
+
+  // Initialize Firebase
+  const app = initializeApp(firebaseConfig);
+</script>
 </head>
 <body>
   <svg aria-hidden="true" class="absolute w-0 h-0 overflow-hidden">
@@ -313,6 +333,13 @@
     <img src="/assets/pwa/icon-192.png" alt="GuitarTrainer logo" class="brand-logo mb-4 animate-pulse">
     <p id="loading-text" class="text-gray-400 font-mono text-sm tracking-widest uppercase">Connecting...</p>
   </div>
+  <button id="btn-looper-now-playing" onclick="openLooperFromIndicator()" class="hidden fixed top-3 right-3 z-40 bg-black/75 border border-primary/45 rounded-full px-2 sm:px-3 py-2 btn-press shadow-[0_0_18px_rgba(3,218,198,0.35)] w-auto max-w-[20vw] min-w-[44px] overflow-hidden">
+    <span class="inline-flex items-center gap-2">
+      <span class="w-2.5 h-2.5 rounded-full bg-active animate-pulse"></span>
+      <i class="fas fa-music text-primary text-xs"></i>
+      <span id="looper-now-playing-label" class="hidden sm:inline text-xs text-white font-semibold truncate">Looper playing</span>
+    </span>
+  </button>
 
   <!-- VIEW 1: Home -->
   <div id="view-home" class="view">
@@ -640,6 +667,11 @@
             <div class="font-bold text-lg mb-1">Looper</div>
             <p class="text-sm text-gray-400">Upload media or load YouTube, then loop full track or A-B sections.</p>
           </button>
+          <button onclick="openToolPage('tabs-preview')" class="tool-nav-card btn-press">
+            <span class="tool-nav-icon"><i class="fas fa-list-music text-lg"></i></span>
+            <div class="font-bold text-lg mb-1">Tabs Preview</div>
+            <p class="text-sm text-gray-400">Paste guitar tabs and hear them with your uploaded guitar tone samples.</p>
+          </button>
           <button onclick="openToolPage('ai-song')" class="tool-nav-card btn-press sm:col-span-2">
             <span class="tool-nav-icon"><i class="fas fa-wand-magic-sparkles text-lg"></i></span>
             <div class="font-bold text-lg mb-1">AI Song Generator</div>
@@ -939,6 +971,51 @@
             </div>
             <div id="tool-looper-history-list" class="space-y-2">
               <div class="bg-black/30 border border-gray-800 rounded-xl px-3 py-2 text-sm text-gray-500">No looper history yet.</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="tool-page-tabs-preview" class="hidden bg-surface rounded-2xl p-5 border border-gray-800">
+          <div class="flex items-center justify-between gap-3 mb-3">
+            <div>
+              <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-1">Tool</p>
+              <h2 class="font-bold text-lg">Tabs Preview</h2>
+              <p class="text-sm text-gray-400">Supports standard tab lines like <span class="font-mono">e|--0--1--</span>. You can include only needed strings.</p>
+            </div>
+          </div>
+          <div class="grid sm:grid-cols-[1fr_auto] gap-3 mb-3">
+            <textarea id="tool-tabs-text" rows="10" class="w-full bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm font-mono whitespace-pre leading-relaxed outline-none text-white" placeholder="e|--0--0--1--0-----0-----------|&#10;B|--------------3-----1--0-----|&#10;&#10;e|--1--3--1--0-----------------|&#10;B|--------------3--1--0--------|"></textarea>
+            <div class="space-y-2">
+              <label class="block bg-black/30 border border-gray-800 rounded-xl px-3 py-2">
+                <span class="text-[10px] uppercase tracking-[0.2em] text-gray-500 block mb-1">Title</span>
+                <input id="tool-tabs-title" type="text" maxlength="120" placeholder="Example: Intro part" class="w-full bg-transparent outline-none text-white text-sm">
+              </label>
+              <label class="block bg-black/30 border border-gray-800 rounded-xl px-3 py-2">
+                <span class="text-[10px] uppercase tracking-[0.2em] text-gray-500 block mb-1">BPM</span>
+                <input id="tool-tabs-bpm" type="number" min="40" max="240" value="96" class="w-full bg-transparent outline-none text-white text-sm">
+              </label>
+              <label class="block bg-black/30 border border-gray-800 rounded-xl px-3 py-2">
+                <span class="text-[10px] uppercase tracking-[0.2em] text-gray-500 block mb-1">Timing</span>
+                <input id="tool-tabs-timing" type="text" value="1 &amp; 2 &amp; 3 &amp; 4 &amp;" placeholder="Example: 1 & 2 & 3 & 4 &" class="w-full bg-transparent outline-none text-white text-sm font-mono">
+              </label>
+              <button id="btn-tabs-save" onclick="saveTabsPreviewHistoryItem()" class="w-full btn-soft font-bold py-3 rounded-xl btn-press">
+                <i class="fas fa-save mr-2"></i>Save
+              </button>
+              <button id="btn-tabs-preview-play" onclick="playTabsPreview()" class="w-full bg-primary text-black font-bold py-3 rounded-xl btn-press shadow-[0_0_20px_rgba(187,134,252,0.25)]">
+                <i class="fas fa-play mr-2"></i>Preview
+              </button>
+              <button id="btn-tabs-preview-stop" onclick="stopTabsPreview()" class="w-full btn-soft font-bold py-3 rounded-xl btn-press">
+                <i class="fas fa-stop mr-2"></i>Stop
+              </button>
+            </div>
+          </div>
+          <p id="tool-tabs-status" class="text-xs text-gray-500">Paste tabs then tap Preview.</p>
+          <div class="mt-4">
+            <div class="flex items-center justify-between gap-3 mb-2">
+              <p class="text-xs uppercase tracking-[0.2em] text-gray-500">Saved Tabs</p>
+            </div>
+            <div id="tool-tabs-history-list" class="space-y-2">
+              <div class="bg-black/30 border border-gray-800 rounded-xl px-3 py-2 text-sm text-gray-500">No tabs history yet.</div>
             </div>
           </div>
         </div>
