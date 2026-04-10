@@ -41,6 +41,7 @@
 
     .timeline-block { transition: background 0.2s ease, border-color 0.2s ease; border-left: 4px solid transparent; }
     .timeline-block.active { background: rgba(3, 218, 198, 0.1); border-left-color: var(--active); }
+    .text-active { color: #f5ff4a !important; }
     .timeline-content { width: max-content; min-width: 100%; }
     .timeline-pair { display: flex; flex-direction: column; align-items: flex-start; gap: 0.18rem; }
     .timeline-line { margin: 0; padding: 0; display: block; white-space: pre; }
@@ -101,9 +102,11 @@
     .pattern-cell.fail { background: rgba(164, 63, 86, 0.14); border-color: rgba(255, 138, 162, 0.32); color: #ffd3dc; }
     .chord-library-grid { display: flex; flex-wrap: wrap; gap: 0.55rem; align-items: flex-start; }
     .chord-diagram-card { background: rgba(0,0,0,0.28); border: 1px solid #303030; border-radius: 0.9rem; padding: 0.45rem; }
-    .chord-diagram-card.large { padding: 0.65rem; max-width: 132px; margin: 0 auto; }
+    .chord-diagram-card.large { padding: 0.8rem; max-width: 188px; margin: 0 auto; }
     .chord-diagram-svg { width: 72px; height: auto; display: block; margin: 0 auto; }
-    .chord-diagram-card.large .chord-diagram-svg { width: 92px; }
+    .chord-diagram-card.large .chord-diagram-svg { width: 132px; }
+    .clickable-chord { cursor: pointer; border-bottom: 1px dashed rgba(245,255,74,0.45); }
+    .clickable-chord:hover { color: #f5ff4a; }
     .practice-chord-panel { background: linear-gradient(180deg, rgba(24,24,24,0.96), rgba(14,14,14,0.92)); border-bottom: 1px solid #2a2a2a; }
     .practice-line-card { background: rgba(10,10,10,0.82); border: 1px solid #353535; border-radius: 1rem; padding: 1rem 1.05rem; min-height: 160px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.02); }
     .practice-line-stack { display: flex; flex-direction: column; gap: 0.7rem; }
@@ -714,7 +717,7 @@
             <button onclick="playSelectedChordReference()" class="bg-primary text-black font-bold py-3 px-4 rounded-full btn-press shadow-[0_0_20px_rgba(187,134,252,0.25)]">
               <i class="fas fa-volume-up mr-2"></i> Play
             </button>
-            <button onclick="loadSelectedChordToBuilder()" class="btn-soft font-bold py-3 px-4 rounded-full btn-press">
+            <button id="btn-chord-explorer-edit" onclick="loadSelectedChordToBuilder()" class="btn-soft font-bold py-3 px-4 rounded-full btn-press">
               <i class="fas fa-pen mr-2"></i> Edit
             </button>
           </div>
@@ -726,6 +729,7 @@
               <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-1">Tool</p>
               <h2 class="font-bold text-lg">Add Chord</h2>
               <p class="text-sm text-gray-400">Pick string positions, then save. Duplicate names or duplicate shapes are blocked.</p>
+              <p id="chord-builder-admin-hint" class="hidden text-xs text-gray-500 mt-2">Only the library owner can add or edit chords.</p>
             </div>
           </div>
           <div class="space-y-3 mb-4">
@@ -764,7 +768,7 @@
             </div>
           </div>
           <div id="tool-chord-preview" class="mb-4"></div>
-          <button onclick="saveChordToLibrary()" class="w-full bg-primary text-black font-bold py-3 px-8 rounded-full btn-press shadow-[0_0_20px_rgba(187,134,252,0.25)]">
+          <button id="btn-save-chord-library" onclick="saveChordToLibrary()" class="w-full bg-primary text-black font-bold py-3 px-8 rounded-full btn-press shadow-[0_0_20px_rgba(187,134,252,0.25)]">
             <i class="fas fa-save mr-2"></i> Save Chord To Database
           </button>
         </div>
@@ -816,7 +820,7 @@
             </div>
             <p id="tool-guitar-tone-editor-status" class="text-xs text-gray-500">Upload at least one open-string sample to create a tone.</p>
             <div class="grid grid-cols-2 gap-2">
-              <button onclick="saveGuitarToneProfile()" class="bg-primary text-black font-bold py-3 rounded-xl btn-press shadow-[0_0_20px_rgba(187,134,252,0.25)]">
+              <button id="btn-save-guitar-tone" onclick="saveGuitarToneProfile()" class="bg-primary text-black font-bold py-3 rounded-xl btn-press shadow-[0_0_20px_rgba(187,134,252,0.25)]">
                 <i class="fas fa-save mr-2"></i>Save Tone
               </button>
               <button onclick="toggleGuitarToneEditor()" class="btn-soft font-bold py-3 rounded-xl btn-press">
@@ -1220,7 +1224,37 @@
     </main>
   </div>
 
-  <script type="module" src="app/main.js?v=20260409a"></script>
+  <script type="module">
+    (async () => {
+      try {
+        const isLocalhost = ['localhost', '127.0.0.1'].includes(location.hostname);
+
+        if (isLocalhost && 'serviceWorker' in navigator) {
+          try {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(regs.map(reg => reg.unregister()));
+          } catch {}
+          try {
+            if ('caches' in window) {
+              const keys = await caches.keys();
+              await Promise.all(keys.map(key => caches.delete(key)));
+            }
+          } catch {}
+        }
+
+        const versionToken = isLocalhost ? String(Date.now()) : '20260410b';
+        await import(`./app/main.js?v=${encodeURIComponent(versionToken)}`);
+      } catch (err) {
+        console.error('Main module failed to load', err);
+        const loader = document.getElementById('loading-overlay');
+        if (loader) {
+          loader.classList.remove('hidden');
+          const text = loader.querySelector('p');
+          if (text) text.textContent = 'Failed to load app script. Please refresh.';
+        }
+      }
+    })();
+  </script>
   <div id="tabbar-wrap" class="hidden fixed bottom-0 left-0 right-0 z-30 px-3 pb-3 pt-2">
     <nav class="ios-tabbar max-w-2xl mx-auto border border-gray-800 rounded-[28px] px-2 py-2 flex items-center gap-1">
       <div id="bottom-tabbar" class="flex items-center w-full"></div>

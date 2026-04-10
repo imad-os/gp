@@ -8,8 +8,17 @@ PORT = 5500
 ROOT = Path(__file__).resolve().parent
 
 
+class NoCacheRequestHandler(SimpleHTTPRequestHandler):
+    def end_headers(self):
+        # Force fresh files on every request during local development.
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
+        super().end_headers()
+
+
 def main():
-    handler = SimpleHTTPRequestHandler
+    handler = NoCacheRequestHandler
     server = ThreadingHTTPServer((HOST, PORT), handler)
     print(f"Serving {ROOT} at http://{HOST}:{PORT}/index.html")
     try:

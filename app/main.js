@@ -134,6 +134,8 @@ import { FirestoreRepository } from './modules/repository.js';
     const APP_BUILD = {
       version: 'v2026.04.06.3',
     };
+    const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
+    const LIBRARY_ADMIN_UIDS = [];
     const DEFAULT_SETTINGS = {
       practiceTextSize: 14,
       favoriteSongIds: [],
@@ -237,15 +239,34 @@ import { FirestoreRepository } from './modules/repository.js';
     const DEFAULT_CHORD_LIBRARY = {
       C: { baseFret: 1, strings: ['x', 3, 2, 0, 1, 0], fingers: [0, 3, 2, 0, 1, 0] },
       Cm: { baseFret: 3, strings: ['x', 3, 5, 5, 4, 3], fingers: [0, 1, 3, 4, 2, 1] },
+      C7: { baseFret: 1, strings: ['x', 3, 2, 3, 1, 0], fingers: [0, 3, 2, 4, 1, 0] },
       D: { baseFret: 1, strings: ['x', 'x', 0, 2, 3, 2], fingers: [0, 0, 0, 1, 3, 2] },
       Dm: { baseFret: 1, strings: ['x', 'x', 0, 2, 3, 1], fingers: [0, 0, 0, 2, 3, 1] },
+      D7: { baseFret: 1, strings: ['x', 'x', 0, 2, 1, 2], fingers: [0, 0, 0, 2, 1, 3] },
+      Dsus4: { baseFret: 1, strings: ['x', 'x', 0, 2, 3, 3], fingers: [0, 0, 0, 1, 2, 3] },
       E: { baseFret: 1, strings: [0, 2, 2, 1, 0, 0], fingers: [0, 2, 3, 1, 0, 0] },
       Em: { baseFret: 1, strings: [0, 2, 2, 0, 0, 0], fingers: [0, 2, 3, 0, 0, 0] },
+      E7: { baseFret: 1, strings: [0, 2, 0, 1, 0, 0], fingers: [0, 2, 0, 1, 0, 0] },
       F: { baseFret: 1, strings: [1, 3, 3, 2, 1, 1], fingers: [1, 3, 4, 2, 1, 1] },
+      Fmaj7: { baseFret: 1, strings: ['x', 'x', 3, 2, 1, 0], fingers: [0, 0, 3, 2, 1, 0] },
+      Fm: { baseFret: 1, strings: [1, 3, 3, 1, 1, 1], fingers: [1, 3, 4, 1, 1, 1] },
+      'F#': { baseFret: 2, strings: [2, 4, 4, 3, 2, 2], fingers: [1, 3, 4, 2, 1, 1] },
       G: { baseFret: 1, strings: [3, 2, 0, 0, 0, 3], fingers: [2, 1, 0, 0, 0, 3] },
+      G7: { baseFret: 1, strings: [3, 2, 0, 0, 0, 1], fingers: [3, 2, 0, 0, 0, 1] },
+      G6: { baseFret: 1, strings: [3, 2, 0, 0, 0, 0], fingers: [2, 1, 0, 0, 0, 0] },
       A: { baseFret: 1, strings: ['x', 0, 2, 2, 2, 0], fingers: [0, 0, 1, 2, 3, 0] },
       Am: { baseFret: 1, strings: ['x', 0, 2, 2, 1, 0], fingers: [0, 0, 2, 3, 1, 0] },
-      B7: { baseFret: 1, strings: ['x', 2, 1, 2, 0, 2], fingers: [0, 2, 1, 3, 0, 4] }
+      A7: { baseFret: 1, strings: ['x', 0, 2, 0, 2, 0], fingers: [0, 0, 2, 0, 3, 0] },
+      Asus2: { baseFret: 1, strings: ['x', 0, 2, 2, 0, 0], fingers: [0, 0, 2, 3, 0, 0] },
+      Asus4: { baseFret: 1, strings: ['x', 0, 2, 2, 3, 0], fingers: [0, 0, 1, 2, 3, 0] },
+      B: { baseFret: 2, strings: ['x', 2, 4, 4, 4, 2], fingers: [0, 1, 3, 4, 4, 1] },
+      Bm: { baseFret: 2, strings: ['x', 2, 4, 4, 3, 2], fingers: [0, 1, 3, 4, 2, 1] },
+      B7: { baseFret: 1, strings: ['x', 2, 1, 2, 0, 2], fingers: [0, 2, 1, 3, 0, 4] },
+      Cadd9: { baseFret: 1, strings: ['x', 3, 2, 0, 3, 3], fingers: [0, 1, 2, 0, 3, 4] },
+      Dadd9: { baseFret: 1, strings: ['x', 'x', 0, 2, 3, 0], fingers: [0, 0, 0, 1, 2, 0] },
+      Emaj7: { baseFret: 1, strings: [0, 2, 1, 1, 0, 0], fingers: [0, 3, 1, 2, 0, 0] },
+      'G/B': { baseFret: 1, strings: ['x', 2, 0, 0, 0, 3], fingers: [0, 1, 0, 0, 0, 3] },
+      'D/F#': { baseFret: 1, strings: [2, 'x', 0, 2, 3, 2], fingers: [1, 0, 0, 2, 4, 3] }
     };
     let CHORD_LIBRARY = { ...DEFAULT_CHORD_LIBRARY };
     const NOTE_INDEX = { C: 0, 'B#': 0, 'C#': 1, Db: 1, D: 2, 'D#': 3, Eb: 3, E: 4, Fb: 4, F: 5, 'E#': 5, 'F#': 6, Gb: 6, G: 7, 'G#': 8, Ab: 8, A: 9, 'A#': 10, Bb: 10, B: 11, Cb: 11 };
@@ -912,7 +933,8 @@ Drop back to 70 BPM for clean finish.`,
               continue;
             }
             chordHtml += normalizedChordLine.substring(lastIdx, match.index);
-            chordHtml += `<span id="chord-hl-${globalChordIdx}" class="transition-all duration-200">${chordStr}</span>`;
+            const safeChord = escapeHtml(chordStr);
+            chordHtml += `<span id="chord-hl-${globalChordIdx}" data-chord="${safeChord}" onclick="openPreviewChordDiagram('${safeChord}')" class="transition-all duration-200 clickable-chord">${safeChord}</span>`;
             lastIdx = match.index + chordStr.length;
 
             const chordObj = { chord: chordStr, time: currentTime, lineIdx: parsedLines.length, globalIdx: globalChordIdx };
@@ -934,7 +956,7 @@ Drop back to 70 BPM for clean finish.`,
 
       if (flatChords.length === 0) {
          flatChords = [{ chord: "C", time: 0, lineIdx: 0, globalIdx: 0 }];
-         parsedLines = [{ type: 'content', chordHtml: `<span id="chord-hl-0">C</span>`, lyricLine: "Empty", chords: flatChords }];
+         parsedLines = [{ type: 'content', chordHtml: `<span id="chord-hl-0" data-chord="C" onclick="openPreviewChordDiagram('C')" class="clickable-chord">C</span>`, lyricLine: "Empty", chords: flatChords }];
          currentTime = beatsPerBar;
       }
 
@@ -1715,6 +1737,7 @@ Drop back to 70 BPM for clean finish.`,
             user = u;
             const isGuest = user.isAnonymous;
             updateUserHeaderState();
+            refreshLibraryAdminButtons();
             closeAuthModal();
             
             const addBtn = document.getElementById('btn-add-song');
@@ -1733,12 +1756,14 @@ Drop back to 70 BPM for clean finish.`,
             renderChordExplorer();
             renderToolSongsSearch();
             renderProfileSummary();
+            refreshLibraryAdminButtons();
             showToolsHome({ skipUrl: true });
             await applyRouteFromLocation({ replaceUnknown: true });
             showLoading(false);
           } else {
             user = null;
             updateUserHeaderState();
+            refreshLibraryAdminButtons();
             looperHistory = [];
             renderLooperHistory();
             try {
@@ -1794,7 +1819,7 @@ Drop back to 70 BPM for clean finish.`,
 
     async function loadChordLibraryData() {
       try {
-        const seedDefaults = user && !user.isAnonymous ? toDefaultChordEntries() : [];
+        const seedDefaults = isLibraryAdmin() ? toDefaultChordEntries() : [];
         const raw = await repository.loadChords(seedDefaults);
         chordEntries = raw.map(normalizeChordEntry).filter(entry => entry.name && entry.nameKey);
         refreshChordLibraryFromEntries(chordEntries);
@@ -2057,6 +2082,10 @@ Drop back to 70 BPM for clean finish.`,
         showToast("Create an account to add chords.");
         return;
       }
+      if (!isLibraryAdmin()) {
+        showToast("Only the library owner can add or edit chords.");
+        return;
+      }
       const name = (document.getElementById('tool-chord-name')?.value || '').trim();
       if (!name) {
         showToast("Please enter a chord name.");
@@ -2090,7 +2119,7 @@ Drop back to 70 BPM for clean finish.`,
         return;
       }
       const targetEntry = editingEntry || duplicateByName || null;
-      if (targetEntry?.createdBy && targetEntry.createdBy !== user.uid) {
+      if (targetEntry?.createdBy && targetEntry.createdBy !== user.uid && !isLibraryAdmin()) {
         showToast("You can only edit chords you created.");
         return;
       }
@@ -2288,7 +2317,7 @@ Drop back to 70 BPM for clean finish.`,
       }
       const profile = guitarToneProfiles.find(item => item.id === profileId);
       if (!profile) return;
-      if (profile.ownerId && profile.ownerId !== user.uid) {
+      if (profile.ownerId && profile.ownerId !== user.uid && !isLibraryAdmin()) {
         showToast('You can only delete tones you created.');
         return;
       }
@@ -2348,6 +2377,10 @@ Drop back to 70 BPM for clean finish.`,
         showToast('Create an account to save guitar tones.');
         return;
       }
+      if (!isLibraryAdmin()) {
+        showToast('Only the library owner can add or edit guitar tones.');
+        return;
+      }
       const name = String(document.getElementById('tool-guitar-tone-name')?.value || '').trim();
       if (!name) {
         showToast('Enter a guitar tone name.');
@@ -2379,7 +2412,7 @@ Drop back to 70 BPM for clean finish.`,
         return;
       }
       const editingEntry = guitarToneEditingId ? guitarToneProfiles.find(item => item.id === guitarToneEditingId) : null;
-      if (editingEntry?.ownerId && editingEntry.ownerId !== user.uid) {
+      if (editingEntry?.ownerId && editingEntry.ownerId !== user.uid && !isLibraryAdmin()) {
         showToast('You can only edit tones you created.');
         return;
       }
@@ -3077,6 +3110,32 @@ Rules:
         if (!btn) return;
         btn.classList.toggle('hidden', !canEdit);
       });
+    }
+
+    function isLibraryAdmin() {
+      if (!user || user.isAnonymous) return false;
+      const uid = String(user.uid || '');
+      const email = String(user.email || '').trim().toLowerCase();
+      return LIBRARY_ADMIN_UIDS.includes(uid) || LIBRARY_ADMIN_EMAILS.includes(email);
+    }
+
+    function refreshLibraryAdminButtons() {
+      const canWrite = isLibraryAdmin();
+      const chordSave = document.getElementById('btn-save-chord-library');
+      const chordEdit = document.getElementById('btn-chord-explorer-edit');
+      const chordHint = document.getElementById('chord-builder-admin-hint');
+      const toneAdd = document.getElementById('btn-guitar-tone-add');
+      const toneSave = document.getElementById('btn-save-guitar-tone');
+
+      [chordSave, chordEdit, toneSave].forEach(btn => {
+        if (!btn) return;
+        btn.disabled = !canWrite;
+        btn.classList.toggle('opacity-40', !canWrite);
+        btn.classList.toggle('pointer-events-none', !canWrite);
+      });
+      if (toneAdd) toneAdd.classList.toggle('hidden', !canWrite);
+      if (chordHint) chordHint.classList.toggle('hidden', canWrite);
+      if (!canWrite && guitarToneEditorOpen) setGuitarToneEditorOpen(false);
     }
 
     function buildTrainingArticleCard(article = {}) {
@@ -3868,6 +3927,25 @@ Rules:
       container.innerHTML = `<div class="chord-library-grid">${chords.map(chord => renderChordDiagramSvg(chord)).join('')}</div>`;
     }
 
+    function setPreviewChordDiagram(chordName = '') {
+      const wrap = document.getElementById('practice-preview-chord-diagram');
+      const title = document.getElementById('practice-preview-chord-name');
+      if (!wrap || !title) return;
+      if (!chordName) {
+        title.innerText = 'Tap a chord';
+        wrap.innerHTML = '<p class="text-xs text-gray-500 text-center">Tap any chord above to open its diagram.</p>';
+        return;
+      }
+      title.innerText = chordName;
+      wrap.innerHTML = renderChordDiagramSvg(chordName, true);
+    }
+
+    window.openPreviewChordDiagram = function(chordName) {
+      const normalized = normalizeChordLookupName(chordName);
+      if (!normalized) return;
+      setPreviewChordDiagram(normalized);
+    };
+
     function renderPracticeCurrentLine(lineData, activeChordGlobalIdx = null) {
       const container = document.getElementById('practice-current-line');
       if (!container) return;
@@ -3892,7 +3970,7 @@ Rules:
         }
         let chordHtml = entry.chordHtml || '';
         if (state === 'current' && activeChordGlobalIdx !== null) {
-          chordHtml = chordHtml.replace(`id="chord-hl-${activeChordGlobalIdx}"`, `id="chord-hl-${activeChordGlobalIdx}" class="text-active drop-shadow-[0_0_8px_rgba(3,218,198,0.8)] inline-block"`);
+          chordHtml = chordHtml.replace(`id="chord-hl-${activeChordGlobalIdx}"`, `id="chord-hl-${activeChordGlobalIdx}" class="text-active drop-shadow-[0_0_10px_rgba(245,255,74,0.9)] inline-block"`);
         }
         return `
           <div class="practice-line-preview ${state}">
@@ -5618,6 +5696,13 @@ Rules:
               <div id="practice-preview-pattern"></div>
             </div>
             <div class="bg-surface rounded-2xl p-5 border border-gray-800">
+              <div class="flex items-center justify-between gap-2 mb-3">
+                <div class="text-[10px] uppercase tracking-[0.2em] text-gray-500">Chord Diagram</div>
+                <div id="practice-preview-chord-name" class="text-xs font-bold text-primary">Tap a chord</div>
+              </div>
+              <div id="practice-preview-chord-diagram" class="flex justify-center"></div>
+            </div>
+            <div class="bg-surface rounded-2xl p-5 border border-gray-800">
               <div class="text-[10px] uppercase tracking-[0.2em] text-gray-500 mb-3">Lyrics And Chords</div>
               <div class="timeline-content flex flex-col">` + currentSong.parsedLines.map((lineData, i) => `
                 <div id="block-${i}" class="timeline-block ${lineData.chordHtml === '' && lineData.lyricLine === '' ? 'compact-gap' : 'tight-stack'} px-1 sm:px-3 py-0 border-l-4 border-transparent font-mono">
@@ -5632,6 +5717,7 @@ Rules:
         practiceValidationStates = new Array(activeStrumPattern.length).fill(null);
         updatePreviewPlayButton();
         UI.renderPatternVisualizer('practice-preview-pattern', normalizedPreview, beatsPerBar, -1, [], subdivisionsPerBeat);
+        setPreviewChordDiagram(currentSong.chords?.[0]?.chord || 'C');
         const previewFab = document.getElementById('btn-start-step1-fab');
         if (previewFab) previewFab.onclick = () => startPractice(1);
         navigate('practice', {
@@ -5834,11 +5920,11 @@ Rules:
           const chordEl = document.getElementById(`chord-hl-${activeChord.globalIdx}`);
           if (chordEl && !chordEl.classList.contains('text-active')) {
              document.querySelectorAll('[id^="chord-hl-"]').forEach(c => {
-                 c.classList.remove('text-active', 'drop-shadow-[0_0_8px_rgba(3,218,198,0.8)]', 'scale-110', 'inline-block');
+                 c.classList.remove('text-active', 'drop-shadow-[0_0_10px_rgba(245,255,74,0.9)]', 'scale-110', 'inline-block');
                  c.classList.add('text-primary');
              });
              chordEl.classList.remove('text-primary');
-             chordEl.classList.add('text-active', 'drop-shadow-[0_0_8px_rgba(3,218,198,0.8)]', 'scale-110', 'inline-block');
+             chordEl.classList.add('text-active', 'drop-shadow-[0_0_10px_rgba(245,255,74,0.9)]', 'scale-110', 'inline-block');
           }
         }
       }
@@ -5931,7 +6017,7 @@ Rules:
         if(a.id !== 'view-practice' && !a.classList.contains('view')) a.classList.remove('active');
       });
       document.querySelectorAll('[id^="chord-hl-"]').forEach(c => {
-         c.classList.remove('text-active', 'drop-shadow-[0_0_8px_rgba(3,218,198,0.8)]', 'scale-110', 'inline-block');
+         c.classList.remove('text-active', 'drop-shadow-[0_0_10px_rgba(245,255,74,0.9)]', 'scale-110', 'inline-block');
          c.classList.add('text-primary');
       });
       updatePreviewPlayButton();
@@ -6344,14 +6430,28 @@ Rules:
 
     async function registerServiceWorker() {
       if (!('serviceWorker' in navigator)) return;
+      const isLocalhost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
       try {
+        if (isLocalhost) {
+          // In local dev we want instant JS/CSS updates without stale SW cache.
+          const regs = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(regs.map(reg => reg.unregister()));
+          if ('caches' in window) {
+            const keys = await caches.keys();
+            await Promise.all(keys.map(key => caches.delete(key)));
+          }
+          return;
+        }
         await navigator.serviceWorker.register('/sw.js');
       } catch (err) {
         console.error('Service worker registration failed', err);
       }
     }
 
-    window.onload = () => {
+    let appBooted = false;
+    function bootApp() {
+      if (appBooted) return;
+      appBooted = true;
       registerServiceWorker();
       restoreRedirectedRouteFromQuery();
       populateCapoOptions();
@@ -6369,6 +6469,7 @@ Rules:
       initLooperUi();
       renderToolSongsSearch();
       renderBuildInfo();
+      refreshLibraryAdminButtons();
       showToolsHome({ skipUrl: true });
       syncAddPatternEditor();
       updateTrainingPatternEditor();
@@ -6406,4 +6507,10 @@ Rules:
         stopLooperPlayback();
       });
       initApp();
-    };
+    }
+
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+      bootApp();
+    } else {
+      window.addEventListener('load', bootApp, { once: true });
+    }

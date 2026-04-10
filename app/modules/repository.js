@@ -216,13 +216,21 @@ export class FirestoreRepository {
   async loadChords(defaultChords = []) {
     const chordsRef = collection(this.db, 'chords');
     const snap = await getDocs(chordsRef);
-    if (snap.empty && defaultChords.length) {
-      for (const chord of defaultChords) {
-        await addDoc(chordsRef, chord);
-      }
-      return defaultChords.map((chord, idx) => ({ id: `seed-${idx}`, ...chord }));
+    const existing = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (!defaultChords.length) return existing;
+
+    const existingByName = new Set(existing.map(item => String(item?.name || '').trim().toLowerCase()).filter(Boolean));
+    const missing = defaultChords.filter(item => {
+      const key = String(item?.name || '').trim().toLowerCase();
+      return !!key && !existingByName.has(key);
+    });
+    if (!missing.length) return existing;
+
+    for (const chord of missing) {
+      await addDoc(chordsRef, chord);
     }
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const refreshed = await getDocs(chordsRef);
+    return refreshed.docs.map(d => ({ id: d.id, ...d.data() }));
   }
 
   async saveChord(chordData, editingChordId = null) {
