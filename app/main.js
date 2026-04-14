@@ -160,6 +160,16 @@ import { FirestoreRepository } from './modules/repository.js';
     const TAB_VIEWS = new Set(['home', 'training', 'tuner', 'tools', 'profile']);
     const TABS_COLUMNS_PER_BEAT = 4;
     const TABS_PREVIEW_PART_GAP_COLUMNS = 2;
+    const EUROPEAN_TO_US_NOTE_MAP = Object.freeze({
+      do: 'C',
+      re: 'D',
+      mi: 'E',
+      fa: 'F',
+      sol: 'G',
+      la: 'A',
+      si: 'B',
+      ti: 'B'
+    });
     const TUNING_PRESETS = [
       {
         id: 'standard',
@@ -2918,13 +2928,201 @@ Drop back to 70 BPM for clean finish.`,
       updateLooperNowPlayingIndicator();
     };
 
+    function normalizeChordAccidental(value = '') {
+      const raw = String(value || '').trim();
+      if (!raw) return '';
+      if (raw === '#' || raw === '♯') return '#';
+      if (raw === 'b' || raw === '♭') return 'b';
+      return '';
+    }
+
+    function extractTokenCoreParts(token = '') {
+      const raw = String(token || '');
+      const match = raw.match(/^([^A-Za-z0-9#b♯♭]*)(.*?)([^A-Za-z0-9#b♯♭]*)$/);
+      if (!match) return { prefix: '', core: raw, suffix: '' };
+      return {
+        prefix: match[1] || '',
+        core: match[2] || '',
+        suffix: match[3] || ''
+      };
+    }
+
+    function normalizeMinorSuffix(rest = '') {
+      const raw = String(rest || '');
+      if (!raw) return '';
+      if (raw.startsWith('-')) return `m${raw.slice(1)}`;
+      if (/^min\b/i.test(raw)) return `m${raw.slice(3)}`;
+      return raw;
+    }
+
+    function isLikelyChordSuffix(rest = '') {
+      const raw = String(rest || '');
+      if (!raw) return true;
+      return /^(m($|[0-9#b♯♭/+()\-])|m(maj|min|add|sus|dim|aug)|maj|min|dim|aug|sus|add|[0-9#b♯♭/+()\-])/i.test(raw);
+    }
+
+    function detectNotationForChordSegment(segment = '') {
+      const raw = String(segment || '');
+      if (!raw) return '';
+      const european = raw.match(/^(do|re|mi|fa|sol|la|si|ti)([#♯b♭]?)(.*)$/i);
+      if (european && isLikelyChordSuffix(european[3] || '')) return 'european';
+      const usa = raw.match(/^([A-G])([#♯b♭]?)(.*)$/i);
+      if (usa && isLikelyChordSuffix(usa[3] || '')) return 'usa';
+      return '';
+    }
+
+    function translateChordSegmentToUs(segment = '') {
+      const raw = String(segment || '');
+      if (!raw) return raw;
+      const match = raw.match(/^(do|re|mi|fa|sol|la|si|ti)([#♯b♭]?)(.*)$/i);
+      if (!match || detectNotationForChordSegment(raw) !== 'european') return raw;
+      const rootKey = String(match[1] || '').toLowerCase();
+      const mappedRoot = EUROPEAN_TO_US_NOTE_MAP[rootKey];
+      if (!mappedRoot) return raw;
+      const accidental = normalizeChordAccidental(match[2] || '');
+      const suffix = normalizeMinorSuffix(match[3] || '');
+      return `${mappedRoot}${accidental}${suffix}`;
+    }
+
+    function translateChordCoreToUs(core = '') {
+      const raw = String(core || '');
+      if (!raw) return raw;
+      return raw.split('/').map(part => translateChordSegmentToUs(part)).join('/');
+    }
+
+    function getChordNotationFromCore(core = '') {
+      const raw = String(core || '').trim();
+      if (!raw) return '';
+      const lead = raw.split('/')[0] || '';
+      return detectNotationForChordSegment(lead);
+    }
+
+    function detectChordNotationStyle(text = '') {
+      const raw = String(text || '');
+      if (!raw.trim()) return 'empty';
+      let european = 0;
+      let usa = 0;
+      raw.split(/\s+/).forEach(token => {
+        if (!token) return;
+        const { core } = extractTokenCoreParts(token);
+        const notation = getChordNotationFromCore(core);
+        if (notation === 'european') european += 1;
+        else if (notation === 'usa') usa += 1;
+      });
+      if (european > 0 && usa > 0) return 'mixed';
+      if (european > 0) return 'european';
+      if (usa > 0) return 'usa';
+      return 'unknown';
+    }
+
+    function translateTextToUsChordNotation(text = '') {
+      const raw = String(text || '');
+      if (!raw) return '';
+      return raw.split(/(\s+)/).map(part => {
+        if (!part || /^\s+$/.test(part)) return part;
+        const { prefix, core, suffix } = extractTokenCoreParts(part);
+        if (!core) return part;
+        const translatedCore = translateChordCoreToUs(core);
+        return `${prefix}${translatedCore}${suffix}`;
+      }).join('');
+    }
+
+    function isUsChordCore(core = '') {
+      const raw = String(core || '').trim();
+      if (!raw) return false;
+      const segments = raw.split('/').filter(Boolean);
+      if (!segments.length) return false;
+      return segments.every(segment => detectNotationForChordSegment(segment) === 'usa');
+    }
+
+    function renderChordTranslationOutput(translatedText = '') {
+      const outputEl = document.getElementById('tool-chord-translation-output');
+      if (!outputEl) return;
+      const text = String(translatedText || '').replace(/\r/g, '');
+      if (!text) {
+        outputEl.innerHTML = '';
+        return;
+      }
+      const html = text.split('\n').map(line => {
+        return line.split(/(\s+)/).map(part => {
+          if (!part) return '';
+          if (/^\s+$/.test(part)) return escapeHtml(part);
+          const { prefix, core, suffix } = extractTokenCoreParts(part);
+          if (!core || !isUsChordCore(core)) return escapeHtml(part);
+          const safePrefix = escapeHtml(prefix);
+          const safeCore = escapeHtml(core);
+          const safeSuffix = escapeHtml(suffix);
+          return `${safePrefix}<span data-chord="${safeCore}" onclick="openChordTranslationChordDiagram(this.dataset.chord)" class="transition-all duration-200 clickable-chord">${safeCore}</span>${safeSuffix}`;
+        }).join('');
+      }).join('<br>');
+      outputEl.innerHTML = html;
+    }
+
+    window.openChordTranslationChordDiagram = function(chordName = '') {
+      const normalized = normalizeChordLookupName(chordName);
+      if (!normalized) return;
+      const wrap = document.getElementById('tool-chord-translation-diagram-wrap');
+      const nameEl = document.getElementById('tool-chord-translation-diagram-name');
+      const diagramEl = document.getElementById('tool-chord-translation-diagram');
+      if (!wrap || !nameEl || !diagramEl) return;
+      nameEl.innerText = normalized;
+      diagramEl.innerHTML = renderChordDiagramSvg(normalized, true);
+      wrap.classList.remove('hidden');
+    };
+
+    function updateChordTranslationDetectedLabel(mode = 'empty') {
+      const label = document.getElementById('tool-chord-translation-detected');
+      if (!label) return;
+      label.textContent = mode === 'european'
+        ? 'Detected: European notation (Do Re Mi).'
+        : mode === 'usa'
+          ? 'Detected: USA notation (C D E).'
+          : mode === 'mixed'
+            ? 'Detected: Mixed notation.'
+            : mode === 'unknown'
+              ? 'Detected: unknown text (no clear chord notation).'
+              : 'Detected: waiting for input.';
+    }
+
+    window.runChordTranslation = function(liveMode = false) {
+      const inputEl = document.getElementById('tool-chord-translation-input');
+      const outputEl = document.getElementById('tool-chord-translation-output');
+      if (!inputEl || !outputEl) return;
+      const inputText = String(inputEl.value || '');
+      if (!inputText.trim()) {
+        outputEl.innerHTML = '';
+        updateChordTranslationDetectedLabel('empty');
+        if (!liveMode) showToast('Paste chords first.');
+        return;
+      }
+      const detected = detectChordNotationStyle(inputText);
+      const translated = translateTextToUsChordNotation(inputText);
+      renderChordTranslationOutput(translated);
+      updateChordTranslationDetectedLabel(detected);
+      if (!liveMode) showToast('Chord translation ready.', true);
+    };
+
+    window.clearChordTranslation = function() {
+      const inputEl = document.getElementById('tool-chord-translation-input');
+      const outputEl = document.getElementById('tool-chord-translation-output');
+      const diagramWrap = document.getElementById('tool-chord-translation-diagram-wrap');
+      const diagramEl = document.getElementById('tool-chord-translation-diagram');
+      const diagramName = document.getElementById('tool-chord-translation-diagram-name');
+      if (inputEl) inputEl.value = '';
+      if (outputEl) outputEl.innerHTML = '';
+      if (diagramEl) diagramEl.innerHTML = '';
+      if (diagramName) diagramName.innerText = '';
+      if (diagramWrap) diagramWrap.classList.add('hidden');
+      updateChordTranslationDetectedLabel('empty');
+    };
+
     window.openToolPage = function(tool, options = {}) {
       const { skipUrl = false, replaceUrl = false } = options || {};
       if (tool !== 'looper' && !looperAppBackgroundEnabled && hasActiveLooperTrack()) {
         stopLooperPlayback();
       }
       activeToolPage = tool;
-      const pages = ['metronome', 'recorder', 'chords', 'chord-builder', 'guitar-tones', 'songs', 'looper', 'tabs-preview', 'ai-song'];
+      const pages = ['metronome', 'recorder', 'chords', 'chord-builder', 'guitar-tones', 'songs', 'looper', 'tabs-preview', 'chord-translation', 'ai-song'];
       if (tool !== 'tabs-preview') stopTabsPreviewPlayback();
       document.getElementById('tools-home-panel')?.classList.add('hidden');
       pages.forEach(page => {
@@ -2946,9 +3144,11 @@ Drop back to 70 BPM for clean finish.`,
             : tool === 'songs'
               ? 'Find a song quickly.'
               : tool === 'looper'
-                ? 'Loop full track or A-B sections.'
+              ? 'Loop full track or A-B sections.'
               : tool === 'tabs-preview'
                 ? 'Paste tabs and preview real notes.'
+              : tool === 'chord-translation'
+                ? 'Translate European Do/Re/Mi chords into USA notation.'
               : tool === 'ai-song'
                 ? 'Generate a full song draft with Gemini.'
                 : 'Browse and hear the chord library.';
@@ -2968,6 +3168,9 @@ Drop back to 70 BPM for clean finish.`,
         setTabsPreviewStatus('Paste tabs then tap Preview.');
         renderTabsPreviewHistory();
       }
+      if (tool === 'chord-translation') {
+        window.runChordTranslation(true);
+      }
       updateLooperNowPlayingIndicator();
       if (tool === 'ai-song') {
         const keyInput = document.getElementById('ai-gemini-key');
@@ -2983,7 +3186,7 @@ Drop back to 70 BPM for clean finish.`,
       activeToolPage = 'home';
       document.getElementById('tools-home-panel')?.classList.remove('hidden');
       stopTabsPreviewPlayback();
-      ['metronome', 'recorder', 'chords', 'chord-builder', 'guitar-tones', 'songs', 'looper', 'tabs-preview', 'ai-song'].forEach(page => {
+      ['metronome', 'recorder', 'chords', 'chord-builder', 'guitar-tones', 'songs', 'looper', 'tabs-preview', 'chord-translation', 'ai-song'].forEach(page => {
         const el = document.getElementById(`tool-page-${page}`);
         if (el) el.classList.add('hidden');
       });
@@ -5029,7 +5232,7 @@ Rules:
         if (parts[0] === 'tools') {
           navigate('tools', { skipUrl: true });
           const tool = decodeURIComponent(parts[1] || '');
-          const allowed = new Set(['metronome', 'recorder', 'chords', 'chord-builder', 'guitar-tones', 'songs', 'looper', 'tabs-preview', 'ai-song']);
+          const allowed = new Set(['metronome', 'recorder', 'chords', 'chord-builder', 'guitar-tones', 'songs', 'looper', 'tabs-preview', 'chord-translation', 'ai-song']);
           if (tool && allowed.has(tool)) openToolPage(tool, { skipUrl: true });
           else showToolsHome({ skipUrl: true });
           return;

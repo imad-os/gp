@@ -672,6 +672,11 @@
             <div class="font-bold text-lg mb-1">Tabs Preview</div>
             <p class="text-sm text-gray-400">Paste guitar tabs and hear them with your uploaded guitar tone samples.</p>
           </button>
+          <button onclick="openToolPage('chord-translation')" class="tool-nav-card btn-press">
+            <span class="tool-nav-icon"><i class="fas fa-language text-lg"></i></span>
+            <div class="font-bold text-lg mb-1">Chords Translation</div>
+            <p class="text-sm text-gray-400">Translate Do Re Mi Fa Sol La Si chords into USA notation (C D E F G A B).</p>
+          </button>
           <button onclick="openToolPage('ai-song')" class="tool-nav-card btn-press sm:col-span-2">
             <span class="tool-nav-icon"><i class="fas fa-wand-magic-sparkles text-lg"></i></span>
             <div class="font-bold text-lg mb-1">AI Song Generator</div>
@@ -1016,6 +1021,42 @@
             </div>
             <div id="tool-tabs-history-list" class="space-y-2">
               <div class="bg-black/30 border border-gray-800 rounded-xl px-3 py-2 text-sm text-gray-500">No tabs history yet.</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="tool-page-chord-translation" class="hidden bg-surface rounded-2xl p-5 border border-gray-800">
+          <div class="flex items-center justify-between gap-3 mb-3">
+            <div>
+              <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-1">Tool</p>
+              <h2 class="font-bold text-lg">Chords Translation</h2>
+              <p class="text-sm text-gray-400">Paste chords. The tool detects notation style and outputs USA notation.</p>
+            </div>
+          </div>
+          <div class="space-y-3">
+            <label class="block">
+              <span class="text-xs text-gray-400 block mb-1">Input</span>
+              <textarea id="tool-chord-translation-input" rows="8" oninput="runChordTranslation(true)" class="w-full bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm font-mono whitespace-pre leading-relaxed outline-none text-white" placeholder="Do Sol Lam Rem&#10;Fa Do Sol"></textarea>
+            </label>
+            <p id="tool-chord-translation-detected" class="text-xs text-gray-500">Detected: waiting for input.</p>
+            <div class="grid grid-cols-2 gap-2">
+              <button onclick="runChordTranslation()" class="bg-primary text-black font-bold py-3 rounded-xl btn-press shadow-[0_0_20px_rgba(187,134,252,0.25)]">
+                <i class="fas fa-right-left mr-2"></i>Translate
+              </button>
+              <button onclick="clearChordTranslation()" class="btn-soft font-bold py-3 rounded-xl btn-press">
+                <i class="fas fa-broom mr-2"></i>Clear
+              </button>
+            </div>
+            <label class="block">
+              <span class="text-xs text-gray-400 block mb-1">Output (USA notation)</span>
+              <div id="tool-chord-translation-output" class="w-full min-h-[180px] bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm font-mono whitespace-pre-wrap leading-relaxed text-primary"></div>
+            </label>
+            <div id="tool-chord-translation-diagram-wrap" class="hidden bg-black/30 border border-gray-800 rounded-xl p-3">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-[10px] uppercase tracking-[0.2em] text-gray-500">Chord Diagram</span>
+                <span id="tool-chord-translation-diagram-name" class="text-sm font-bold text-primary"></span>
+              </div>
+              <div id="tool-chord-translation-diagram" class="flex justify-center"></div>
             </div>
           </div>
         </div>
