@@ -1153,6 +1153,20 @@ Drop back to 70 BPM for clean finish.`,
       return cleaned || fallback;
     }
 
+    function sanitizeLooperNote(raw = '') {
+      return String(raw || '').slice(0, 4000);
+    }
+
+    function getLooperNoteText() {
+      return sanitizeLooperNote(document.getElementById('tool-looper-note')?.value || '');
+    }
+
+    function setLooperNoteText(value = '') {
+      const input = document.getElementById('tool-looper-note');
+      if (!input) return;
+      input.value = sanitizeLooperNote(value);
+    }
+
     function buildUploadFingerprint(file) {
       if (!file) return '';
       const name = String(file.name || '').trim().toLowerCase();
@@ -1179,6 +1193,7 @@ Drop back to 70 BPM for clean finish.`,
         duration: Number(looperDuration || getLooperDuration() || 0),
         pointA: Number(looperPointA || 0),
         pointB: Number(looperPointB || 0),
+        noteText: getLooperNoteText(),
         lastPosition: 0,
         repeatEnabled: !!looperRepeatEnabled,
         abEnabled: !!looperABEnabled,
@@ -1469,6 +1484,7 @@ Drop back to 70 BPM for clean finish.`,
           mediaChunkCount: Number(payload.mediaChunkCount || 0),
           sizeBytes: payload.sizeBytes || 0,
           duration: Number(payload.duration || 0),
+          noteText: sanitizeLooperNote(payload.noteText || getLooperNoteText()),
           pointA: 0,
           pointB: Number(payload.duration || 0),
           lastPosition: 0,
@@ -1774,6 +1790,7 @@ Drop back to 70 BPM for clean finish.`,
       looperPointA = 0;
       looperPointB = 0;
       looperActiveSource = null;
+      setLooperNoteText('');
       hideAllLooperPlayers();
       document.getElementById('tool-looper-empty')?.classList.remove('hidden');
       refreshLooperUi();
@@ -1865,6 +1882,7 @@ Drop back to 70 BPM for clean finish.`,
         looperPendingUploadFile = null;
         looperPendingDataUrl = '';
         if (!fromHistoryEntry) activeLooperHistoryId = '';
+        setLooperNoteText(fromHistoryEntry?.noteText || '');
         looperDuration = Number(fromHistoryEntry?.duration || 0) || 0;
         looperPointA = Number(fromHistoryEntry?.pointA || 0) || 0;
         looperPointB = Number(fromHistoryEntry?.pointB || 0) || 0;
@@ -1889,6 +1907,7 @@ Drop back to 70 BPM for clean finish.`,
                   sourceType: 'youtube',
                   mediaType: 'video',
                   youtubeUrl: normalizeYouTubeUrl(url),
+                  noteText: getLooperNoteText(),
                   duration: looperDuration
                 });
               } else {
@@ -2067,6 +2086,7 @@ Drop back to 70 BPM for clean finish.`,
               <p class="font-semibold text-sm text-white truncate">${escapeHtml(item.title || 'Untitled media')}</p>
               <p class="text-[11px] text-gray-500 mt-1">${getLooperHistoryTypeLabel(item)} • ${item.updatedAt ? new Date(item.updatedAt).toLocaleString() : 'Saved'}</p>
               <p class="text-[11px] text-gray-500 mt-1">A ${formatLooperTime(item.pointA || 0)} | B ${formatLooperTime(item.pointB || 0)}</p>
+              ${item.noteText ? `<p class="text-[11px] text-gray-400 mt-1">${escapeHtml(String(item.noteText || '').replace(/\s+/g, ' ').trim())}</p>` : ''}
               ${looperDeletingHistoryId === item.id ? `<p class="text-[11px] text-primary mt-1"><i class="fas fa-spinner fa-spin mr-1"></i>Deleting...</p>` : ''}
               ${looperOpeningHistoryId === item.id ? `
                 <p class="text-[11px] text-primary mt-1"><i class="fas fa-spinner fa-spin mr-1"></i>Loading... ${Math.max(0, Math.min(100, Math.round(looperOpeningProgress)))}%</p>
@@ -2698,6 +2718,31 @@ Drop back to 70 BPM for clean finish.`,
 
     window.saveActiveLooperStateNow = saveActiveLooperStateNow;
 
+    window.onLooperNotesInput = function() {
+      if (!hasActiveLooperTrack()) return;
+      scheduleLooperHistorySave(900);
+    };
+
+    window.saveLooperNotes = async function() {
+      if (!hasActiveLooperTrack()) {
+        showToast('Load track first.');
+        return;
+      }
+      if (!user || user.isAnonymous) {
+        showToast('Sign in to save looper history.');
+        return;
+      }
+      if (!activeLooperHistoryId) {
+        const ensuredId = await ensureActiveLooperHistoryEntry();
+        if (!ensuredId) {
+          showToast('Could not save notes right now.');
+          return;
+        }
+      }
+      await upsertActiveLooperHistoryState(false);
+      showToast('Looper notes saved.', true);
+    };
+
     window.handleLooperFileSelected = async function(event) {
       const file = event?.target?.files?.[0];
       if (!file) return;
@@ -2713,6 +2758,7 @@ Drop back to 70 BPM for clean finish.`,
       activeLooperHistoryId = '';
       looperPendingUploadFile = file;
       looperPendingDataUrl = '';
+      setLooperNoteText('');
       looperActiveSource = {
         sourceType: 'upload',
         mediaType: isVideo ? 'video' : 'audio',
@@ -2767,6 +2813,7 @@ Drop back to 70 BPM for clean finish.`,
       looperOpeningProgress = 6;
       renderLooperHistory();
       activeLooperHistoryId = item.id;
+      setLooperNoteText(item.noteText || '');
       looperPendingUploadFile = null;
       looperPendingDataUrl = '';
       try {
@@ -2824,7 +2871,10 @@ Drop back to 70 BPM for clean finish.`,
         await repository.deleteLooperMediaData(user.uid, itemId);
         await repository.deleteLooperHistory(user.uid, itemId);
         looperHistory = looperHistory.filter(entry => entry.id !== itemId);
-        if (activeLooperHistoryId === itemId) activeLooperHistoryId = '';
+        if (activeLooperHistoryId === itemId) {
+          activeLooperHistoryId = '';
+          setLooperNoteText('');
+        }
         showToast('History item removed.', true);
       } catch (e) {
         console.error('Delete looper history failed', e);
@@ -2922,6 +2972,7 @@ Drop back to 70 BPM for clean finish.`,
       looperDeletingHistoryId = '';
       looperOpeningHistoryId = '';
       looperOpeningProgress = 0;
+      setLooperNoteText('');
       updateLooperMaxUploadLabel();
       renderLooperHistory();
       refreshLooperUi();
