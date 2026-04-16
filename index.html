@@ -107,6 +107,32 @@
     .chord-diagram-card.large .chord-diagram-svg { width: 132px; }
     .clickable-chord { cursor: pointer; border-bottom: 1px dashed rgba(245,255,74,0.45); }
     .clickable-chord:hover { color: #f5ff4a; }
+    .chord-hover-modal {
+      position: fixed;
+      z-index: 120;
+      width: min(180px, calc(100vw - 16px));
+      pointer-events: auto;
+      background: linear-gradient(180deg, rgba(25,25,25,0.98), rgba(12,12,12,0.96));
+      border: 1px solid rgba(187,134,252,0.4);
+      border-radius: 0.95rem;
+      box-shadow: 0 14px 28px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.05) inset;
+      padding: 0.3rem;
+      transform-origin: center bottom;
+      animation: chord-pop-in 120ms ease-out;
+    }
+    .chord-hover-modal.hidden { display: none; }
+    .chord-hover-modal .chord-diagram-card {
+      background: transparent;
+      border: none;
+      border-radius: 0;
+      padding: 0.25rem;
+    }
+    .chord-hover-modal .chord-diagram-svg { width: 110px; }
+    .chord-hover-modal .text-primary { color: #f5ff4a; }
+    @keyframes chord-pop-in {
+      from { opacity: 0; transform: translateY(6px) scale(0.97); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
     .practice-chord-panel { background: linear-gradient(180deg, rgba(24,24,24,0.96), rgba(14,14,14,0.92)); border-bottom: 1px solid #2a2a2a; }
     .practice-line-card { background: rgba(10,10,10,0.82); border: 1px solid #353535; border-radius: 1rem; padding: 1rem 1.05rem; min-height: 160px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.02); }
     .practice-line-stack { display: flex; flex-direction: column; gap: 0.7rem; }
@@ -1345,6 +1371,9 @@
     </footer>
     <button id="btn-start-step1-fab" class="hidden fixed bottom-24 right-6 bg-primary text-black font-bold py-3 px-6 rounded-full text-base btn-press shadow-[0_0_24px_rgba(187,134,252,0.6)] z-30">
       <i class="fas fa-play mr-2"></i> Start Step 1
+    </button>
+    <button id="practice-floating-stop" onclick="stopPracticePlaybackNow()" class="hidden fixed bottom-24 left-6 bg-danger text-white font-bold py-3 px-5 rounded-full text-sm btn-press shadow-[0_0_20px_rgba(207,102,121,0.55)] z-30">
+      <i class="fas fa-stop mr-2"></i> Stop
     </button>
   </div>
 

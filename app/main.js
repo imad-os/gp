@@ -307,6 +307,12 @@ import { FirestoreRepository } from './modules/repository.js';
     let CHORD_EXPLORER_LIST = Object.keys(CHORD_LIBRARY).sort((a, b) => a.localeCompare(b));
     let chordEntries = [];
     let isHandlingRouteChange = false;
+    const chordPopoverState = {
+      visible: false,
+      chordName: '',
+      anchorEl: null,
+      container: null
+    };
 
     const MOCK_SONG = {
       title: "Ya Rayah", artist: "Cheb Khaled", postedBy: "System", bpm: 80, timeSignature: "4/4", capo: "No capo", ownerId: "system",
@@ -778,7 +784,19 @@ Drop back to 70 BPM for clean finish.`,
       return words;
     }
 
+    function isLikelyTabLine(line = '') {
+      const raw = String(line || '').trim();
+      if (!raw) return false;
+      const compact = raw.replace(/\s+/g, '');
+      const hyphenCount = (compact.match(/-/g) || []).length;
+      if (/^[EADGBeadgbe][|:].*/.test(compact)) return true;
+      if (/^[EADGBeadgbe]/.test(compact) && hyphenCount >= 3 && /\d/.test(compact)) return true;
+      if (compact.includes('|') && hyphenCount >= 2 && /\d/.test(compact)) return true;
+      return false;
+    }
+
     function isChordLine(line) {
+      if (isLikelyTabLine(line)) return false;
       const words = normalizeChordTokensForDetection(line);
       if (words.length === 0) return false;
       return words.every(word => {
@@ -1023,6 +1041,8 @@ Drop back to 70 BPM for clean finish.`,
 
     function parseRawText(text, beatsPerBar = 4) {
       const lines = text.split('\n');
+      const timeline = buildSongLineBeatTimeline(text, beatsPerBar);
+      const lineBeat = Array.isArray(timeline?.lineBeat) ? timeline.lineBeat : [];
       let parsedLines = [];
       let flatChords = [];
       let currentTime = 0;
@@ -1030,6 +1050,7 @@ Drop back to 70 BPM for clean finish.`,
 
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
+        const lineStartBeat = Math.max(0, Number(lineBeat[i] || currentTime || 0));
         
         if (isTagLine(line)) {
           parsedLines.push({ type: 'tag', chordHtml: "", lyricLine: stripLeadingWhitespace(line), chords: [] });
@@ -1037,6 +1058,7 @@ Drop back to 70 BPM for clean finish.`,
         }
 
         if (isChordLine(line)) {
+          currentTime = lineStartBeat;
           const normalizedChordLine = stripLeadingWhitespace(line).replace(/\s+$/, '');
           let nextLine = (i + 1 < lines.length && !isChordLine(lines[i + 1]) && !isTagLine(lines[i + 1]) && lines[i+1].trim() !== "") ? lines[i + 1] : "";
           if (nextLine !== "") i++;
@@ -1060,7 +1082,7 @@ Drop back to 70 BPM for clean finish.`,
             chordHtml += normalizedChordLine.substring(lastIdx, match.index);
             const safeChord = escapeHtml(normalizedChord);
             const safeDisplayChord = escapeHtml(displayChord);
-            chordHtml += `<span id="chord-hl-${globalChordIdx}" data-chord="${safeChord}" onclick="openPreviewChordDiagram('${safeChord}')" class="transition-all duration-200 clickable-chord">${safeDisplayChord}</span>`;
+            chordHtml += `<span id="chord-hl-${globalChordIdx}" data-chord="${safeChord}" onclick="openPreviewChordDiagram('${safeChord}', this)" class="transition-all duration-200 clickable-chord">${safeDisplayChord}</span>`;
             lastIdx = match.index + chordStr.length;
 
             const chordObj = { chord: normalizedChord, time: currentTime, lineIdx: parsedLines.length, globalIdx: globalChordIdx };
@@ -1083,11 +1105,12 @@ Drop back to 70 BPM for clean finish.`,
       if (flatChords.length === 0) {
          flatChords = [{ chord: "C", time: 0, lineIdx: 0, globalIdx: 0 }];
          const safeDisplayChord = escapeHtml(getDisplayChordName('C'));
-         parsedLines = [{ type: 'content', chordHtml: `<span id="chord-hl-0" data-chord="C" onclick="openPreviewChordDiagram('C')" class="clickable-chord">${safeDisplayChord}</span>`, lyricLine: "Empty", chords: flatChords }];
+         parsedLines = [{ type: 'content', chordHtml: `<span id="chord-hl-0" data-chord="C" onclick="openPreviewChordDiagram('C', this)" class="clickable-chord">${safeDisplayChord}</span>`, lyricLine: "Empty", chords: flatChords }];
          currentTime = beatsPerBar;
       }
 
-      return { parsedLines, flatChords, totalBeats: currentTime };
+      const totalBeats = Math.max(currentTime, Number(timeline?.totalBeats || 0));
+      return { parsedLines, flatChords, totalBeats };
     }
 
     function ensureSongFormat(song) {
@@ -3282,13 +3305,13 @@ Drop back to 70 BPM for clean finish.`,
           const safePrefix = escapeHtml(prefix);
           const safeCore = escapeHtml(core);
           const safeSuffix = escapeHtml(suffix);
-          return `${safePrefix}<span data-chord="${safeCore}" onclick="openChordTranslationChordDiagram(this.dataset.chord)" class="transition-all duration-200 clickable-chord">${safeCore}</span>${safeSuffix}`;
+          return `${safePrefix}<span data-chord="${safeCore}" onclick="openChordTranslationChordDiagram(this.dataset.chord, this)" class="transition-all duration-200 clickable-chord">${safeCore}</span>${safeSuffix}`;
         }).join('');
       }).join('<br>');
       outputEl.innerHTML = html;
     }
 
-    window.openChordTranslationChordDiagram = function(chordName = '') {
+    window.openChordTranslationChordDiagram = function(chordName = '', anchorEl = null) {
       const normalized = normalizeChordLookupName(chordName);
       if (!normalized) return;
       const wrap = document.getElementById('tool-chord-translation-diagram-wrap');
@@ -3299,6 +3322,7 @@ Drop back to 70 BPM for clean finish.`,
       nameEl.innerText = getDisplayChordName(normalized);
       diagramEl.innerHTML = renderChordDiagramSvg(normalized, true);
       wrap.classList.remove('hidden');
+      showChordPopover(normalized, anchorEl);
     };
 
     function updateChordTranslationDetectedLabel(mode = 'empty') {
@@ -4546,10 +4570,103 @@ Rules:
       wrap.innerHTML = renderChordDiagramSvg(chordName, true);
     }
 
-    window.openPreviewChordDiagram = function(chordName) {
+    function renderPreviewChordsFound(song = currentSong) {
+      const container = document.getElementById('practice-preview-chords-found');
+      if (!container) return;
+      const uniqueChords = Array.from(new Set(
+        (Array.isArray(song?.chords) ? song.chords : [])
+          .map(item => normalizeChordLookupName(item?.chord || ''))
+          .filter(Boolean)
+      ));
+      if (!uniqueChords.length) {
+        container.innerHTML = '<p class="text-xs text-gray-500">No chords detected.</p>';
+        return;
+      }
+      container.innerHTML = `<div class="chord-library-grid">${uniqueChords.map(chord => renderChordDiagramSvg(chord)).join('')}</div>`;
+    }
+
+    function ensureChordPopoverContainer() {
+      if (chordPopoverState.container && document.body.contains(chordPopoverState.container)) return chordPopoverState.container;
+      const existing = document.getElementById('chord-hover-modal');
+      if (existing) {
+        chordPopoverState.container = existing;
+        return existing;
+      }
+      const node = document.createElement('div');
+      node.id = 'chord-hover-modal';
+      node.className = 'chord-hover-modal hidden';
+      document.body.appendChild(node);
+      chordPopoverState.container = node;
+      return node;
+    }
+
+    function positionChordPopover() {
+      const modal = chordPopoverState.container;
+      const anchor = chordPopoverState.anchorEl;
+      if (!modal || !anchor || !document.body.contains(anchor)) return;
+      const anchorRect = anchor.getBoundingClientRect();
+      if (anchorRect.width <= 0 || anchorRect.height <= 0) {
+        hideChordPopover();
+        return;
+      }
+      const gap = 10;
+      const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+      const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+      const modalRect = modal.getBoundingClientRect();
+      const preferredTop = anchorRect.top - modalRect.height - gap;
+      const top = preferredTop < 8 ? Math.min(vh - modalRect.height - 8, anchorRect.bottom + gap) : preferredTop;
+      const centerLeft = anchorRect.left + (anchorRect.width / 2) - (modalRect.width / 2);
+      const left = Math.max(8, Math.min(vw - modalRect.width - 8, centerLeft));
+      modal.style.top = `${Math.max(8, top)}px`;
+      modal.style.left = `${left}px`;
+    }
+
+    function showChordPopover(chordName, anchorEl = null) {
+      const modal = ensureChordPopoverContainer();
+      if (!modal) return;
+      modal.innerHTML = renderChordDiagramSvg(chordName, false);
+      modal.classList.remove('hidden');
+      chordPopoverState.visible = true;
+      chordPopoverState.chordName = chordName;
+      chordPopoverState.anchorEl = anchorEl instanceof HTMLElement ? anchorEl : null;
+      positionChordPopover();
+    }
+
+    function hideChordPopover() {
+      const modal = ensureChordPopoverContainer();
+      if (!modal) return;
+      modal.classList.add('hidden');
+      chordPopoverState.visible = false;
+      chordPopoverState.chordName = '';
+      chordPopoverState.anchorEl = null;
+      modal.innerHTML = '';
+    }
+
+    function setupChordPopoverHandlers() {
+      if (window.__chordPopoverHandlersBound) return;
+      window.__chordPopoverHandlersBound = true;
+      document.addEventListener('click', (event) => {
+        if (!chordPopoverState.visible) return;
+        const target = event.target;
+        if (target instanceof Element && (target.closest('#chord-hover-modal') || target.closest('.clickable-chord'))) return;
+        hideChordPopover();
+      });
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') hideChordPopover();
+      });
+      window.addEventListener('resize', () => {
+        if (chordPopoverState.visible) positionChordPopover();
+      });
+      window.addEventListener('scroll', () => {
+        if (chordPopoverState.visible) positionChordPopover();
+      }, true);
+    }
+
+    window.openPreviewChordDiagram = function(chordName, anchorEl = null) {
       const normalized = normalizeChordLookupName(chordName);
       if (!normalized) return;
       setPreviewChordDiagram(normalized);
+      showChordPopover(normalized, anchorEl);
     };
 
     function renderPracticeCurrentLine(lineData, activeChordGlobalIdx = null) {
@@ -4971,11 +5088,28 @@ Rules:
       });
     };
 
-    function buildSongTabTimelineByRawLine(rawText = '', beatsPerBar = 4) {
+    function buildSongLineBeatTimeline(rawText = '', beatsPerBar = 4) {
       const lines = String(rawText || '').replace(/\r/g, '').split('\n');
       const lineBeat = new Array(lines.length).fill(0);
+      const groups = collectTabGroupsFromLines(lines).map(group => {
+        const rowCount = Array.isArray(group?.rows) ? group.rows.length : 0;
+        const endLine = Math.max(group.startLine || 0, (group.startLine || 0) + Math.max(0, rowCount - 1));
+        const { maxLen } = parseTabEventsFromRows(group.rows || [], 0);
+        const durationBeats = maxLen > 0 ? (maxLen / TABS_COLUMNS_PER_BEAT) : 0;
+        return { ...group, endLine, durationBeats };
+      });
+      const groupByStart = new Map(groups.map(group => [group.startLine, group]));
       let currentTime = 0;
       for (let i = 0; i < lines.length; i += 1) {
+        const tabGroup = groupByStart.get(i);
+        if (tabGroup) {
+          for (let lineIdx = i; lineIdx <= tabGroup.endLine && lineIdx < lines.length; lineIdx += 1) {
+            lineBeat[lineIdx] = currentTime;
+          }
+          currentTime += tabGroup.durationBeats;
+          i = tabGroup.endLine;
+          continue;
+        }
         const line = String(lines[i] || '');
         lineBeat[i] = currentTime;
         if (isTagLine(line)) continue;
@@ -4991,7 +5125,12 @@ Rules:
           }
         }
       }
-      return lineBeat;
+      return { lineBeat, totalBeats: currentTime };
+    }
+
+    function buildSongTabTimelineByRawLine(rawText = '', beatsPerBar = 4) {
+      const timeline = buildSongLineBeatTimeline(rawText, beatsPerBar);
+      return timeline.lineBeat || [];
     }
 
     function buildSongTabPlaybackEvents(song = null) {
@@ -5383,6 +5522,7 @@ Rules:
     window.navigate = function(id, options = {}) {
       const { skipUrl = false, replaceUrl = false, pathOverride = null } = options || {};
       if (id !== 'practice' && isPlaying) stopPlayback();
+      hideChordPopover();
       document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
       document.getElementById(`view-${id}`).classList.add('active');
       if (TAB_VIEWS.has(id)) activeTab = id;
@@ -5410,6 +5550,7 @@ Rules:
         pushUrlPath(pathOverride || buildPathForView(id), { replace: replaceUrl });
       }
       updateLooperNowPlayingIndicator();
+      updatePracticeFloatingStopButton();
     };
 
     async function applyRouteFromLocation({ replaceUnknown = true } = {}) {
@@ -6208,6 +6349,20 @@ Rules:
       if (textBtn) textBtn.classList.remove('hidden');
     }
 
+    function updatePracticeFloatingStopButton() {
+      const btn = document.getElementById('practice-floating-stop');
+      const practiceView = document.getElementById('view-practice');
+      if (!btn || !practiceView) return;
+      const visible = !!isPlaying && practiceView.classList.contains('active');
+      btn.classList.toggle('hidden', !visible);
+    }
+
+    window.stopPracticePlaybackNow = function() {
+      if (!isPlaying) return;
+      stopPlayback();
+      updatePracticeFloatingStopButton();
+    };
+
     function updatePreviewPlayButton() {
       const btn = document.getElementById('btn-preview-play');
       if (!btn) return;
@@ -6615,11 +6770,8 @@ Rules:
               <div id="practice-preview-pattern"></div>
             </div>
             <div class="bg-surface rounded-2xl p-5 border border-gray-800">
-              <div class="flex items-center justify-between gap-2 mb-3">
-                <div class="text-[10px] uppercase tracking-[0.2em] text-gray-500">Chord Diagram</div>
-                <div id="practice-preview-chord-name" class="text-xs font-bold text-primary">Tap a chord</div>
-              </div>
-              <div id="practice-preview-chord-diagram" class="flex justify-center"></div>
+              <div class="text-[10px] uppercase tracking-[0.2em] text-gray-500 mb-3">Chords Found</div>
+              <div id="practice-preview-chords-found" class="flex flex-wrap items-center"></div>
             </div>
             <div class="bg-surface rounded-2xl p-5 border border-gray-800">
               <div class="text-[10px] uppercase tracking-[0.2em] text-gray-500 mb-3">Lyrics And Chords</div>
@@ -6642,7 +6794,7 @@ Rules:
         practiceValidationStates = new Array(activeStrumPattern.length).fill(null);
         updatePreviewPlayButton();
         UI.renderPatternVisualizer('practice-preview-pattern', normalizedPreview, beatsPerBar, -1, [], subdivisionsPerBeat);
-        setPreviewChordDiagram(currentSong.chords?.[0]?.chord || 'C');
+        renderPreviewChordsFound(currentSong);
         const previewFab = document.getElementById('btn-start-step1-fab');
         if (previewFab) previewFab.onclick = () => startPractice(1);
         navigate('practice', {
@@ -6748,11 +6900,13 @@ Rules:
         document.getElementById('btn-play').classList.add('text-white');
         document.getElementById('btn-play').classList.replace('shadow-[0_0_20px_rgba(187,134,252,0.4)]', 'shadow-[0_0_20px_rgba(207,102,121,0.4)]');
         updatePreviewPlayButton();
+        updatePracticeFloatingStopButton();
         scheduler();
       } else { 
         stopPlayback();
       }
       updatePreviewPlayButton();
+      updatePracticeFloatingStopButton();
     };
 
     function scheduler() {
@@ -6920,6 +7074,7 @@ Rules:
         btn.classList.replace('shadow-[0_0_20px_rgba(207,102,121,0.4)]', 'shadow-[0_0_20px_rgba(187,134,252,0.4)]');
       }
       updatePreviewPlayButton();
+      updatePracticeFloatingStopButton();
     }
 
     function stopPlayback() {
@@ -6958,6 +7113,7 @@ Rules:
          c.classList.add('text-primary');
       });
       updatePreviewPlayButton();
+      updatePracticeFloatingStopButton();
     }
 
     window.stopAndExitPractice = () => { 
@@ -7404,6 +7560,7 @@ Rules:
       restoreRedirectedRouteFromQuery();
       populateCapoOptions();
       renderBottomTabs();
+      setupChordPopoverHandlers();
       applyUserSettings(DEFAULT_SETTINGS);
       populateTunerPresetOptions();
       renderTunerMeter(0);
