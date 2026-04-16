@@ -73,6 +73,20 @@ import { FirestoreRepository } from './modules/repository.js';
     let guitarToneUseUrls = false;
     let guitarToneEditorOpen = false;
     let activeToolPage = 'home';
+    let guitarProViewerApi = null;
+    let guitarProViewerScriptPromise = null;
+    let guitarProViewerObjectUrl = '';
+    let guitarProViewerPendingFile = null;
+    let guitarProDisplayMode = 'score-tab';
+    let guitarProSourceTempo = 100;
+    let guitarProCurrentBpm = 100;
+    let guitarProMetronomePlaying = false;
+    let guitarProPositionMs = 0;
+    let guitarProEndPositionMs = 0;
+    let guitarProSavedFiles = [];
+    let guitarProSavedActiveId = '';
+    let guitarProActiveScoreTitle = '';
+    let guitarProFilesDbPromise = null;
     let looperMode = 'none';
     let looperObjectUrl = '';
     let looperYoutubePlayer = null;
@@ -137,10 +151,20 @@ import { FirestoreRepository } from './modules/repository.js';
     const GEMINI_API_KEY_STORAGE_KEY = 'guitartrainer.gemini.apiKey';
     const TABS_PREVIEW_HISTORY_STORAGE_KEY = 'guitartrainer.tabs.history.v1';
     const TABS_PREVIEW_HISTORY_LIMIT = 80;
+    const GUITARPRO_FILES_DB_NAME = 'guitartrainer.guitarpro.files.v1';
+    const GUITARPRO_FILES_STORE_NAME = 'files';
+    const GUITARPRO_FILES_LIMIT = 120;
     const LOOPER_MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
     const GUITAR_TONE_MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
     const GUITAR_TONE_STRING_KEYS = ['E2', 'A2', 'D3', 'G3', 'B3', 'E4'];
     const GUITAR_OPEN_STRING_MIDI = [40, 45, 50, 55, 59, 64];
+    const GUITARPRO_SUPPORTED_VERSIONS = new Set([3, 4]);
+    const ALPHATAB_CDN_JS_SOURCES = [
+      '/assets/vendor/alphatab/package/dist/alphaTab.min.js',
+      'https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.8.2/dist/alphaTab.min.js',
+      'https://unpkg.com/@coderline/alphatab@1.8.2/dist/alphaTab.min.js'
+    ];
+    const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_BUILD = {
       version: 'v2026.04.06.3',
     };
@@ -1340,6 +1364,670 @@ Drop back to 70 BPM for clean finish.`,
       el.classList.toggle('text-danger', !!isError);
       el.classList.toggle('text-gray-500', !isError);
     }
+
+    function setGuitarProStatus(text = '', isError = false) {
+      const el = document.getElementById('tool-gp-status');
+      if (!el) return;
+      el.innerText = text || 'Choose a `.gp3` or `.gp4` file to render notation.';
+      el.classList.toggle('text-danger', !!isError);
+      el.classList.toggle('text-gray-500', !isError);
+    }
+
+    function setGuitarProFilesStatus(text = '', isError = false) {
+      const el = document.getElementById('tool-gp-files-status');
+      if (!el) return;
+      el.innerText = text || 'Your saved GuitarPro files appear here.';
+      el.classList.toggle('text-danger', !!isError);
+      el.classList.toggle('text-gray-500', !isError);
+    }
+
+    function sanitizeGuitarProSavedTitle(raw = '', fallback = 'Untitled GuitarPro') {
+      const cleaned = String(raw || '').replace(/\s+/g, ' ').trim();
+      return cleaned || fallback;
+    }
+
+    function getGuitarProFilenameFallback(fileName = '') {
+      const trimmed = String(fileName || '').trim();
+      if (!trimmed) return 'Untitled GuitarPro';
+      const withoutExt = trimmed.replace(/\.[^/.]+$/, '').trim();
+      return sanitizeGuitarProSavedTitle(withoutExt || trimmed, 'Untitled GuitarPro');
+    }
+
+    function buildGuitarProSaveTitle({ scoreTitle = '', fileName = '' } = {}) {
+      const safeScoreTitle = sanitizeGuitarProSavedTitle(scoreTitle, '');
+      if (safeScoreTitle) return safeScoreTitle;
+      return getGuitarProFilenameFallback(fileName);
+    }
+
+    function decodeSavedGuitarProId(raw = '') {
+      const value = String(raw || '');
+      if (!value) return '';
+      try {
+        return decodeURIComponent(value);
+      } catch {
+        return value;
+      }
+    }
+
+    function openGuitarProFilesDb() {
+      if (guitarProFilesDbPromise) return guitarProFilesDbPromise;
+      if (typeof indexedDB === 'undefined') {
+        return Promise.reject(new Error('IndexedDB is unavailable in this browser.'));
+      }
+      guitarProFilesDbPromise = new Promise((resolve, reject) => {
+        const request = indexedDB.open(GUITARPRO_FILES_DB_NAME, 1);
+        request.onupgradeneeded = () => {
+          const db = request.result;
+          if (!db.objectStoreNames.contains(GUITARPRO_FILES_STORE_NAME)) {
+            const store = db.createObjectStore(GUITARPRO_FILES_STORE_NAME, { keyPath: 'id' });
+            store.createIndex('updatedAt', 'updatedAt', { unique: false });
+          }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error || new Error('Failed to open GuitarPro database.'));
+      });
+      return guitarProFilesDbPromise;
+    }
+
+    async function readAllSavedGuitarProFilesFromStorage() {
+      const db = await openGuitarProFilesDb();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(GUITARPRO_FILES_STORE_NAME, 'readonly');
+        const store = tx.objectStore(GUITARPRO_FILES_STORE_NAME);
+        const request = store.getAll();
+        request.onsuccess = () => {
+          const items = Array.isArray(request.result) ? request.result : [];
+          const normalized = items.map(item => ({
+            id: String(item?.id || ''),
+            title: sanitizeGuitarProSavedTitle(item?.title || ''),
+            fileName: String(item?.fileName || ''),
+            mimeType: String(item?.mimeType || 'application/octet-stream'),
+            fileData: item?.fileData instanceof ArrayBuffer ? item.fileData : null,
+            createdAt: Number(item?.createdAt || Date.now()),
+            updatedAt: Number(item?.updatedAt || Date.now())
+          })).filter(item => item.id && item.fileData && item.fileData.byteLength > 0)
+            .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+            .slice(0, GUITARPRO_FILES_LIMIT);
+          resolve(normalized);
+        };
+        request.onerror = () => reject(request.error || new Error('Failed to load GuitarPro files.'));
+      });
+    }
+
+    async function readSavedGuitarProFileById(itemId = '') {
+      if (!itemId) return null;
+      const db = await openGuitarProFilesDb();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(GUITARPRO_FILES_STORE_NAME, 'readonly');
+        const store = tx.objectStore(GUITARPRO_FILES_STORE_NAME);
+        const request = store.get(itemId);
+        request.onsuccess = () => {
+          const item = request.result || null;
+          if (!item || !(item.fileData instanceof ArrayBuffer)) {
+            resolve(null);
+            return;
+          }
+          resolve({
+            id: String(item.id || ''),
+            title: sanitizeGuitarProSavedTitle(item.title || ''),
+            fileName: String(item.fileName || ''),
+            mimeType: String(item.mimeType || 'application/octet-stream'),
+            fileData: item.fileData,
+            createdAt: Number(item.createdAt || Date.now()),
+            updatedAt: Number(item.updatedAt || Date.now())
+          });
+        };
+        request.onerror = () => reject(request.error || new Error('Failed to load saved GuitarPro file.'));
+      });
+    }
+
+    async function persistSavedGuitarProFile(record) {
+      const db = await openGuitarProFilesDb();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(GUITARPRO_FILES_STORE_NAME, 'readwrite');
+        const store = tx.objectStore(GUITARPRO_FILES_STORE_NAME);
+        const request = store.put(record);
+        request.onsuccess = () => resolve(record);
+        request.onerror = () => reject(request.error || new Error('Could not save GuitarPro file.'));
+      });
+    }
+
+    async function deleteSavedGuitarProFileById(itemId = '') {
+      if (!itemId) return;
+      const db = await openGuitarProFilesDb();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(GUITARPRO_FILES_STORE_NAME, 'readwrite');
+        const store = tx.objectStore(GUITARPRO_FILES_STORE_NAME);
+        const request = store.delete(itemId);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error || new Error('Could not delete GuitarPro file.'));
+      });
+    }
+
+    async function loadSavedGuitarProFiles() {
+      try {
+        guitarProSavedFiles = await readAllSavedGuitarProFilesFromStorage();
+      } catch (err) {
+        console.error('Could not read GuitarPro saved files', err);
+        guitarProSavedFiles = [];
+      }
+    }
+
+    function renderSavedGuitarProFiles() {
+      const list = document.getElementById('tool-gp-files-list');
+      if (!list) return;
+      if (!guitarProSavedFiles.length) {
+        list.innerHTML = `<div class="bg-black/30 border border-gray-800 rounded-xl px-3 py-2 text-sm text-gray-500">No saved GuitarPro files yet.</div>`;
+        setGuitarProFilesStatus('No saved files yet. Tap Add to import your first GP file.');
+        return;
+      }
+      list.innerHTML = guitarProSavedFiles.map(item => `
+        <div onclick="openSavedGuitarProFileFromList('${encodeURIComponent(item.id)}')" class="bg-black/30 border ${item.id === guitarProSavedActiveId ? 'border-primary/60' : 'border-gray-800'} rounded-xl px-3 py-3 cursor-pointer">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <p class="font-semibold text-sm text-white truncate">${escapeHtml(item.title)}</p>
+              <p class="text-[11px] text-gray-500 mt-1 truncate">${escapeHtml(item.fileName || 'Unknown file')} • ${item.updatedAt ? new Date(item.updatedAt).toLocaleString() : 'Saved'}</p>
+            </div>
+            <button onclick="event.stopPropagation(); deleteSavedGuitarProFileFromList('${encodeURIComponent(item.id)}')" class="w-8 h-8 rounded-full btn-soft btn-press shrink-0" title="Delete">
+              <i class="fas fa-trash text-xs"></i>
+            </button>
+          </div>
+        </div>
+      `).join('');
+      setGuitarProFilesStatus(`${guitarProSavedFiles.length} saved file${guitarProSavedFiles.length === 1 ? '' : 's'}. Tap one to open.`);
+    }
+
+    function setGuitarProEditorVisible(showEditor = false) {
+      const manager = document.getElementById('tool-gp-file-manager');
+      const editor = document.getElementById('tool-gp-editor');
+      if (!manager || !editor) return;
+      manager.classList.toggle('hidden', !!showEditor);
+      editor.classList.toggle('hidden', !showEditor);
+    }
+
+    function buildGuitarProFileFromSavedRecord(item) {
+      if (!item || !(item.fileData instanceof ArrayBuffer)) return null;
+      const fileName = item.fileName || `${sanitizeGuitarProSavedTitle(item.title)}.gp4`;
+      const mimeType = item.mimeType || 'application/octet-stream';
+      try {
+        return new File([item.fileData], fileName, { type: mimeType, lastModified: Number(item.updatedAt || Date.now()) });
+      } catch {
+        return new File([new Blob([item.fileData], { type: mimeType })], fileName, { type: mimeType, lastModified: Number(item.updatedAt || Date.now()) });
+      }
+    }
+
+    function refreshSavedGuitarProFilesUi() {
+      loadSavedGuitarProFiles().then(() => {
+        renderSavedGuitarProFiles();
+      }).catch(err => {
+        console.error('Could not refresh GuitarPro list', err);
+        renderSavedGuitarProFiles();
+      });
+    }
+
+    function formatGuitarProTime(ms = 0) {
+      return formatLooperTime((Number(ms) || 0) / 1000);
+    }
+
+    function updateGuitarProDisplayModeButtons() {
+      const byMode = [
+        { mode: 'tab', id: 'btn-gp-mode-tab' },
+        { mode: 'score', id: 'btn-gp-mode-score' },
+        { mode: 'score-tab', id: 'btn-gp-mode-both' }
+      ];
+      byMode.forEach(({ mode, id }) => {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        btn.classList.toggle('active', guitarProDisplayMode === mode);
+      });
+    }
+
+    function updateGuitarProBpmLabel() {
+      const label = document.getElementById('tool-gp-bpm-value');
+      if (label) label.innerText = `${Math.round(guitarProCurrentBpm)} BPM`;
+    }
+
+    function updateGuitarProPositionLabel() {
+      const label = document.getElementById('tool-gp-position');
+      if (!label) return;
+      label.innerText = `${formatGuitarProTime(guitarProPositionMs)} / ${formatGuitarProTime(guitarProEndPositionMs)}`;
+    }
+
+    function updateGuitarProMetronomeButton() {
+      const btn = document.getElementById('btn-gp-metronome-toggle');
+      if (!btn) return;
+      btn.innerText = guitarProMetronomePlaying ? 'Pause' : 'Play';
+    }
+
+    function syncGuitarProPlaybackSpeed() {
+      if (!guitarProViewerApi) return;
+      const sourceTempo = Math.max(1, Number(guitarProSourceTempo || 100));
+      const bpm = Math.max(40, Math.min(240, Number(guitarProCurrentBpm || 100)));
+      const speed = Math.max(0.2, Math.min(4, bpm / sourceTempo));
+      try { guitarProViewerApi.playbackSpeed = speed; } catch {}
+    }
+
+    function getGuitarProStaveProfile() {
+      const profiles = window.alphaTab?.StaveProfile || null;
+      if (guitarProDisplayMode === 'tab') return profiles?.Tab ?? 'tab';
+      if (guitarProDisplayMode === 'score') return profiles?.Score ?? 'score';
+      return profiles?.ScoreTab ?? 'scoretab';
+    }
+
+    function buildGuitarProViewerSettings(fileUrl = '') {
+      const playerMode = window.alphaTab?.PlayerMode?.EnabledSynthesizer ?? 'enabledsynthesizer';
+      return {
+        file: fileUrl,
+        display: {
+          staveProfile: getGuitarProStaveProfile()
+        },
+        player: {
+          soundFont: ALPHATAB_LOCAL_SOUNDFONT,
+          playerMode,
+          enablePlayer: true,
+          enableCursor: true,
+          enableUserInteraction: true,
+          scrollElement: '#tool-gp-viewer-wrap'
+        }
+      };
+    }
+
+    function detectGuitarProVersion(fileName = '', arrayBuffer = null) {
+      const extensionMatch = String(fileName || '').toLowerCase().match(/\.gp(\d+)$/);
+      const extensionVersion = extensionMatch ? parseInt(extensionMatch[1], 10) : NaN;
+      if (Number.isFinite(extensionVersion)) return extensionVersion;
+      if (!arrayBuffer || !(arrayBuffer instanceof ArrayBuffer) || arrayBuffer.byteLength === 0) return NaN;
+      const length = Math.min(96, arrayBuffer.byteLength);
+      const headerBytes = new Uint8Array(arrayBuffer.slice(0, length));
+      const decoder = (() => {
+        try { return new TextDecoder('latin1'); } catch { return new TextDecoder(); }
+      })();
+      const header = decoder.decode(headerBytes).replace(/\0/g, ' ');
+      const match = header.match(/guitar pro v\s*(\d+)\./i);
+      return match ? parseInt(match[1], 10) : NaN;
+    }
+
+    async function ensureGuitarProViewerAssets() {
+      if (window.alphaTab?.AlphaTabApi) return;
+      if (guitarProViewerScriptPromise) {
+        await guitarProViewerScriptPromise;
+        return;
+      }
+      guitarProViewerScriptPromise = (async () => {
+        const errors = [];
+        for (const scriptSrc of ALPHATAB_CDN_JS_SOURCES) {
+          if (window.alphaTab?.AlphaTabApi) return;
+          try {
+            await new Promise((resolve, reject) => {
+              const existing = document.querySelector(`script[data-gp-viewer-js="${scriptSrc}"]`);
+              if (existing && window.alphaTab?.AlphaTabApi) {
+                resolve();
+                return;
+              }
+              const script = existing || document.createElement('script');
+              if (!existing) {
+                script.src = scriptSrc;
+                script.async = true;
+                script.dataset.gpViewerJs = scriptSrc;
+                document.head.appendChild(script);
+              }
+              script.onload = () => {
+                if (window.alphaTab?.AlphaTabApi) resolve();
+                else reject(new Error(`alphaTab API unavailable after load from ${scriptSrc}`));
+              };
+              script.onerror = () => reject(new Error(`Failed to load ${scriptSrc}`));
+            });
+            if (window.alphaTab?.AlphaTabApi) return;
+          } catch (err) {
+            errors.push(err instanceof Error ? err.message : String(err));
+          }
+        }
+        throw new Error(`Could not load alphaTab renderer. Tried: ${ALPHATAB_CDN_JS_SOURCES.join(', ')}. Errors: ${errors.join(' | ')}`);
+      })();
+      try {
+        await guitarProViewerScriptPromise;
+      } catch (err) {
+        guitarProViewerScriptPromise = null;
+        throw err;
+      }
+    }
+
+    function clearGuitarProViewerUrl() {
+      if (!guitarProViewerObjectUrl) return;
+      try { URL.revokeObjectURL(guitarProViewerObjectUrl); } catch {}
+      guitarProViewerObjectUrl = '';
+    }
+
+    function destroyGuitarProViewerApi() {
+      if (!guitarProViewerApi) return;
+      try { guitarProViewerApi.pause(); } catch {}
+      try { guitarProViewerApi.destroy(); } catch {}
+      guitarProViewerApi = null;
+      guitarProMetronomePlaying = false;
+      updateGuitarProMetronomeButton();
+    }
+
+    function resetGuitarProViewerSurface(message = 'No file rendered yet.') {
+      const host = document.getElementById('tool-gp-viewer');
+      if (!host) return;
+      host.className = 'gp-viewer-empty';
+      host.innerHTML = escapeHtml(message);
+    }
+
+    async function renderGuitarProFile(file, options = {}) {
+      const { preserveBpm = false } = options || {};
+      if (!file) {
+        setGuitarProStatus('Select a `.gp3` or `.gp4` file first.', true);
+        return;
+      }
+      guitarProViewerPendingFile = file;
+      const name = String(file.name || '').trim() || 'Untitled';
+      let buffer = null;
+      try {
+        buffer = await file.arrayBuffer();
+      } catch {
+        setGuitarProStatus('Could not read this file.', true);
+        return;
+      }
+      const version = detectGuitarProVersion(name, buffer);
+      if (!GUITARPRO_SUPPORTED_VERSIONS.has(version)) {
+        destroyGuitarProViewerApi();
+        clearGuitarProViewerUrl();
+        setGuitarProStatus(`Unsupported version. Detected: ${Number.isFinite(version) ? `GP${version}` : 'unknown'}. Only GP3 and GP4 are enabled for now.`, true);
+        resetGuitarProViewerSurface('Only GP3 and GP4 are supported right now.');
+        return;
+      }
+      const host = document.getElementById('tool-gp-viewer');
+      if (!host) return;
+      setGuitarProStatus(`Loading ${name} (GP${version})...`);
+      try {
+        await ensureGuitarProViewerAssets();
+      } catch (err) {
+        console.error('alphaTab load failed', err);
+        const details = String(err?.message || '').trim();
+        setGuitarProStatus(`Renderer library failed to load.${details ? ` ${details}` : ''}`, true);
+        resetGuitarProViewerSurface('Could not load notation renderer.');
+        return;
+      }
+      clearGuitarProViewerUrl();
+      destroyGuitarProViewerApi();
+      host.className = '';
+      host.innerHTML = '';
+      guitarProViewerObjectUrl = URL.createObjectURL(file);
+      try {
+        guitarProViewerApi = new window.alphaTab.AlphaTabApi(host, buildGuitarProViewerSettings(guitarProViewerObjectUrl));
+        guitarProPositionMs = 0;
+        guitarProEndPositionMs = 0;
+        guitarProMetronomePlaying = false;
+        updateGuitarProPositionLabel();
+        updateGuitarProMetronomeButton();
+        if (guitarProViewerApi?.scoreLoaded?.on) {
+          guitarProViewerApi.scoreLoaded.on(() => {
+            guitarProActiveScoreTitle = sanitizeGuitarProSavedTitle(guitarProViewerApi?.score?.title || '', '');
+            guitarProSourceTempo = Math.max(40, Math.min(240, Number(guitarProViewerApi?.score?.tempo || 100)));
+            if (!preserveBpm) {
+              const bpmInput = document.getElementById('tool-gp-bpm');
+              if (bpmInput) bpmInput.value = String(Math.round(guitarProSourceTempo));
+              guitarProCurrentBpm = guitarProSourceTempo;
+            }
+            updateGuitarProBpmLabel();
+            syncGuitarProPlaybackSpeed();
+            setGuitarProStatus(`Rendered ${name} (GP${version}). Display mode: ${guitarProDisplayMode}.`);
+          });
+        } else {
+          setGuitarProStatus(`Rendered ${name} (GP${version}).`);
+        }
+        if (guitarProViewerApi?.playerReady?.on) {
+          guitarProViewerApi.playerReady.on(() => {
+            try { guitarProViewerApi.masterVolume = 0; } catch {}
+            try { guitarProViewerApi.metronomeVolume = 1; } catch {}
+            syncGuitarProPlaybackSpeed();
+            setGuitarProStatus(`Renderer and player ready. BPM ${Math.round(guitarProCurrentBpm)}.`);
+          });
+        }
+        if (guitarProViewerApi?.playerPositionChanged?.on) {
+          guitarProViewerApi.playerPositionChanged.on((args) => {
+            guitarProPositionMs = Number(args?.currentTime || 0);
+            guitarProEndPositionMs = Math.max(guitarProEndPositionMs, Number(args?.endTime || 0));
+            updateGuitarProPositionLabel();
+          });
+        }
+        if (guitarProViewerApi?.playerStateChanged?.on) {
+          guitarProViewerApi.playerStateChanged.on((args) => {
+            guitarProMetronomePlaying = Number(args?.state) === 1;
+            updateGuitarProMetronomeButton();
+          });
+        }
+        if (guitarProViewerApi?.playerFinished?.on) {
+          guitarProViewerApi.playerFinished.on(() => {
+            guitarProMetronomePlaying = false;
+            updateGuitarProMetronomeButton();
+          });
+        }
+        if (guitarProViewerApi?.error?.on) {
+          guitarProViewerApi.error.on((error) => {
+            console.error('GuitarPro render error', error);
+            setGuitarProStatus('Could not render this Guitar Pro file.', true);
+          });
+        }
+        updateGuitarProDisplayModeButtons();
+      } catch (err) {
+        console.error('GuitarPro viewer init failed', err);
+        setGuitarProStatus('Could not initialize notation renderer for this file.', true);
+        resetGuitarProViewerSurface('Render failed for this file.');
+      }
+    }
+
+    window.handleGuitarProFileSelected = function(event) {
+      const file = event?.target?.files?.[0] || null;
+      guitarProViewerPendingFile = file;
+      guitarProSavedActiveId = '';
+      guitarProActiveScoreTitle = '';
+      if (!file) {
+        setGuitarProStatus('Choose a `.gp3` or `.gp4` file to render notation.');
+        return;
+      }
+      setGuitarProEditorVisible(true);
+      setGuitarProStatus(`Selected ${file.name}. Tap Render.`);
+      renderGuitarProFile(file);
+    };
+
+    window.renderSelectedGuitarProFile = function() {
+      const input = document.getElementById('tool-gp-file');
+      const picked = input?.files?.[0] || guitarProViewerPendingFile || null;
+      renderGuitarProFile(picked);
+    };
+
+    window.setGuitarProDisplayMode = function(mode = 'score-tab') {
+      const normalized = String(mode || '').trim().toLowerCase();
+      const nextMode = normalized === 'tab' ? 'tab' : normalized === 'score' ? 'score' : 'score-tab';
+      guitarProDisplayMode = nextMode;
+      updateGuitarProDisplayModeButtons();
+      if (guitarProViewerPendingFile) {
+        renderGuitarProFile(guitarProViewerPendingFile, { preserveBpm: true });
+      }
+    };
+
+    window.updateGuitarProBpm = function(value = 100) {
+      const bpm = Math.max(40, Math.min(240, Number(value) || 100));
+      guitarProCurrentBpm = bpm;
+      const input = document.getElementById('tool-gp-bpm');
+      if (input) input.value = String(Math.round(bpm));
+      updateGuitarProBpmLabel();
+      syncGuitarProPlaybackSpeed();
+    };
+
+    window.toggleGuitarProMetronome = function() {
+      if (!guitarProViewerApi) {
+        setGuitarProStatus('Render a file first, then start metronome.', true);
+        return;
+      }
+      try {
+        syncGuitarProPlaybackSpeed();
+        try { guitarProViewerApi.masterVolume = 0; } catch {}
+        try { guitarProViewerApi.metronomeVolume = 1; } catch {}
+        if (guitarProMetronomePlaying) guitarProViewerApi.pause();
+        else {
+          const started = guitarProViewerApi.play();
+          if (started === false) {
+            setGuitarProStatus('Player is still preparing. Please wait a moment then tap Play again.', true);
+          }
+        }
+      } catch (err) {
+        console.error('GuitarPro metronome toggle failed', err);
+        setGuitarProStatus('Could not start/pause metronome.', true);
+      }
+    };
+
+    window.resetGuitarProMetronome = function() {
+      if (!guitarProViewerApi) {
+        guitarProPositionMs = 0;
+        guitarProEndPositionMs = 0;
+        updateGuitarProPositionLabel();
+        return;
+      }
+      try {
+        guitarProViewerApi.pause();
+        try { guitarProViewerApi.timePosition = 0; } catch {}
+        try { guitarProViewerApi.tickPosition = 0; } catch {}
+      } catch (err) {
+        console.error('GuitarPro metronome reset failed', err);
+      }
+      guitarProMetronomePlaying = false;
+      guitarProPositionMs = 0;
+      updateGuitarProPositionLabel();
+      updateGuitarProMetronomeButton();
+    };
+
+    window.clearGuitarProViewer = function() {
+      const input = document.getElementById('tool-gp-file');
+      if (input) input.value = '';
+      guitarProViewerPendingFile = null;
+      destroyGuitarProViewerApi();
+      clearGuitarProViewerUrl();
+      guitarProPositionMs = 0;
+      guitarProEndPositionMs = 0;
+      guitarProCurrentBpm = 100;
+      guitarProActiveScoreTitle = '';
+      updateGuitarProBpmLabel();
+      updateGuitarProPositionLabel();
+      updateGuitarProDisplayModeButtons();
+      setGuitarProStatus('Choose a `.gp3` or `.gp4` file to render notation.');
+      resetGuitarProViewerSurface('No file rendered yet.');
+    };
+
+    window.showGuitarProFileManager = function() {
+      setGuitarProEditorVisible(false);
+      refreshSavedGuitarProFilesUi();
+      setGuitarProFilesStatus('Tap a file to open it, or tap Add.');
+    };
+
+    window.openGuitarProEditorForNewFile = function() {
+      guitarProSavedActiveId = '';
+      window.clearGuitarProViewer();
+      setGuitarProEditorVisible(true);
+      setGuitarProStatus('Choose a `.gp3` or `.gp4` file, then Preview and Save.');
+    };
+
+    window.openSavedGuitarProFileFromList = async function(itemId = '') {
+      const decodedId = decodeSavedGuitarProId(itemId);
+      if (!decodedId) return;
+      let item = guitarProSavedFiles.find(entry => entry.id === decodedId) || null;
+      if (!item) {
+        try {
+          item = await readSavedGuitarProFileById(decodedId);
+        } catch (err) {
+          console.error('Could not read saved GuitarPro file', err);
+          setGuitarProFilesStatus('Could not open that file right now.', true);
+          return;
+        }
+      }
+      if (!item) {
+        setGuitarProFilesStatus('This file no longer exists.', true);
+        refreshSavedGuitarProFilesUi();
+        return;
+      }
+      const file = buildGuitarProFileFromSavedRecord(item);
+      if (!file) {
+        setGuitarProFilesStatus('Could not decode saved file data.', true);
+        return;
+      }
+      guitarProSavedActiveId = item.id;
+      guitarProActiveScoreTitle = sanitizeGuitarProSavedTitle(item.title || '', '');
+      setGuitarProEditorVisible(true);
+      setGuitarProStatus(`Loaded "${item.title}". Rendering...`);
+      await renderGuitarProFile(file, { preserveBpm: true });
+      renderSavedGuitarProFiles();
+    };
+
+    window.deleteSavedGuitarProFileFromList = async function(itemId = '') {
+      const decodedId = decodeSavedGuitarProId(itemId);
+      const item = guitarProSavedFiles.find(entry => entry.id === decodedId) || null;
+      if (!decodedId) return;
+      try {
+        await deleteSavedGuitarProFileById(decodedId);
+      } catch (err) {
+        console.error('Could not delete saved GuitarPro file', err);
+        setGuitarProFilesStatus('Could not delete this file right now.', true);
+        return;
+      }
+      guitarProSavedFiles = guitarProSavedFiles.filter(entry => entry.id !== decodedId);
+      if (guitarProSavedActiveId === decodedId) {
+        guitarProSavedActiveId = '';
+        if (!document.getElementById('tool-gp-editor')?.classList.contains('hidden')) {
+          window.clearGuitarProViewer();
+        }
+      }
+      renderSavedGuitarProFiles();
+      setGuitarProFilesStatus(`Deleted "${sanitizeGuitarProSavedTitle(item?.title || '')}".`);
+    };
+
+    window.saveCurrentGuitarProFile = async function() {
+      const inputFile = document.getElementById('tool-gp-file')?.files?.[0] || null;
+      const file = inputFile || guitarProViewerPendingFile || null;
+      if (!file) {
+        setGuitarProStatus('Choose or open a `.gp3` or `.gp4` file before saving.', true);
+        return;
+      }
+      const fileName = String(file.name || '').trim() || 'Untitled.gp4';
+      let fileData = null;
+      try {
+        fileData = await file.arrayBuffer();
+      } catch {
+        setGuitarProStatus('Could not read file content to save.', true);
+        return;
+      }
+      if (!(fileData instanceof ArrayBuffer) || fileData.byteLength === 0) {
+        setGuitarProStatus('This file is empty and cannot be saved.', true);
+        return;
+      }
+      const now = Date.now();
+      const existing = guitarProSavedActiveId ? (guitarProSavedFiles.find(entry => entry.id === guitarProSavedActiveId) || null) : null;
+      const saveId = existing?.id || `gp-${now}-${Math.floor(Math.random() * 10000)}`;
+      const title = buildGuitarProSaveTitle({
+        scoreTitle: guitarProActiveScoreTitle || guitarProViewerApi?.score?.title || '',
+        fileName
+      });
+      const payload = {
+        id: saveId,
+        title,
+        fileName,
+        mimeType: String(file.type || 'application/octet-stream'),
+        fileData,
+        createdAt: Number(existing?.createdAt || now),
+        updatedAt: now
+      };
+      try {
+        await persistSavedGuitarProFile(payload);
+      } catch (err) {
+        console.error('Could not save GuitarPro file', err);
+        setGuitarProStatus('Save failed. Please try again.', true);
+        return;
+      }
+      guitarProSavedActiveId = saveId;
+      setGuitarProStatus(`Saved "${title}".`);
+      refreshSavedGuitarProFilesUi();
+    };
 
     function sanitizeTabsPreviewTitle(raw = '') {
       const cleaned = String(raw || '').trim();
@@ -3380,7 +4068,7 @@ Drop back to 70 BPM for clean finish.`,
         stopLooperPlayback();
       }
       activeToolPage = tool;
-      const pages = ['metronome', 'recorder', 'chords', 'chord-builder', 'guitar-tones', 'songs', 'looper', 'tabs-preview', 'chord-translation', 'ai-song'];
+      const pages = ['metronome', 'recorder', 'chords', 'chord-builder', 'guitar-tones', 'songs', 'looper', 'tabs-preview', 'guitarpro-viewer', 'chord-translation', 'ai-song'];
       if (tool !== 'tabs-preview') stopTabsPreviewPlayback();
       document.getElementById('tools-home-panel')?.classList.add('hidden');
       pages.forEach(page => {
@@ -3405,6 +4093,8 @@ Drop back to 70 BPM for clean finish.`,
               ? 'Loop full track or A-B sections.'
               : tool === 'tabs-preview'
                 ? 'Paste tabs and preview real notes.'
+              : tool === 'guitarpro-viewer'
+                ? 'Upload GP3 or GP4 and render notation.'
               : tool === 'chord-translation'
                 ? 'Translate European Do/Re/Mi chords into USA notation.'
               : tool === 'ai-song'
@@ -3426,6 +4116,17 @@ Drop back to 70 BPM for clean finish.`,
         setTabsPreviewStatus('Paste tabs then tap Preview.');
         renderTabsPreviewHistory();
       }
+      if (tool === 'guitarpro-viewer') {
+        updateGuitarProDisplayModeButtons();
+        updateGuitarProBpmLabel();
+        updateGuitarProPositionLabel();
+        updateGuitarProMetronomeButton();
+        setGuitarProEditorVisible(false);
+        refreshSavedGuitarProFilesUi();
+        if (!guitarProViewerPendingFile && !guitarProViewerApi) {
+          setGuitarProStatus('Choose a `.gp3` or `.gp4` file to render notation.');
+        }
+      }
       if (tool === 'chord-translation') {
         window.runChordTranslation(true);
       }
@@ -3444,7 +4145,7 @@ Drop back to 70 BPM for clean finish.`,
       activeToolPage = 'home';
       document.getElementById('tools-home-panel')?.classList.remove('hidden');
       stopTabsPreviewPlayback();
-      ['metronome', 'recorder', 'chords', 'chord-builder', 'guitar-tones', 'songs', 'looper', 'tabs-preview', 'chord-translation', 'ai-song'].forEach(page => {
+      ['metronome', 'recorder', 'chords', 'chord-builder', 'guitar-tones', 'songs', 'looper', 'tabs-preview', 'guitarpro-viewer', 'chord-translation', 'ai-song'].forEach(page => {
         const el = document.getElementById(`tool-page-${page}`);
         if (el) el.classList.add('hidden');
       });
@@ -5584,7 +6285,7 @@ Rules:
         if (parts[0] === 'tools') {
           navigate('tools', { skipUrl: true });
           const tool = decodeURIComponent(parts[1] || '');
-          const allowed = new Set(['metronome', 'recorder', 'chords', 'chord-builder', 'guitar-tones', 'songs', 'looper', 'tabs-preview', 'chord-translation', 'ai-song']);
+          const allowed = new Set(['metronome', 'recorder', 'chords', 'chord-builder', 'guitar-tones', 'songs', 'looper', 'tabs-preview', 'guitarpro-viewer', 'chord-translation', 'ai-song']);
           if (tool && allowed.has(tool)) openToolPage(tool, { skipUrl: true });
           else showToolsHome({ skipUrl: true });
           return;
@@ -7574,6 +8275,7 @@ Rules:
       initLooperUi();
       loadTabsPreviewHistory();
       renderTabsPreviewHistory();
+      refreshSavedGuitarProFilesUi();
       renderToolSongsSearch();
       renderBuildInfo();
       refreshLibraryAdminButtons();

@@ -282,6 +282,41 @@
     .looper-dual-wrap .range-a::-moz-range-thumb { background: #03dac6; }
     .looper-dual-wrap .range-b::-webkit-slider-thumb { background: #bb86fc; }
     .looper-dual-wrap .range-b::-moz-range-thumb { background: #bb86fc; }
+    .gp-viewer-wrap {
+      min-height: 420px;
+      background: #0b1220;
+      border: 1px solid #273246;
+      border-radius: 0.9rem;
+      overflow: auto;
+      padding: 0.75rem;
+    }
+    .gp-viewer-empty {
+      min-height: 180px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #cbd5e1;
+      font-size: 0.85rem;
+      text-align: center;
+      border: 1px dashed #374151;
+      border-radius: 0.7rem;
+      background: #111827;
+    }
+    .gp-viewer-wrap .at-surface {
+      background: #0f172a;
+      border-radius: 0.7rem;
+      padding: 0.5rem;
+    }
+    .gp-viewer-wrap svg,
+    .gp-viewer-wrap canvas {
+      filter: invert(1) hue-rotate(180deg) brightness(1.08) contrast(0.98);
+    }
+    .gp-mode-btn.active {
+      border-color: rgba(187, 134, 252, 0.9);
+      background: rgba(187, 134, 252, 0.2);
+      color: #f5e9ff;
+      box-shadow: 0 0 0 1px rgba(187, 134, 252, 0.2), 0 8px 18px rgba(0, 0, 0, 0.2);
+    }
   </style>
 
 <script type="module">
@@ -698,6 +733,11 @@
             <div class="font-bold text-lg mb-1">Tabs Preview</div>
             <p class="text-sm text-gray-400">Paste guitar tabs and hear them with your uploaded guitar tone samples.</p>
           </button>
+          <button onclick="openToolPage('guitarpro-viewer')" class="tool-nav-card btn-press">
+            <span class="tool-nav-icon"><i class="fas fa-music text-lg"></i></span>
+            <div class="font-bold text-lg mb-1">GuitarPro Viewer</div>
+            <p class="text-sm text-gray-400">Upload a GP3 or GP4 file and render standard notation + tablature.</p>
+          </button>
           <button onclick="openToolPage('chord-translation')" class="tool-nav-card btn-press">
             <span class="tool-nav-icon"><i class="fas fa-language text-lg"></i></span>
             <div class="font-bold text-lg mb-1">Chords Translation</div>
@@ -1055,6 +1095,80 @@
             </div>
             <div id="tool-tabs-history-list" class="space-y-2">
               <div class="bg-black/30 border border-gray-800 rounded-xl px-3 py-2 text-sm text-gray-500">No tabs history yet.</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="tool-page-guitarpro-viewer" class="hidden bg-surface rounded-2xl p-5 border border-gray-800">
+          <div class="flex items-center justify-between gap-3 mb-3">
+            <div>
+              <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-1">Tool</p>
+              <h2 class="font-bold text-lg">GuitarPro Viewer</h2>
+              <p class="text-sm text-gray-400">Open saved GP files, or add a new `.gp3` / `.gp4` for preview and save.</p>
+            </div>
+          </div>
+
+          <div id="tool-gp-file-manager" class="space-y-3">
+            <div class="flex items-center justify-between gap-3">
+              <p class="text-xs uppercase tracking-[0.2em] text-gray-500">Saved Files</p>
+              <button id="btn-gp-add-file" onclick="openGuitarProEditorForNewFile()" class="bg-primary text-black font-bold py-2 px-4 rounded-xl btn-press shadow-[0_0_20px_rgba(187,134,252,0.25)]">
+                <i class="fas fa-plus mr-2"></i>Add
+              </button>
+            </div>
+            <p id="tool-gp-files-status" class="text-xs text-gray-500">Your saved GuitarPro files appear here.</p>
+            <div id="tool-gp-files-list" class="space-y-2">
+              <div class="bg-black/30 border border-gray-800 rounded-xl px-3 py-2 text-sm text-gray-500">No saved GuitarPro files yet.</div>
+            </div>
+          </div>
+
+          <div id="tool-gp-editor" class="hidden">
+            <div class="flex items-center justify-between gap-3 mb-3">
+              <button onclick="showGuitarProFileManager()" class="btn-soft font-bold py-2 px-3 rounded-xl btn-press text-sm">
+                <i class="fas fa-arrow-left mr-2"></i>Files
+              </button>
+            </div>
+            <div class="grid sm:grid-cols-[1fr_auto_auto_auto] gap-2 mb-3">
+              <input id="tool-gp-file" type="file" accept=".gp3,.gp4,application/octet-stream" onchange="handleGuitarProFileSelected(event)" class="w-full text-sm bg-black/30 border border-gray-800 rounded-xl px-3 py-2.5">
+              <button onclick="renderSelectedGuitarProFile()" class="bg-primary text-black font-bold py-2.5 px-4 rounded-xl btn-press shadow-[0_0_20px_rgba(187,134,252,0.25)]">
+                <i class="fas fa-eye mr-2"></i>Render
+              </button>
+              <button onclick="saveCurrentGuitarProFile()" class="btn-soft font-bold py-2.5 px-4 rounded-xl btn-press">
+                <i class="fas fa-save mr-2"></i>Save
+              </button>
+              <button onclick="clearGuitarProViewer()" class="btn-soft font-bold py-2.5 px-4 rounded-xl btn-press">
+                <i class="fas fa-broom mr-2"></i>Clear
+              </button>
+            </div>
+            <p id="tool-gp-status" class="text-xs text-gray-500 mb-3">Choose a `.gp3` or `.gp4` file to render notation.</p>
+            <div class="grid sm:grid-cols-2 gap-3 mb-3">
+              <div class="bg-black/30 border border-gray-800 rounded-xl p-3">
+                <p class="text-[10px] uppercase tracking-[0.2em] text-gray-500 mb-2">Display</p>
+                <div class="grid grid-cols-3 gap-2">
+                  <button id="btn-gp-mode-tab" onclick="setGuitarProDisplayMode('tab')" class="gp-mode-btn btn-soft rounded-lg py-2 text-xs font-semibold btn-press">Tabs</button>
+                  <button id="btn-gp-mode-score" onclick="setGuitarProDisplayMode('score')" class="gp-mode-btn btn-soft rounded-lg py-2 text-xs font-semibold btn-press">Notation</button>
+                  <button id="btn-gp-mode-both" onclick="setGuitarProDisplayMode('score-tab')" class="gp-mode-btn btn-soft rounded-lg py-2 text-xs font-semibold btn-press">Both</button>
+                </div>
+              </div>
+              <div class="bg-black/30 border border-gray-800 rounded-xl p-3">
+                <div class="flex items-center justify-between mb-2">
+                  <p class="text-[10px] uppercase tracking-[0.2em] text-gray-500">Metronome</p>
+                  <span id="tool-gp-bpm-value" class="text-xs text-primary font-bold">100 BPM</span>
+                </div>
+                <input id="tool-gp-bpm" type="range" min="40" max="240" value="100" oninput="updateGuitarProBpm(this.value)" class="w-full accent-[#bb86fc] mb-2">
+                <div class="grid grid-cols-2 gap-2">
+                  <button id="btn-gp-metronome-toggle" onclick="toggleGuitarProMetronome()" class="bg-primary text-black rounded-lg py-2 text-xs font-bold btn-press">Play</button>
+                  <button onclick="resetGuitarProMetronome()" class="btn-soft rounded-lg py-2 text-xs font-bold btn-press">Reset</button>
+                </div>
+              </div>
+            </div>
+            <div class="bg-black/30 border border-gray-800 rounded-xl p-3 mb-3">
+              <div class="flex items-center justify-between gap-3">
+                <p class="text-[10px] uppercase tracking-[0.2em] text-gray-500">Position</p>
+                <span id="tool-gp-position" class="text-xs text-gray-300">0:00 / 0:00</span>
+              </div>
+            </div>
+            <div id="tool-gp-viewer-wrap" class="gp-viewer-wrap">
+              <div id="tool-gp-viewer" class="gp-viewer-empty">No file rendered yet.</div>
             </div>
           </div>
         </div>
