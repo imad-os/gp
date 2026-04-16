@@ -62,28 +62,75 @@ export function renderPatternVisualizer(containerId, pattern, beatsPerBar, activ
 
 export function renderChordDiagramSvg(chordName, large = false) {
   const data = getChordDiagramData(chordName);
+  return renderChordDiagramSvgWithData(chordName, data, large);
+}
+
+export function renderChordDiagramSvgWithData(chordName, data, large = false) {
   if (!data) {
     return `<div class="chord-diagram-card ${large ? 'large' : ''} flex items-center justify-center min-h-[120px]"><div class="text-center"><p class="text-xl font-bold text-primary">${chordName}</p><p class="text-[10px] text-gray-500 mt-2">Diagram soon</p></div></div>`;
   }
 
   const stringXs = [18, 34, 50, 66, 82, 98];
   const fretYs = [37, 56, 75, 94, 113];
-  const markers = data.strings.map((fret, idx) => {
+  const baseFret = Math.max(1, Number(data.baseFret) || 1);
+  const strings = Array.isArray(data.strings) ? data.strings : [];
+  const fingers = Array.isArray(data.fingers) ? data.fingers : [];
+  const barreGroups = new Map();
+  strings.forEach((fret, idx) => {
+    const finger = Number(fingers[idx]) || 0;
+    if (typeof fret !== 'number' || fret <= 0 || finger <= 0) return;
+    const key = `${finger}:${fret}`;
+    if (!barreGroups.has(key)) barreGroups.set(key, []);
+    barreGroups.get(key).push(idx);
+  });
+
+  const barreCandidate = [...barreGroups.entries()]
+    .map(([key, idxs]) => {
+      const [finger, fret] = key.split(':').map(v => Number(v) || 0);
+      const indices = idxs.slice().sort((a, b) => a - b);
+      return { finger, fret, indices, span: indices[indices.length - 1] - indices[0] };
+    })
+    .filter(item => item.indices.length >= 2)
+    .sort((a, b) => {
+      if (a.fret !== b.fret) return a.fret - b.fret;
+      return b.span - a.span;
+    })[0] || null;
+
+  const barreIndices = new Set(barreCandidate?.indices || []);
+  const barreFinger = barreCandidate?.finger || 0;
+  const barreLocalFret = barreCandidate ? Math.max(1, barreCandidate.fret - baseFret + 1) : -1;
+  const barreY = barreLocalFret >= 1 ? fretYs[Math.min(barreLocalFret - 1, fretYs.length - 1)] : null;
+  const barreMarkup = (barreCandidate && barreY !== null && barreLocalFret <= fretYs.length)
+    ? (() => {
+      const startX = stringXs[Math.max(0, barreCandidate.indices[0])] - 7;
+      const endX = stringXs[Math.min(stringXs.length - 1, barreCandidate.indices[barreCandidate.indices.length - 1])] + 7;
+      return `
+        <rect x="${startX}" y="${barreY - 6}" width="${Math.max(12, endX - startX)}" height="12" rx="6" fill="#bb86fc"></rect>
+        ${barreFinger ? `<text x="${(startX + endX) / 2}" y="${barreY + 3}" text-anchor="middle" fill="#111" font-size="8" font-weight="700">${barreFinger}</text>` : ''}
+      `;
+    })()
+    : '';
+
+  const markers = strings.map((fret, idx) => {
     const x = stringXs[idx];
     if (fret === 'x') return `<text x="${x}" y="18" text-anchor="middle" fill="#8b8b8b" font-size="12">x</text>`;
     if (fret === 0) return `<text x="${x}" y="18" text-anchor="middle" fill="#8b8b8b" font-size="12">o</text>`;
-    const localFret = Math.max(1, fret - data.baseFret + 1);
+    if (barreCandidate && barreIndices.has(idx) && fret === barreCandidate.fret && (Number(fingers[idx]) || 0) === barreFinger) return '';
+    const localFret = Math.max(1, fret - baseFret + 1);
     const y = fretYs[Math.min(localFret - 1, fretYs.length - 1)];
-    return `<circle cx="${x}" cy="${y}" r="7" fill="#bb86fc"/><text x="${x}" y="${y + 3}" text-anchor="middle" fill="#111" font-size="8" font-weight="700">${data.fingers?.[idx] || ''}</text>`;
+    return `<circle cx="${x}" cy="${y}" r="7" fill="#bb86fc"/><text x="${x}" y="${y + 3}" text-anchor="middle" fill="#111" font-size="8" font-weight="700">${fingers[idx] || ''}</text>`;
   }).join('');
 
-  const baseFretLabel = data.baseFret > 1 ? `<text x="8" y="40" fill="#8b8b8b" font-size="11">${data.baseFret}fr</text>` : '';
+  const nutLine = baseFret === 1 ? `<line x1="18" y1="28" x2="102" y2="28" stroke="#9a9a9a" stroke-width="4"/>` : '';
+  const positionBadge = baseFret > 1 ? `<rect x="2" y="30" width="14" height="18" rx="4" fill="#2b2b2b"/><text x="9" y="42" text-anchor="middle" fill="#d0d0d0" font-size="9">${baseFret}</text>` : '';
   return `
     <div class="chord-diagram-card ${large ? 'large' : ''}">
       <p class="text-center text-primary font-bold ${large ? 'text-3xl mb-3' : 'text-sm mb-2'}">${chordName}</p>
       <svg viewBox="0 0 120 150" class="chord-diagram-svg">
         <use href="#chord-diagram-template"></use>
-        ${baseFretLabel}
+        ${nutLine}
+        ${positionBadge}
+        ${barreMarkup}
         ${markers}
       </svg>
     </div>

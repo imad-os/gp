@@ -151,7 +151,8 @@ import { FirestoreRepository } from './modules/repository.js';
       favoriteSongIds: [],
       recentPractice: [],
       recentCourses: [],
-      activeGuitarToneId: ''
+      activeGuitarToneId: '',
+      tunerPresetId: 'default'
     };
     let userSettings = { ...DEFAULT_SETTINGS };
     let practiceValidationStates = [];
@@ -172,8 +173,8 @@ import { FirestoreRepository } from './modules/repository.js';
     });
     const TUNING_PRESETS = [
       {
-        id: 'standard',
-        label: 'Standard (E A D G B E)',
+        id: 'default',
+        label: 'Default - Standard Acoustic (E A D G B E)',
         strings: [
           { note: 'E2', freq: 82.41 },
           { note: 'A2', freq: 110.0 },
@@ -256,7 +257,7 @@ import { FirestoreRepository } from './modules/repository.js';
         ]
       }
     ];
-    let activeTunerPresetId = 'standard';
+    let activeTunerPresetId = DEFAULT_SETTINGS.tunerPresetId;
     const SUPPORTED_TIME_SIGNATURES = ['2/4', '3/4', '4/4', '6/8', '2/16', '3/16', '4/16', '6/16'];
     const DEFAULT_CHORD_LIBRARY = {
       C: { baseFret: 1, strings: ['x', 3, 2, 0, 1, 0], fingers: [0, 3, 2, 0, 1, 0] },
@@ -4335,32 +4336,7 @@ Rules:
 
     function renderChordDiagramSvg(chordName, large = false, overrideData = null) {
       const data = overrideData || getChordDiagramData(chordName);
-      if (!data) {
-        return `<div class="chord-diagram-card ${large ? 'large' : ''} flex items-center justify-center min-h-[120px]"><div class="text-center"><p class="text-xl font-bold text-primary">${chordName}</p><p class="text-[10px] text-gray-500 mt-2">Diagram soon</p></div></div>`;
-      }
-
-      const stringXs = [18, 34, 50, 66, 82, 98];
-      const fretYs = [37, 56, 75, 94, 113];
-      const markers = data.strings.map((fret, idx) => {
-        const x = stringXs[idx];
-        if (fret === 'x') return `<text x="${x}" y="18" text-anchor="middle" fill="#8b8b8b" font-size="12">x</text>`;
-        if (fret === 0) return `<text x="${x}" y="18" text-anchor="middle" fill="#8b8b8b" font-size="12">o</text>`;
-        const localFret = Math.max(1, fret - data.baseFret + 1);
-        const y = fretYs[Math.min(localFret - 1, fretYs.length - 1)];
-        return `<circle cx="${x}" cy="${y}" r="7" fill="#bb86fc"/><text x="${x}" y="${y + 3}" text-anchor="middle" fill="#111" font-size="8" font-weight="700">${data.fingers?.[idx] || ''}</text>`;
-      }).join('');
-
-      const baseFretLabel = data.baseFret > 1 ? `<text x="8" y="40" fill="#8b8b8b" font-size="11">${data.baseFret}fr</text>` : '';
-      return `
-        <div class="chord-diagram-card ${large ? 'large' : ''}">
-          <p class="text-center text-primary font-bold ${large ? 'text-3xl mb-3' : 'text-sm mb-2'}">${chordName}</p>
-          <svg viewBox="0 0 120 150" class="chord-diagram-svg">
-            <use href="#chord-diagram-template"></use>
-            ${baseFretLabel}
-            ${markers}
-          </svg>
-        </div>
-      `;
+      return UI.renderChordDiagramSvgWithData(chordName, data, large);
     }
 
     function renderChordLibrary(containerId, chords, largeCurrentChord = null) {
@@ -5394,6 +5370,8 @@ Rules:
 
     function applyUserSettings(settings) {
       userSettings = { ...DEFAULT_SETTINGS, ...settings };
+      activeTunerPresetId = normalizeTunerPresetId(userSettings.tunerPresetId);
+      userSettings.tunerPresetId = activeTunerPresetId;
       const size = userSettings.practiceTextSize || DEFAULT_SETTINGS.practiceTextSize;
       document.documentElement.style.setProperty('--practice-text-size', `${size}px`);
       document.documentElement.style.setProperty('--practice-chord-size', `${Math.max(10, Math.round(size * 0.78))}px`);
@@ -5405,6 +5383,8 @@ Rules:
       if (modalSlider) modalSlider.value = size;
       if (settingsLabel) settingsLabel.innerText = `${size} px`;
       if (modalLabel) modalLabel.innerText = `${size} px`;
+      populateTunerPresetOptions();
+      renderTuningReference('');
       renderGuitarToneSettingsOptions();
       renderGuitarToneProfilesList();
       renderProfileSummary();
@@ -6923,7 +6903,14 @@ Rules:
       `;
     }
 
+    function normalizeTunerPresetId(presetId = '') {
+      const normalized = String(presetId || '').trim().toLowerCase();
+      const mapped = normalized === 'standard' ? 'default' : normalized;
+      return TUNING_PRESETS.some(item => item.id === mapped) ? mapped : DEFAULT_SETTINGS.tunerPresetId;
+    }
+
     function getActiveTuningPreset() {
+      activeTunerPresetId = normalizeTunerPresetId(activeTunerPresetId);
       return TUNING_PRESETS.find(item => item.id === activeTunerPresetId) || TUNING_PRESETS[0];
     }
 
@@ -6934,6 +6921,7 @@ Rules:
     function populateTunerPresetOptions() {
       const select = document.getElementById('tuner-preset');
       if (!select) return;
+      activeTunerPresetId = normalizeTunerPresetId(activeTunerPresetId);
       select.innerHTML = TUNING_PRESETS.map(item => `<option value="${item.id}" ${item.id === activeTunerPresetId ? 'selected' : ''}>${item.label}</option>`).join('');
     }
 
@@ -7025,8 +7013,11 @@ Rules:
     }
 
     window.changeTunerPreset = function(presetId) {
-      if (!TUNING_PRESETS.some(item => item.id === presetId)) return;
-      activeTunerPresetId = presetId;
+      const normalizedPresetId = normalizeTunerPresetId(presetId);
+      if (!TUNING_PRESETS.some(item => item.id === normalizedPresetId)) return;
+      activeTunerPresetId = normalizedPresetId;
+      userSettings = { ...userSettings, tunerPresetId: activeTunerPresetId };
+      persistUserSettingsPartial({ tunerPresetId: activeTunerPresetId });
       resetTunerStabilityState();
       const noteEl = document.getElementById('tuner-note');
       if (noteEl) noteEl.innerText = '--';
