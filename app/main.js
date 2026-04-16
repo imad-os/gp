@@ -152,7 +152,8 @@ import { FirestoreRepository } from './modules/repository.js';
       recentPractice: [],
       recentCourses: [],
       activeGuitarToneId: '',
-      tunerPresetId: 'default'
+      tunerPresetId: 'default',
+      chordNotation: 'letter'
     };
     let userSettings = { ...DEFAULT_SETTINGS };
     let practiceValidationStates = [];
@@ -170,6 +171,15 @@ import { FirestoreRepository } from './modules/repository.js';
       la: 'A',
       si: 'B',
       ti: 'B'
+    });
+    const US_TO_SOLFEGE_NOTE_MAP = Object.freeze({
+      C: 'Do',
+      D: 'Re',
+      E: 'Mi',
+      F: 'Fa',
+      G: 'Sol',
+      A: 'La',
+      B: 'Si'
     });
     const TUNING_PRESETS = [
       {
@@ -637,10 +647,16 @@ Drop back to 70 BPM for clean finish.`,
 
     function getActiveGuitarToneProfile() {
       const targetId = String(userSettings?.activeGuitarToneId || '').trim();
+      if (targetId === '__synth__') return null;
       if (targetId) {
         const matched = guitarToneProfiles.find(item => item.id === targetId);
         if (matched) return matched;
       }
+      const fallbackDefault = guitarToneProfiles.find(item => {
+        const name = String(item?.name || '').trim().toLowerCase();
+        return name === 'default' || name === 'default tone' || name === 'default guitar tone';
+      });
+      if (fallbackDefault) return fallbackDefault;
       return null;
     }
 
@@ -648,16 +664,97 @@ Drop back to 70 BPM for clean finish.`,
       const select = document.getElementById('settings-guitar-tone');
       if (!select) return;
       const activeId = String(userSettings?.activeGuitarToneId || '').trim();
+      const fallbackDefault = guitarToneProfiles.find(item => {
+        const name = String(item?.name || '').trim().toLowerCase();
+        return name === 'default' || name === 'default tone' || name === 'default guitar tone';
+      });
+      const autoLabel = fallbackDefault
+        ? `Default Guitar Tone (Auto: ${escapeHtml(fallbackDefault.name)})`
+        : 'Default Synth (No samples)';
       const options = [
-        `<option value="">Default Synth (No samples)</option>`,
+        `<option value="">${autoLabel}</option>`,
+        `<option value="__synth__">Synth Only (No samples)</option>`,
         ...guitarToneProfiles.map(profile => `<option value="${profile.id}">${escapeHtml(profile.name)}</option>`)
       ];
       select.innerHTML = options.join('');
-      if (activeId && guitarToneProfiles.some(profile => profile.id === activeId)) {
+      if (activeId === '__synth__') {
+        select.value = '__synth__';
+      } else if (activeId && guitarToneProfiles.some(profile => profile.id === activeId)) {
         select.value = activeId;
       } else {
         select.value = '';
       }
+    }
+
+    function renderChordNotationSettingsOptions() {
+      const mode = normalizeChordNotationMode(userSettings?.chordNotation);
+      ['settings-chord-notation', 'detail-chord-notation', 'preview-chord-notation'].forEach(id => {
+        const select = document.getElementById(id);
+        if (!select) return;
+        select.value = mode;
+      });
+    }
+
+    async function setChordNotationPreference(value = '', options = {}) {
+      const { persist = true } = options || {};
+      const mode = normalizeChordNotationMode(value);
+      const nextSettings = { ...userSettings, chordNotation: mode };
+      applyUserSettings(nextSettings);
+      if (!persist || !user || user.isAnonymous) return;
+      try {
+        await repository.saveUserSettings(user.uid, { chordNotation: mode });
+      } catch (e) {
+        console.error('Could not save chord notation preference', e);
+        showToast('Could not save chord notation setting.');
+      }
+    }
+
+    function renderChordNotationSelectHtml(selectId = 'preview-chord-notation') {
+      const mode = normalizeChordNotationMode(userSettings?.chordNotation);
+      return `
+        <div class="mt-3 bg-black/30 rounded-xl border border-gray-800 p-3">
+          <label class="text-[10px] uppercase tracking-[0.2em] text-gray-500 block mb-2">Chord Notation</label>
+          <select id="${selectId}" onchange="setChordNotationFromQuick(this.value)" class="w-full bg-transparent text-white outline-none text-sm">
+            <option value="letter" ${mode === 'letter' ? 'selected' : ''}>Letter names (C D E F G A B)</option>
+            <option value="solfege" ${mode === 'solfege' ? 'selected' : ''}>Solfège / Fixed Do (Do Re Mi Fa Sol La Si)</option>
+          </select>
+        </div>
+      `;
+    }
+
+    window.setChordNotationFromQuick = async function(value = '') {
+      await setChordNotationPreference(value, { persist: true });
+    };
+
+    function refreshChordNotationInCurrentUi() {
+      document.querySelectorAll('[data-chord]').forEach(el => {
+        const rawChord = String(el.getAttribute('data-chord') || '').trim();
+        if (!rawChord) return;
+        el.textContent = getDisplayChordName(rawChord);
+      });
+      if (currentSong) {
+        const unique = [...new Set((currentSong.chords || []).map(c => c.chord).filter(Boolean))];
+        if (unique.length) {
+          renderChordLibrary('detail-chords', unique);
+        }
+        const practiceChordPanel = document.getElementById('practice-current-chord');
+        if (practiceChordPanel && !document.getElementById('practice-current-chord-panel')?.classList.contains('hidden')) {
+          const activeChordEl = document.querySelector('[id^="chord-hl-"].text-active');
+          const activeChord = activeChordEl?.getAttribute('data-chord') || currentSong.chords?.[0]?.chord || '';
+          if (activeChord) renderChordLibrary('practice-current-chord', [activeChord], activeChord);
+        }
+      }
+      const previewName = document.getElementById('practice-preview-chord-name');
+      if (previewName) {
+        const raw = String(previewName.dataset?.chord || '').trim();
+        previewName.innerText = raw ? getDisplayChordName(raw) : 'Tap a chord';
+      }
+      const translationName = document.getElementById('tool-chord-translation-diagram-name');
+      if (translationName) {
+        const raw = String(translationName.dataset?.chord || '').trim();
+        if (raw) translationName.innerText = getDisplayChordName(raw);
+      }
+      renderChordExplorer();
     }
 
     window.openProfilePage = function(options = {}) {
@@ -684,8 +781,11 @@ Drop back to 70 BPM for clean finish.`,
     function isChordLine(line) {
       const words = normalizeChordTokensForDetection(line);
       if (words.length === 0) return false;
-      const chordRegex = /^([A-G][#b]?(m|maj|min|aug|dim|sus|add)?\d*(\/[A-G][#b]?)?)$/i;
-      return words.every(w => chordRegex.test(w));
+      return words.every(word => {
+        const { core } = extractTokenCoreParts(word);
+        if (!core) return false;
+        return getChordNotationFromCore(core) === 'usa' || getChordNotationFromCore(core) === 'european';
+      });
     }
 
     function isTagLine(line) {
@@ -955,12 +1055,15 @@ Drop back to 70 BPM for clean finish.`,
               lastIdx = match.index + chordStr.length;
               continue;
             }
+            const normalizedChord = normalizeChordTokenToUs(chordStr);
+            const displayChord = getDisplayChordName(normalizedChord);
             chordHtml += normalizedChordLine.substring(lastIdx, match.index);
-            const safeChord = escapeHtml(chordStr);
-            chordHtml += `<span id="chord-hl-${globalChordIdx}" data-chord="${safeChord}" onclick="openPreviewChordDiagram('${safeChord}')" class="transition-all duration-200 clickable-chord">${safeChord}</span>`;
+            const safeChord = escapeHtml(normalizedChord);
+            const safeDisplayChord = escapeHtml(displayChord);
+            chordHtml += `<span id="chord-hl-${globalChordIdx}" data-chord="${safeChord}" onclick="openPreviewChordDiagram('${safeChord}')" class="transition-all duration-200 clickable-chord">${safeDisplayChord}</span>`;
             lastIdx = match.index + chordStr.length;
 
-            const chordObj = { chord: chordStr, time: currentTime, lineIdx: parsedLines.length, globalIdx: globalChordIdx };
+            const chordObj = { chord: normalizedChord, time: currentTime, lineIdx: parsedLines.length, globalIdx: globalChordIdx };
             flatChords.push(chordObj);
             lineChords.push(chordObj);
             currentTime += beatsPerBar; // Time Signature dependent
@@ -979,7 +1082,8 @@ Drop back to 70 BPM for clean finish.`,
 
       if (flatChords.length === 0) {
          flatChords = [{ chord: "C", time: 0, lineIdx: 0, globalIdx: 0 }];
-         parsedLines = [{ type: 'content', chordHtml: `<span id="chord-hl-0" data-chord="C" onclick="openPreviewChordDiagram('C')" class="clickable-chord">C</span>`, lyricLine: "Empty", chords: flatChords }];
+         const safeDisplayChord = escapeHtml(getDisplayChordName('C'));
+         parsedLines = [{ type: 'content', chordHtml: `<span id="chord-hl-0" data-chord="C" onclick="openPreviewChordDiagram('C')" class="clickable-chord">${safeDisplayChord}</span>`, lyricLine: "Empty", chords: flatChords }];
          currentTime = beatsPerBar;
       }
 
@@ -2213,7 +2317,7 @@ Drop back to 70 BPM for clean finish.`,
       const grid = document.getElementById('chord-explorer-grid');
       const current = document.getElementById('chord-explorer-current');
       if (!grid) return;
-      if (current) current.innerText = selectedChordReference;
+      if (current) current.innerText = getDisplayChordName(selectedChordReference);
       grid.innerHTML = CHORD_EXPLORER_LIST.map(chord => `
         <button onclick="selectChordReference('${chord}')" class="rounded-2xl p-3 btn-press ${selectedChordReference === chord ? 'border border-primary bg-primary/10' : 'btn-soft'}">
           ${renderChordDiagramSvg(chord)}
@@ -2469,7 +2573,7 @@ Drop back to 70 BPM for clean finish.`,
         guitarToneProfiles = [];
       }
       const activeId = String(userSettings?.activeGuitarToneId || '').trim();
-      if (activeId && !guitarToneProfiles.some(item => item.id === activeId)) {
+      if (activeId && activeId !== '__synth__' && !guitarToneProfiles.some(item => item.id === activeId)) {
         userSettings = { ...userSettings, activeGuitarToneId: '' };
       }
       renderGuitarToneSettingsOptions();
@@ -2556,9 +2660,10 @@ Drop back to 70 BPM for clean finish.`,
         return;
       }
       const activeId = String(userSettings?.activeGuitarToneId || '');
+      const effectiveProfileId = getActiveGuitarToneProfile()?.id || '';
       list.innerHTML = guitarToneProfiles.map(profile => {
         const available = GUITAR_TONE_STRING_KEYS.filter(key => profile.availableStrings?.[key]);
-        const active = profile.id === activeId;
+        const active = profile.id === effectiveProfileId || (profile.id === activeId && activeId !== '');
         const mine = !!user && profile.ownerId === user.uid;
         return `
           <div class="bg-black/30 border ${active ? 'border-primary/60' : 'border-gray-800'} rounded-xl px-3 py-3">
@@ -3042,6 +3147,79 @@ Drop back to 70 BPM for clean finish.`,
       return raw.split('/').map(part => translateChordSegmentToUs(part)).join('/');
     }
 
+    function normalizeChordNotationMode(mode = '') {
+      return String(mode || '').trim().toLowerCase() === 'solfege' ? 'solfege' : 'letter';
+    }
+
+    function normalizeEuropeanSegmentForDisplay(segment = '') {
+      const raw = String(segment || '');
+      const match = raw.match(/^(do|re|mi|fa|sol|la|si|ti)([#♯b♭]?)(.*)$/i);
+      if (!match || detectNotationForChordSegment(raw) !== 'european') return raw;
+      const key = String(match[1] || '').toLowerCase();
+      const root = key === 'ti'
+        ? 'Si'
+        : key === 'do'
+          ? 'Do'
+          : key === 're'
+            ? 'Re'
+            : key === 'mi'
+              ? 'Mi'
+              : key === 'fa'
+                ? 'Fa'
+                : key === 'sol'
+                  ? 'Sol'
+                  : key === 'la'
+                    ? 'La'
+                    : 'Si';
+      const accidental = normalizeChordAccidental(match[2] || '');
+      const suffix = normalizeMinorSuffix(match[3] || '');
+      return `${root}${accidental}${suffix}`;
+    }
+
+    function translateChordSegmentToSolfege(segment = '') {
+      const raw = String(segment || '');
+      if (!raw) return raw;
+      const match = raw.match(/^([A-G])([#♯b♭]?)(.*)$/i);
+      if (!match || detectNotationForChordSegment(raw) !== 'usa') return raw;
+      const mappedRoot = US_TO_SOLFEGE_NOTE_MAP[String(match[1] || '').toUpperCase()];
+      if (!mappedRoot) return raw;
+      const accidental = normalizeChordAccidental(match[2] || '');
+      const suffix = normalizeMinorSuffix(match[3] || '');
+      return `${mappedRoot}${accidental}${suffix}`;
+    }
+
+    function translateChordCoreToSolfege(core = '') {
+      const raw = String(core || '');
+      if (!raw) return raw;
+      return raw.split('/').map(part => {
+        const notation = detectNotationForChordSegment(part);
+        if (notation === 'european') return normalizeEuropeanSegmentForDisplay(part);
+        if (notation === 'usa') return translateChordSegmentToSolfege(part);
+        return part;
+      }).join('/');
+    }
+
+    function formatChordCoreForDisplay(core = '', notationMode = normalizeChordNotationMode(userSettings?.chordNotation)) {
+      const mode = normalizeChordNotationMode(notationMode);
+      return mode === 'solfege' ? translateChordCoreToSolfege(core) : translateChordCoreToUs(core);
+    }
+
+    function normalizeChordTokenToUs(token = '') {
+      const raw = String(token || '');
+      if (!raw) return raw;
+      const { prefix, core, suffix } = extractTokenCoreParts(raw);
+      if (!core) return raw;
+      return `${prefix}${translateChordCoreToUs(core)}${suffix}`;
+    }
+
+    function getDisplayChordName(chordName = '', notationMode = normalizeChordNotationMode(userSettings?.chordNotation)) {
+      const raw = String(chordName || '');
+      if (!raw) return '';
+      const { prefix, core, suffix } = extractTokenCoreParts(raw);
+      if (!core) return raw;
+      return `${prefix}${formatChordCoreForDisplay(core, notationMode)}${suffix}`;
+    }
+
     function getChordNotationFromCore(core = '') {
       const raw = String(core || '').trim();
       if (!raw) return '';
@@ -3117,7 +3295,8 @@ Drop back to 70 BPM for clean finish.`,
       const nameEl = document.getElementById('tool-chord-translation-diagram-name');
       const diagramEl = document.getElementById('tool-chord-translation-diagram');
       if (!wrap || !nameEl || !diagramEl) return;
-      nameEl.innerText = normalized;
+      nameEl.dataset.chord = normalized;
+      nameEl.innerText = getDisplayChordName(normalized);
       diagramEl.innerHTML = renderChordDiagramSvg(normalized, true);
       wrap.classList.remove('hidden');
     };
@@ -3163,7 +3342,10 @@ Drop back to 70 BPM for clean finish.`,
       if (inputEl) inputEl.value = '';
       if (outputEl) outputEl.innerHTML = '';
       if (diagramEl) diagramEl.innerHTML = '';
-      if (diagramName) diagramName.innerText = '';
+      if (diagramName) {
+        diagramName.innerText = '';
+        diagramName.dataset.chord = '';
+      }
       if (diagramWrap) diagramWrap.classList.add('hidden');
       updateChordTranslationDetectedLabel('empty');
     };
@@ -4336,7 +4518,7 @@ Rules:
 
     function renderChordDiagramSvg(chordName, large = false, overrideData = null) {
       const data = overrideData || getChordDiagramData(chordName);
-      return UI.renderChordDiagramSvgWithData(chordName, data, large);
+      return UI.renderChordDiagramSvgWithData(getDisplayChordName(chordName), data, large);
     }
 
     function renderChordLibrary(containerId, chords, largeCurrentChord = null) {
@@ -4354,11 +4536,13 @@ Rules:
       const title = document.getElementById('practice-preview-chord-name');
       if (!wrap || !title) return;
       if (!chordName) {
+        title.dataset.chord = '';
         title.innerText = 'Tap a chord';
         wrap.innerHTML = '<p class="text-xs text-gray-500 text-center">Tap any chord above to open its diagram.</p>';
         return;
       }
-      title.innerText = chordName;
+      title.dataset.chord = chordName;
+      title.innerText = getDisplayChordName(chordName);
       wrap.innerHTML = renderChordDiagramSvg(chordName, true);
     }
 
@@ -5372,6 +5556,7 @@ Rules:
       userSettings = { ...DEFAULT_SETTINGS, ...settings };
       activeTunerPresetId = normalizeTunerPresetId(userSettings.tunerPresetId);
       userSettings.tunerPresetId = activeTunerPresetId;
+      userSettings.chordNotation = normalizeChordNotationMode(userSettings.chordNotation);
       const size = userSettings.practiceTextSize || DEFAULT_SETTINGS.practiceTextSize;
       document.documentElement.style.setProperty('--practice-text-size', `${size}px`);
       document.documentElement.style.setProperty('--practice-chord-size', `${Math.max(10, Math.round(size * 0.78))}px`);
@@ -5386,8 +5571,15 @@ Rules:
       populateTunerPresetOptions();
       renderTuningReference('');
       renderGuitarToneSettingsOptions();
+      renderChordNotationSettingsOptions();
       renderGuitarToneProfilesList();
       renderProfileSummary();
+      songs = songs.map(song => ensureSongFormat(song));
+      if (currentSong?.id) {
+        const updated = songs.find(song => song.id === currentSong.id);
+        if (updated) currentSong = updated;
+      }
+      refreshChordNotationInCurrentUi();
     }
 
     window.previewTextSize = function(value, fromModal = false) {
@@ -5418,10 +5610,12 @@ Rules:
       const sliderId = source === 'modal' ? 'modal-text-size' : 'settings-text-size';
       const size = parseInt(document.getElementById(sliderId).value, 10) || DEFAULT_SETTINGS.practiceTextSize;
       const selectedTone = String(document.getElementById('settings-guitar-tone')?.value || '').trim();
+      const chordNotation = normalizeChordNotationMode(document.getElementById('settings-chord-notation')?.value || userSettings.chordNotation);
       const nextSettings = {
         ...userSettings,
         practiceTextSize: size,
-        activeGuitarToneId: selectedTone
+        activeGuitarToneId: selectedTone,
+        chordNotation
       };
       applyUserSettings(nextSettings);
       if (!user || user.isAnonymous) {
@@ -6406,6 +6600,7 @@ Rules:
                 <div><div class="text-[10px] uppercase tracking-[0.2em] text-gray-500 mb-1">Time</div><div class="text-white font-semibold">${currentSong.timeSignature || '4/4'}</div></div>
                 <div><div class="text-[10px] uppercase tracking-[0.2em] text-gray-500 mb-1">Capo</div><div class="text-white font-semibold">${currentSong.capo || 'No capo'}</div></div>
               </div>
+              ${renderChordNotationSelectHtml('preview-chord-notation')}
               <div class="mt-4 flex items-center justify-end gap-2">
                 <button id="btn-preview-play" onclick="togglePlay()" class="bg-primary text-black rounded-full px-5 py-2 text-sm font-bold btn-press">
                   <i class="fas fa-play mr-2"></i> Play Preview
