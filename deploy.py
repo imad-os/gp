@@ -149,8 +149,8 @@ def update_versions_manifest(new_version, summary, description, changes):
 
 def main():
     parser = argparse.ArgumentParser(description="Bump version, commit, push, and deploy.")
-    parser.add_argument("--summary", help="Release summary line.")
-    parser.add_argument("--description", default="", help="Release description.")
+    parser.add_argument("-s","--summary", help="Release summary line.")
+    parser.add_argument("-d","--description", default="", help="Release description.")
     parser.add_argument(
         "--changes",
         default="",
