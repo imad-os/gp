@@ -4,6 +4,7 @@ import datetime as dt
 import json
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 
@@ -16,7 +17,27 @@ VERSIONS_JSON = ROOT / "versions.json"
 
 def run(cmd):
     print(f"\n$ {' '.join(cmd)}")
-    subprocess.run(cmd, check=True)
+    try:
+        subprocess.run(cmd, check=True)
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"Command not found: {cmd[0]}") from exc
+
+
+def find_executable(candidates):
+    for name in candidates:
+        if shutil.which(name):
+            return name
+    return None
+
+
+def resolve_firebase_deploy_command():
+    firebase_bin = find_executable(["firebase", "firebase.cmd", "firebase.exe"])
+    if firebase_bin:
+        return [firebase_bin, "deploy"]
+    npx_bin = find_executable(["npx", "npx.cmd", "npx.exe"])
+    if npx_bin:
+        return [npx_bin, "firebase-tools", "deploy"]
+    return None
 
 
 def read_text(path):
@@ -103,6 +124,7 @@ def main():
     description = (args.description or "").strip()
     changes_raw = (args.changes or "").strip()
     changes = [c.strip() for c in changes_raw.split(";") if c.strip()]
+    firebase_deploy_cmd = resolve_firebase_deploy_command()
 
     main_js_text = read_text(MAIN_JS)
     current_version = extract_app_version(main_js_text)
@@ -120,11 +142,17 @@ def main():
     if args.dry_run:
         print("\nDry run complete. Files updated locally, no git/firebase commands were run.")
         return 0
+    if not firebase_deploy_cmd:
+        print(
+            "\nCould not find Firebase CLI.\n"
+            "Install it with `npm i -g firebase-tools` or ensure `npx` is available in PATH."
+        )
+        return 1
 
     run(["git", "add", "-A"])
     run(["git", "commit", "-m", commit_msg])
     run(["git", "push"])
-    run(["firebase", "deploy"])
+    run(firebase_deploy_cmd)
     print("\nDeploy complete.")
     return 0
 
@@ -135,3 +163,6 @@ if __name__ == "__main__":
     except subprocess.CalledProcessError as exc:
         print(f"\nCommand failed with exit code {exc.returncode}.")
         raise SystemExit(exc.returncode)
+    except RuntimeError as exc:
+        print(f"\n{exc}")
+        raise SystemExit(1)
