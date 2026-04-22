@@ -2,6 +2,7 @@
 import argparse
 import datetime as dt
 import json
+import os
 import pathlib
 import re
 import shutil
@@ -30,10 +31,33 @@ def find_executable(candidates):
     return None
 
 
+def find_windows_node_tool(tool_name):
+    if os.name != "nt":
+        return None
+    candidates = [
+        pathlib.Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "nodejs" / f"{tool_name}.cmd",
+        pathlib.Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "nodejs" / f"{tool_name}.cmd",
+        pathlib.Path.home() / "AppData" / "Roaming" / "npm" / f"{tool_name}.cmd",
+    ]
+    for path in candidates:
+        if path.exists():
+            return str(path)
+    return None
+
+
 def resolve_firebase_deploy_command():
     npx_bin = find_executable(["npx", "npx.cmd", "npx.exe"])
+    if not npx_bin:
+        npx_bin = find_windows_node_tool("npx")
     if npx_bin:
         return [npx_bin, "firebase-tools", "deploy"]
+
+    npm_bin = find_executable(["npm", "npm.cmd", "npm.exe"])
+    if not npm_bin:
+        npm_bin = find_windows_node_tool("npm")
+    if npm_bin:
+        return [npm_bin, "exec", "firebase-tools", "deploy"]
+
     firebase_bin = find_executable(["firebase.cmd", "firebase.exe", "firebase"])
     if firebase_bin:
         return [firebase_bin, "deploy"]
