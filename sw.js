@@ -1,4 +1,4 @@
-const SW_VERSION = '2026.04.22.1';
+const SW_VERSION = '2026.04.22.5';
 const STATIC_CACHE = `guitartrainer-static-${SW_VERSION}`;
 const RUNTIME_CACHE = `guitartrainer-runtime-${SW_VERSION}`;
 const CORE_ASSETS = [
@@ -22,6 +22,16 @@ const CORE_ASSETS = [
   '/assets/pwa/screenshot-phone.png'
 ];
 const APP_FILE_PATH_PREFIXES = ['/app/', '/assets/', '/default_tuning/'];
+const STATIC_DESTINATIONS = new Set(['script', 'style', 'image', 'font', 'audio', 'video']);
+const CROSS_ORIGIN_STATIC_HOSTS = new Set([
+  'cdn.tailwindcss.com',
+  'cdnjs.cloudflare.com',
+  'www.gstatic.com',
+  'cdn.jsdelivr.net',
+  'unpkg.com',
+  'i.ytimg.com',
+  'www.youtube.com'
+]);
 
 async function notifyClients(message) {
   const clients = await self.clients.matchAll({ includeUncontrolled: true, type: 'window' });
@@ -46,6 +56,34 @@ function canBeCached(response) {
   return response.type === 'opaque';
 }
 
+function isBypassRequest(req, url) {
+  const protocol = (url.protocol || '').toLowerCase();
+  if (protocol !== 'http:' && protocol !== 'https:') return true;
+  const hostname = String(url.hostname || '').toLowerCase();
+  const pathname = String(url.pathname || '');
+  if (pathname.startsWith('/__/firebase/')) return true;
+  if (hostname === 'firestore.googleapis.com') return true;
+  if (hostname.endsWith('.googleapis.com')) return true;
+  if (hostname.endsWith('.googleusercontent.com')) return true;
+  if (pathname.includes('google.firestore')) return true;
+  if (pathname.includes('/channel') || pathname.includes('/listen')) return true;
+  if (pathname.endsWith('/Listen') || pathname.endsWith('/Write')) return true;
+  if (req.destination === '' && req.mode !== 'navigate') return true;
+  return false;
+}
+
+function shouldCacheRequest(req, url) {
+  if (req.method !== 'GET') return false;
+  if (req.mode === 'navigate') return true;
+  if (isBypassRequest(req, url)) return false;
+  if (url.origin === self.location.origin) {
+    if (APP_FILE_PATH_PREFIXES.some(prefix => url.pathname.startsWith(prefix))) return true;
+    return STATIC_DESTINATIONS.has(req.destination);
+  }
+  if (!STATIC_DESTINATIONS.has(req.destination)) return false;
+  return CROSS_ORIGIN_STATIC_HOSTS.has(url.hostname);
+}
+
 async function precacheCoreAssets() {
   const cache = await caches.open(STATIC_CACHE);
   await Promise.all(
@@ -56,6 +94,12 @@ async function precacheCoreAssets() {
       } catch {}
     })
   );
+}
+
+async function clearCache(cacheName) {
+  const cache = await caches.open(cacheName);
+  const keys = await cache.keys();
+  await Promise.all(keys.map(key => cache.delete(key)));
 }
 
 self.addEventListener('install', event => {
@@ -87,6 +131,8 @@ self.addEventListener('message', event => {
     event.waitUntil(
       (async () => {
         try {
+          await clearCache(STATIC_CACHE);
+          await clearCache(RUNTIME_CACHE);
           await precacheCoreAssets();
           await notifyClients({ type: 'APP_FILES_REFRESHED', version: SW_VERSION });
         } catch (err) {
@@ -97,42 +143,41 @@ self.addEventListener('message', event => {
   }
 });
 
-async function networkFirst(req, fallbackRequest = null) {
+async function cacheFirst(req, fallbackRequest = null) {
+  const url = new URL(req.url);
+  if (!shouldCacheRequest(req, url)) {
+    try {
+      return await fetch(req);
+    } catch {
+      if (fallbackRequest) {
+        const staticCache = await caches.open(STATIC_CACHE);
+        const fallback = await staticCache.match(fallbackRequest, { ignoreSearch: true });
+        if (fallback) return fallback;
+      }
+      return new Response('Offline', { status: 503, statusText: 'Offline' });
+    }
+  }
+
+  const key = normalizeCacheKey(req);
+  const staticCache = await caches.open(STATIC_CACHE);
+  const staticHit = await staticCache.match(key, { ignoreSearch: true });
+  if (staticHit) return staticHit;
+
   const runtime = await caches.open(RUNTIME_CACHE);
+  const cached = await runtime.match(key, { ignoreSearch: true });
+  if (cached) return cached;
+
   try {
     const fresh = await fetch(req);
-    if (canBeCached(fresh)) await runtime.put(normalizeCacheKey(req), fresh.clone());
+    if (canBeCached(fresh)) await runtime.put(key, fresh.clone());
     return fresh;
   } catch {
-    const cached = await runtime.match(normalizeCacheKey(req), { ignoreSearch: true });
-    if (cached) return cached;
     if (fallbackRequest) {
-      const staticCache = await caches.open(STATIC_CACHE);
       const fallback = await staticCache.match(fallbackRequest, { ignoreSearch: true });
       if (fallback) return fallback;
     }
     return new Response('Offline', { status: 503, statusText: 'Offline' });
   }
-}
-
-async function staleWhileRevalidate(req) {
-  const key = normalizeCacheKey(req);
-  const runtime = await caches.open(RUNTIME_CACHE);
-  const cached = await runtime.match(key, { ignoreSearch: true });
-  const networkPromise = fetch(req)
-    .then(async fresh => {
-      if (canBeCached(fresh)) await runtime.put(key, fresh.clone());
-      return fresh;
-    })
-    .catch(() => null);
-  if (cached) {
-    networkPromise.catch(() => null);
-    return cached;
-  }
-  const networkRes = await networkPromise;
-  if (networkRes) return networkRes;
-  const staticCache = await caches.open(STATIC_CACHE);
-  return staticCache.match(key, { ignoreSearch: true }) || new Response('Offline', { status: 503, statusText: 'Offline' });
 }
 
 self.addEventListener('fetch', event => {
@@ -144,15 +189,15 @@ self.addEventListener('fetch', event => {
   const isNavigation = req.mode === 'navigate';
 
   if (isNavigation) {
-    event.respondWith(networkFirst(req, '/index.html'));
+    event.respondWith(cacheFirst(req, '/index.html'));
     return;
   }
 
   if (isSameOrigin) {
-    event.respondWith(staleWhileRevalidate(req));
+    event.respondWith(cacheFirst(req));
     return;
   }
 
-  // Cache cross-origin scripts/assets (e.g. CDN files) for offline reuse.
-  event.respondWith(staleWhileRevalidate(req));
+  // Cache cross-origin scripts/assets after first successful request.
+  event.respondWith(cacheFirst(req));
 });

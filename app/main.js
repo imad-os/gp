@@ -1,4 +1,4 @@
-﻿import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 import { getFirestore } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import * as UI from './modules/renderers.js';
@@ -165,8 +165,9 @@ import { FirestoreRepository } from './modules/repository.js';
       'https://unpkg.com/@coderline/alphatab@1.8.2/dist/alphaTab.min.js'
     ];
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
+    const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.06.3',
+      version: 'v2026.04.22.5',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -2759,34 +2760,36 @@ Drop back to 70 BPM for clean finish.`,
         }
 
         onAuthStateChanged(auth, async (u) => {
-          if (u) {
-            user = u;
-            const isGuest = user.isAnonymous;
-            updateUserHeaderState();
-            refreshLibraryAdminButtons();
-            closeAuthModal();
-            
-            const addBtn = document.getElementById('btn-add-song');
-            if(isGuest) addBtn.classList.add('hidden');
-            else addBtn.classList.remove('hidden');
+          try {
+            if (u) {
+              user = u;
+              const isGuest = user.isAnonymous;
+              updateUserHeaderState();
+              refreshLibraryAdminButtons();
+              closeAuthModal();
+              
+              const addBtn = document.getElementById('btn-add-song');
+              if(isGuest) addBtn.classList.add('hidden');
+              else addBtn.classList.remove('hidden');
 
-            await loadUserSettings();
-            await loadSongs();
-            await loadTrainingArticles();
-            await loadChordLibraryData();
-            await loadGuitarToneProfiles();
-            await loadToolRecordings();
-            await loadLooperHistory();
-            renderToolRecordings();
-            renderLooperHistory();
-            renderChordExplorer();
-            renderToolSongsSearch();
-            renderProfileSummary();
-            refreshLibraryAdminButtons();
-            showToolsHome({ skipUrl: true });
-            await applyRouteFromLocation({ replaceUnknown: true });
-            showLoading(false);
-          } else {
+              await loadUserSettings();
+              await loadSongs();
+              await loadTrainingArticles();
+              await loadChordLibraryData();
+              await loadGuitarToneProfiles();
+              await loadToolRecordings();
+              await loadLooperHistory();
+              renderToolRecordings();
+              renderLooperHistory();
+              renderChordExplorer();
+              renderToolSongsSearch();
+              renderProfileSummary();
+              refreshLibraryAdminButtons();
+              showToolsHome({ skipUrl: true });
+              await applyRouteFromLocation({ replaceUnknown: true });
+              return;
+            }
+
             user = null;
             updateUserHeaderState();
             refreshLibraryAdminButtons();
@@ -2797,8 +2800,12 @@ Drop back to 70 BPM for clean finish.`,
             } catch (e) {
               console.error('Guest sign-in failed', e);
               showToast("Failed to start guest session.");
-              showLoading(false);
             }
+          } catch (err) {
+            console.error('Auth initialization failed', err);
+            showToast("Failed to initialize app data.");
+          } finally {
+            showLoading(false);
           }
         });
       } catch (err) {
@@ -2947,7 +2954,7 @@ Drop back to 70 BPM for clean finish.`,
             </div>
           </div>
           <div class="flex items-center gap-3 mt-3">
-            <button onclick="toggleToolRecordingPlayback('${recording.id}')" id="record-play-${recording.id}" class="w-11 h-11 rounded-full bg-primary text-white btn-press shadow-[0_0_18px_rgba(187,134,252,0.22)]">
+            <button onclick="toggleToolRecordingPlayback('${recording.id}')" id="record-play-${recording.id}" class="w-11 h-11 rounded-full bg-primary text-white btn-press shadow-[0_0_18px_rgba(156,106,61,0.22)]">
               <i class="fas fa-play"></i>
             </button>
             <div class="flex-1">
@@ -6896,7 +6903,7 @@ Rules:
       const stepsBlock = hasProgress
         ? `<div class="grid gap-2 mt-3 text-[10px]" style="grid-template-columns:repeat(3,minmax(0,1fr));">
             <div>
-              <div class="h-2 rounded-full bg-black/80 overflow-hidden border" style="border-color:rgba(187,134,252,0.7)"><div class="h-full rounded-full bg-gradient-to-r from-[#d9b8ff] to-[#bb86fc] shadow-[0_0_12px_rgba(187,134,252,0.9)]" style="width:${p1w}%"></div></div>
+              <div class="h-2 rounded-full bg-black/80 overflow-hidden border" style="border-color:rgba(156,106,61,0.7)"><div class="h-full rounded-full bg-gradient-to-r from-[#d7b08a] to-[#9c6a3d] shadow-[0_0_12px_rgba(156,106,61,0.9)]" style="width:${p1w}%"></div></div>
             </div>
             <div>
               <div class="h-2 rounded-full bg-black/80 overflow-hidden border" style="border-color:rgba(3,218,198,0.75)"><div class="h-full rounded-full bg-gradient-to-r from-[#6ffff0] to-[#03dac6] shadow-[0_0_12px_rgba(3,218,198,0.95)]" style="width:${p2w}%"></div></div>
@@ -7599,7 +7606,7 @@ Rules:
         document.getElementById('btn-play').innerHTML = `<i class="fas fa-stop"></i> Stop`;
         document.getElementById('btn-play').classList.replace('bg-primary', 'bg-danger');
         document.getElementById('btn-play').classList.add('text-white');
-        document.getElementById('btn-play').classList.replace('shadow-[0_0_20px_rgba(187,134,252,0.4)]', 'shadow-[0_0_20px_rgba(207,102,121,0.4)]');
+        document.getElementById('btn-play').classList.replace('shadow-[0_0_20px_rgba(156,106,61,0.4)]', 'shadow-[0_0_20px_rgba(207,102,121,0.4)]');
         updatePreviewPlayButton();
         updatePracticeFloatingStopButton();
         scheduler();
@@ -7772,7 +7779,7 @@ Rules:
         btn.innerHTML = showContinue ? `<i class="fas fa-play mr-2"></i> Continue` : `<i class="fas fa-play mr-2"></i> Start`;
         btn.classList.replace('bg-danger', 'bg-primary');
         btn.classList.add('text-white');
-        btn.classList.replace('shadow-[0_0_20px_rgba(207,102,121,0.4)]', 'shadow-[0_0_20px_rgba(187,134,252,0.4)]');
+        btn.classList.replace('shadow-[0_0_20px_rgba(207,102,121,0.4)]', 'shadow-[0_0_20px_rgba(156,106,61,0.4)]');
       }
       updatePreviewPlayButton();
       updatePracticeFloatingStopButton();
@@ -7803,7 +7810,7 @@ Rules:
       btn.innerHTML = `<i class="fas fa-play mr-2"></i> Start`;
       btn.classList.replace('bg-danger', 'bg-primary');
       btn.classList.add('text-white');
-      btn.classList.replace('shadow-[0_0_20px_rgba(207,102,121,0.4)]', 'shadow-[0_0_20px_rgba(187,134,252,0.4)]');
+      btn.classList.replace('shadow-[0_0_20px_rgba(207,102,121,0.4)]', 'shadow-[0_0_20px_rgba(156,106,61,0.4)]');
       
       // Remove visual active states
       document.querySelectorAll('.active').forEach(a => {
@@ -8237,6 +8244,116 @@ Rules:
     let swUpdateReady = false;
     let swUpdateFlowStarted = false;
     let swControllerReloadTriggered = false;
+    let swPeriodicUpdateTimer = null;
+    let updateHistory = [];
+    let latestCatalogVersion = APP_BUILD.version;
+    let latestCatalogEntry = null;
+    let catalogUpdateAvailable = false;
+
+    function parseVersionParts(version = '') {
+      return String(version || '')
+        .trim()
+        .replace(/^v/i, '')
+        .split(/[^0-9]+/)
+        .filter(Boolean)
+        .map(part => parseInt(part, 10))
+        .filter(Number.isFinite);
+    }
+
+    function compareVersions(a = '', b = '') {
+      const pa = parseVersionParts(a);
+      const pb = parseVersionParts(b);
+      const maxLen = Math.max(pa.length, pb.length);
+      for (let i = 0; i < maxLen; i++) {
+        const va = pa[i] || 0;
+        const vb = pb[i] || 0;
+        if (va > vb) return 1;
+        if (va < vb) return -1;
+      }
+      return String(a || '').localeCompare(String(b || ''), undefined, { numeric: true, sensitivity: 'base' });
+    }
+
+    function normalizeVersionUpdateEntry(entry = {}) {
+      return {
+        version: String(entry.version || '').trim(),
+        releasedAt: String(entry.releasedAt || entry.date || '').trim(),
+        summary: String(entry.summary || '').trim(),
+        description: String(entry.description || '').trim(),
+        changes: Array.isArray(entry.changes) ? entry.changes.map(item => String(item || '').trim()).filter(Boolean) : []
+      };
+    }
+
+    function renderUpdateHistoryUi() {
+      const historyEl = document.getElementById('settings-update-history');
+      const descriptionEl = document.getElementById('settings-update-description');
+      if (historyEl) {
+        if (!updateHistory.length) {
+          historyEl.innerHTML = `<p class="text-xs text-gray-500">No update log available yet.</p>`;
+        } else {
+          historyEl.innerHTML = updateHistory.slice(0, 10).map(item => {
+            const when = item.releasedAt ? new Date(item.releasedAt) : null;
+            const dateLabel = when && !Number.isNaN(when.getTime()) ? when.toLocaleString() : 'Unknown date';
+            return `
+              <div class="bg-black/25 border border-gray-800 rounded-xl p-3">
+                <div class="flex items-center justify-between gap-2">
+                  <p class="text-sm font-bold text-white">${escapeHtml(item.version || 'Unversioned update')}</p>
+                  <span class="text-[10px] text-gray-500">${escapeHtml(dateLabel)}</span>
+                </div>
+                ${item.summary ? `<p class="text-xs text-gray-300 mt-1">${escapeHtml(item.summary)}</p>` : ''}
+              </div>
+            `;
+          }).join('');
+        }
+      }
+
+      if (!descriptionEl) return;
+      if (!catalogUpdateAvailable || !latestCatalogEntry) {
+        descriptionEl.classList.add('hidden');
+        descriptionEl.innerHTML = '';
+        return;
+      }
+
+      const changeLines = latestCatalogEntry.changes.length
+        ? `<ul class="mt-2 text-xs text-gray-300 space-y-1">${latestCatalogEntry.changes.slice(0, 6).map(item => `<li>• ${escapeHtml(item)}</li>`).join('')}</ul>`
+        : '';
+      descriptionEl.innerHTML = `
+        <p class="text-[10px] uppercase tracking-[0.2em] text-[#f5ff4a]">New Update Details</p>
+        <p class="text-sm text-white mt-1 font-semibold">${escapeHtml(latestCatalogEntry.version || latestCatalogVersion)}</p>
+        ${latestCatalogEntry.summary ? `<p class="text-xs text-gray-200 mt-1">${escapeHtml(latestCatalogEntry.summary)}</p>` : ''}
+        ${latestCatalogEntry.description ? `<p class="text-xs text-gray-300 mt-1">${escapeHtml(latestCatalogEntry.description)}</p>` : ''}
+        ${changeLines}
+      `;
+      descriptionEl.classList.remove('hidden');
+    }
+
+    async function refreshVersionCatalog(showFeedback = false) {
+      try {
+        const response = await fetch(`${APP_VERSIONS_URL}?t=${Date.now()}`, {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache' }
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const payload = await response.json();
+        const updates = Array.isArray(payload?.updates) ? payload.updates.map(normalizeVersionUpdateEntry).filter(item => item.version) : [];
+        updates.sort((a, b) => compareVersions(b.version, a.version));
+        updateHistory = updates;
+        latestCatalogVersion = String(payload?.latestVersion || updates[0]?.version || APP_BUILD.version);
+        latestCatalogEntry = updates.find(item => item.version === latestCatalogVersion) || updates[0] || null;
+        catalogUpdateAvailable = compareVersions(latestCatalogVersion, APP_BUILD.version) > 0;
+        updateSettingsUpdateUi();
+        renderUpdateHistoryUi();
+        if (showFeedback) {
+          if (catalogUpdateAvailable) showToast(`New version ${latestCatalogVersion} is available.`);
+          else showToast('No new version in update log right now.', true);
+        }
+        return catalogUpdateAvailable;
+      } catch (err) {
+        console.error('Could not load versions.json', err);
+        if (showFeedback) showToast('Could not load update log.');
+        renderUpdateHistoryUi();
+        return false;
+      }
+    }
 
     function setOfflineUi(offline = false) {
       const badge = document.getElementById('network-status-pill');
@@ -8253,22 +8370,117 @@ Rules:
     function updateSettingsUpdateUi() {
       const status = document.getElementById('settings-update-status');
       const notice = document.getElementById('settings-update-ready');
+      const hasAnyUpdate = swUpdateReady || catalogUpdateAvailable;
       if (status) {
-        status.innerText = swUpdateReady
-          ? 'New version is ready. Tap Update to apply it.'
-          : `App is up to date (build ${APP_BUILD.version}).`;
+        if (hasAnyUpdate) {
+          status.innerText = `New version ${latestCatalogVersion || APP_BUILD.version} available. Tap Update to apply it.`;
+        } else {
+          status.innerText = `App is up to date (build ${APP_BUILD.version}).`;
+        }
       }
       if (notice) {
-        if (swUpdateReady) notice.classList.remove('hidden');
+        if (hasAnyUpdate) notice.classList.remove('hidden');
         else notice.classList.add('hidden');
       }
     }
 
-    function markUpdateReady() {
+    function markUpdateReady(showToastMessage = true) {
+      if (swUpdateReady) return;
       swUpdateReady = true;
       updateSettingsUpdateUi();
-      showToast('New app version available. Open Settings and tap Update.');
+      if (showToastMessage) showToast('New app version available. Open Settings and tap Update.');
     }
+
+    function startPeriodicUpdateChecks() {
+      if (!('serviceWorker' in navigator)) return;
+      if (swPeriodicUpdateTimer) return;
+      swPeriodicUpdateTimer = window.setInterval(async () => {
+        if (!navigator.onLine) {
+          renderUpdateHistoryUi();
+          return;
+        }
+        try {
+          const reg = swRegistration || await navigator.serviceWorker.getRegistration();
+          if (!reg) return;
+          swRegistration = reg;
+          await reg.update();
+          await refreshVersionCatalog(false);
+        } catch (err) {
+          console.error('Periodic SW update check failed', err);
+        }
+      }, 10 * 60 * 1000);
+    }
+
+    async function waitForWaitingWorker(reg, timeoutMs = 12000) {
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < timeoutMs) {
+        if (reg.waiting) return true;
+        await new Promise(resolve => setTimeout(resolve, 250));
+        try {
+          await reg.update();
+        } catch {}
+      }
+      return !!reg.waiting;
+    }
+
+    async function checkForAppUpdate(showFeedback = false) {
+      if (!('serviceWorker' in navigator)) {
+        if (showFeedback) showToast('This browser does not support service worker updates.');
+        return false;
+      }
+      if (!navigator.onLine) {
+        if (showFeedback) showToast('You are offline. Connect to check for updates.');
+        return false;
+      }
+      const btn = document.getElementById('settings-check-update-btn');
+      const status = document.getElementById('settings-update-status');
+      const originalLabel = btn?.innerHTML || '';
+      if (btn) {
+        btn.disabled = true;
+        btn.classList.add('opacity-60', 'cursor-not-allowed');
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Checking...';
+      }
+      if (status) status.innerText = 'Checking for updates...';
+      try {
+        const hasCatalogUpdate = await refreshVersionCatalog(false);
+        const reg = swRegistration || await navigator.serviceWorker.getRegistration();
+        if (!reg) {
+          if (showFeedback) showToast('Service worker is not registered yet.');
+          updateSettingsUpdateUi();
+          return hasCatalogUpdate;
+        }
+        swRegistration = reg;
+        await reg.update();
+        const hasWaiting = await waitForWaitingWorker(reg);
+        if (hasWaiting) {
+          markUpdateReady(false);
+        }
+        if (hasWaiting || hasCatalogUpdate) {
+          updateSettingsUpdateUi();
+          if (showFeedback) {
+            const updateText = hasCatalogUpdate ? `New version ${latestCatalogVersion} found. Tap Update to apply it.` : 'New app files are ready. Tap Update to apply it.';
+            showToast(updateText);
+          }
+          return true;
+        }
+        updateSettingsUpdateUi();
+        if (showFeedback) showToast('No new update right now.', true);
+        return false;
+      } catch (err) {
+        console.error('Manual SW update check failed', err);
+        updateSettingsUpdateUi();
+        if (showFeedback) showToast('Could not check for updates.');
+        return false;
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.classList.remove('opacity-60', 'cursor-not-allowed');
+          btn.innerHTML = originalLabel;
+        }
+      }
+    }
+
+    window.checkForAppUpdate = checkForAppUpdate;
 
     async function runForceUpdateFlow() {
       if (!('serviceWorker' in navigator)) {
@@ -8337,7 +8549,8 @@ Rules:
           }
           return;
         }
-        swRegistration = await navigator.serviceWorker.register('/sw.js');
+        swRegistration = await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' });
+        startPeriodicUpdateChecks();
         if (swRegistration.waiting) markUpdateReady();
         swRegistration.addEventListener('updatefound', () => {
           const installing = swRegistration.installing;
@@ -8410,6 +8623,8 @@ Rules:
       renderToolSongsSearch();
       renderBuildInfo();
       updateSettingsUpdateUi();
+      renderUpdateHistoryUi();
+      refreshVersionCatalog(false).catch(() => {});
       setOfflineUi(!navigator.onLine);
       refreshLibraryAdminButtons();
       showToolsHome({ skipUrl: true });
@@ -8420,6 +8635,7 @@ Rules:
       window.addEventListener('online', () => {
         setOfflineUi(false);
         updateSettingsUpdateUi();
+        refreshVersionCatalog(false).catch(() => {});
       });
       window.addEventListener('offline', () => {
         setOfflineUi(true);

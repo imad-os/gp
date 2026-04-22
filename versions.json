@@ -1,0 +1,35 @@
+{
+  "latestVersion": "v2026.04.22.5",
+  "updates": [
+    {
+      "version": "v2026.04.22.5",
+      "releasedAt": "2026-04-22T13:44:27Z",
+      "summary": "bug fixes ...",
+      "description": "",
+      "changes": []
+    },
+    {
+      "version": "v2026.04.22.4",
+      "releasedAt": "2026-04-22T12:30:00Z",
+      "summary": "Version log system, update history UI, and deploy automation script.",
+      "description": "Update checks now use versions.json, Settings shows update details/history, and deployment can be automated with deploy.py.",
+      "changes": [
+        "Added versions.json-based update detection",
+        "Added update log history in Settings",
+        "Added new update details panel in Settings",
+        "Added automated deploy.py script"
+      ]
+    },
+    {
+      "version": "v2026.04.22.3",
+      "releasedAt": "2026-04-22T11:40:00Z",
+      "summary": "Manual update checks and offline stability improvements.",
+      "description": "Service worker update checks were improved and caching behavior was hardened to avoid stale update detection.",
+      "changes": [
+        "Added Check Update button",
+        "Improved service worker update flow",
+        "Improved offline/cache behavior"
+      ]
+    }
+  ]
+}

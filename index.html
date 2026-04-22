@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <meta name="theme-color" content="#121212">
+  <meta name="theme-color" content="#3b2a1f">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="GuitarTrainer">
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="msapplication-TileColor" content="#121212">
+  <meta name="msapplication-TileColor" content="#3b2a1f">
   <meta name="msapplication-TileImage" content="/assets/pwa/ms-tile-150.png">
   <meta name="msapplication-config" content="/browserconfig.xml">
   <link rel="manifest" href="/manifest.webmanifest">
@@ -23,7 +23,7 @@
       --bg-color: #121212;
       --surface: #1e1e1e;
       --surface-light: #2c2c2c;
-      --primary: #bb86fc;
+      --primary: #9c6a3d;
       --active: #03dac6;
       --danger: #cf6679;
     }
@@ -74,13 +74,13 @@
       box-shadow: 0 -8px 30px rgba(0,0,0,0.35);
     }
     .tab-item.active { color: var(--primary); }
-    .tab-item.active .tab-pill { background: rgba(187,134,252,0.14); color: var(--primary); }
+    .tab-item.active .tab-pill { background: rgba(156,106,61,0.14); color: var(--primary); }
     .meter-bar { transition: height 0.08s linear, opacity 0.08s linear; }
     .pattern-editor-grid { display: grid; gap: 0.75rem; }
     .pattern-group { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.25rem 0.35rem; align-items: start; }
     .pattern-cell { background: rgba(0,0,0,0.28); border: 1px solid #343434; border-radius: 1rem; padding: 0.9rem 0.35rem 0.55rem; text-align: center; transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease; }
     .pattern-cell:hover { border-color: #4c4c4c; }
-    .pattern-cell.active { border-color: var(--primary); box-shadow: 0 0 0 1px rgba(187,134,252,0.22), 0 10px 24px rgba(0,0,0,0.22); }
+    .pattern-cell.active { border-color: var(--primary); box-shadow: 0 0 0 1px rgba(156,106,61,0.22), 0 10px 24px rgba(0,0,0,0.22); }
     .pattern-action { font-size: 1.55rem; font-weight: 800; line-height: 1; }
     .pattern-count { font-size: 0.68rem; color: #8b8b8b; margin-top: 0.5rem; letter-spacing: 0.12em; text-transform: uppercase; }
     .pattern-pair-bracket { grid-column: 1 / -1; height: 0.8rem; position: relative; margin-top: -0.05rem; }
@@ -110,7 +110,7 @@
       width: min(180px, calc(100vw - 16px));
       pointer-events: auto;
       background: linear-gradient(180deg, rgba(25,25,25,0.98), rgba(12,12,12,0.96));
-      border: 1px solid rgba(187,134,252,0.4);
+      border: 1px solid rgba(156,106,61,0.4);
       border-radius: 0.95rem;
       box-shadow: 0 14px 28px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.05) inset;
       padding: 0.3rem;
@@ -138,8 +138,8 @@
     .practice-line-preview.current { opacity: 1; transform: scale(1); }
     .practice-lyrics-line { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
     .favorite-btn.idle { background: rgba(255,255,255,0.03); border: 1px solid #5a5a5a; color: #f4f4f5; }
-    .favorite-btn.active { background: rgba(187,134,252,0.24); border: 1px solid rgba(187,134,252,0.9); color: #f5e9ff; box-shadow: 0 0 18px rgba(187,134,252,0.2); }
-    .favorite-btn.active i { color: #bb86fc; }
+    .favorite-btn.active { background: rgba(156,106,61,0.24); border: 1px solid rgba(156,106,61,0.9); color: #f3e4d2; box-shadow: 0 0 18px rgba(156,106,61,0.2); }
+    .favorite-btn.active i { color: #9c6a3d; }
     .favorite-btn.idle i { color: #f4f4f5; }
     .tuning-chip { background: rgba(0,0,0,0.3); border: 1px solid #2f2f2f; border-radius: 0.75rem; padding: 0.7rem 0.4rem; text-align: center; transition: all 0.15s ease; }
     .tuning-chip.active { border-color: rgba(3,218,198,0.9); box-shadow: 0 0 0 1px rgba(3,218,198,0.35), 0 0 16px rgba(3,218,198,0.22); background: rgba(3,218,198,0.08); }
@@ -149,7 +149,7 @@
       border-radius: 1.35rem;
       border: 1px solid #2e2e2e;
       background:
-        radial-gradient(circle at top right, rgba(187,134,252,0.18), transparent 40%),
+        radial-gradient(circle at top right, rgba(156,106,61,0.18), transparent 40%),
         linear-gradient(180deg, rgba(26,26,26,0.95), rgba(15,15,15,0.98));
       padding: 1rem;
       text-align: left;
@@ -157,7 +157,7 @@
     }
     .tool-nav-card:hover {
       transform: translateY(-2px);
-      border-color: rgba(187,134,252,0.45);
+      border-color: rgba(156,106,61,0.45);
       box-shadow: 0 16px 28px rgba(0,0,0,0.25);
     }
     .tool-nav-icon {
@@ -167,7 +167,7 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      background: rgba(187,134,252,0.14);
+      background: rgba(156,106,61,0.14);
       color: var(--primary);
       margin-bottom: 0.9rem;
     }
@@ -213,7 +213,7 @@
     .looper-mode-btn.active {
       border-color: rgba(187, 134, 252, 0.9);
       background: rgba(187, 134, 252, 0.2);
-      color: #f5e9ff;
+      color: #f3e4d2;
       box-shadow: 0 0 0 1px rgba(187, 134, 252, 0.22), 0 8px 18px rgba(0, 0, 0, 0.2);
     }
     .looper-dual-wrap { position: relative; height: 2.1rem; }
@@ -233,7 +233,7 @@
       transform: translateY(-50%);
       height: 0.42rem;
       border-radius: 999px;
-      background: linear-gradient(90deg, rgba(3,218,198,0.9), rgba(187,134,252,0.95));
+      background: linear-gradient(90deg, rgba(3,218,198,0.9), rgba(156,106,61,0.95));
     }
     .looper-dual-wrap input[type="range"] {
       position: absolute;
@@ -277,8 +277,8 @@
     }
     .looper-dual-wrap .range-a::-webkit-slider-thumb { background: #03dac6; }
     .looper-dual-wrap .range-a::-moz-range-thumb { background: #03dac6; }
-    .looper-dual-wrap .range-b::-webkit-slider-thumb { background: #bb86fc; }
-    .looper-dual-wrap .range-b::-moz-range-thumb { background: #bb86fc; }
+    .looper-dual-wrap .range-b::-webkit-slider-thumb { background: #9c6a3d; }
+    .looper-dual-wrap .range-b::-moz-range-thumb { background: #9c6a3d; }
     .gp-viewer-wrap {
       min-height: 420px;
       background: #0b1220;
@@ -311,7 +311,7 @@
     .gp-mode-btn.active {
       border-color: rgba(187, 134, 252, 0.9);
       background: rgba(187, 134, 252, 0.2);
-      color: #f5e9ff;
+      color: #f3e4d2;
       box-shadow: 0 0 0 1px rgba(187, 134, 252, 0.2), 0 8px 18px rgba(0, 0, 0, 0.2);
     }
   </style>
@@ -449,7 +449,7 @@
         </div>
       </div>
     </main>
-    <button id="btn-add-song" onclick="openAddSong()" class="fixed bottom-24 right-6 w-14 h-14 bg-primary text-black rounded-full shadow-[0_0_15px_rgba(187,134,252,0.3)] flex items-center justify-center text-2xl btn-press z-10 transition-transform hidden">
+    <button id="btn-add-song" onclick="openAddSong()" class="fixed bottom-24 right-6 w-14 h-14 bg-primary text-black rounded-full shadow-[0_0_15px_rgba(156,106,61,0.3)] flex items-center justify-center text-2xl btn-press z-10 transition-transform hidden">
       <i class="fas fa-plus"></i>
     </button>
   </div>
@@ -630,7 +630,7 @@
             </div>
             <div id="training-pattern-viz"></div>
           </div>
-          <button id="btn-training-toggle" onclick="toggleTrainingPlayback()" class="bg-primary text-black font-bold py-3 px-8 rounded-full btn-press shadow-[0_0_20px_rgba(187,134,252,0.35)]">
+          <button id="btn-training-toggle" onclick="toggleTrainingPlayback()" class="bg-primary text-black font-bold py-3 px-8 rounded-full btn-press shadow-[0_0_20px_rgba(156,106,61,0.35)]">
             <i class="fas fa-play mr-2"></i> Start Training
           </button>
         </div>
@@ -654,11 +654,11 @@
           </div>
           <p id="tuner-note" class="text-5xl sm:text-6xl font-black text-primary">--</p>
           <label class="mt-3 inline-flex items-center gap-2 text-xs text-gray-300 cursor-pointer select-none">
-            <input id="tuner-use-system-audio" type="checkbox" class="accent-[#bb86fc]">
+            <input id="tuner-use-system-audio" type="checkbox" class="accent-[#9c6a3d]">
             Use PC/screen audio instead of microphone
           </label>
           <div class="mt-3">
-            <button id="btn-tuner-toggle" onclick="toggleTuner()" class="bg-primary text-black font-bold py-2.5 px-7 rounded-full btn-press shadow-[0_0_20px_rgba(187,134,252,0.35)]">
+            <button id="btn-tuner-toggle" onclick="toggleTuner()" class="bg-primary text-black font-bold py-2.5 px-7 rounded-full btn-press shadow-[0_0_20px_rgba(156,106,61,0.35)]">
               <i class="fas fa-microphone mr-2"></i> Start Tuner
             </button>
           </div>
@@ -760,7 +760,7 @@
           </div>
           <p id="metro-bpm-label" class="text-5xl font-black text-primary">100</p>
           <p class="text-sm text-gray-400">beats per minute</p>
-          <input id="metro-bpm" type="range" min="40" max="240" value="100" oninput="updateMetronomeSettings()" class="w-full mt-5 accent-[#bb86fc]">
+          <input id="metro-bpm" type="range" min="40" max="240" value="100" oninput="updateMetronomeSettings()" class="w-full mt-5 accent-[#9c6a3d]">
           <div class="grid grid-cols-1 gap-4 mt-5">
             <label class="bg-black/30 rounded-xl border border-gray-800 p-4 text-left">
               <span class="text-[10px] uppercase tracking-[0.25em] text-gray-500 block mb-2">Beat Size</span>
@@ -773,7 +773,7 @@
             </label>
           </div>
           <div id="metro-visual" class="flex justify-center gap-3 mt-6"></div>
-          <button id="btn-metro-toggle" onclick="toggleStandaloneMetronome()" class="mt-6 bg-primary text-black font-bold py-3 px-8 rounded-full btn-press shadow-[0_0_20px_rgba(187,134,252,0.35)]">
+          <button id="btn-metro-toggle" onclick="toggleStandaloneMetronome()" class="mt-6 bg-primary text-black font-bold py-3 px-8 rounded-full btn-press shadow-[0_0_20px_rgba(156,106,61,0.35)]">
             <i class="fas fa-play mr-2"></i> Start Metronome
           </button>
         </div>
@@ -789,7 +789,7 @@
           </div>
           <div class="grid sm:grid-cols-[1fr_auto] gap-3 mb-4">
             <input id="tool-recording-name" type="text" placeholder="Sound name" class="w-full bg-black/30 border border-gray-800 rounded-xl px-4 py-3 outline-none text-white">
-            <button id="btn-tool-record" onclick="toggleToolRecording()" class="bg-primary text-black font-bold py-3 px-6 rounded-full btn-press shadow-[0_0_20px_rgba(187,134,252,0.25)]">
+            <button id="btn-tool-record" onclick="toggleToolRecording()" class="bg-primary text-black font-bold py-3 px-6 rounded-full btn-press shadow-[0_0_20px_rgba(156,106,61,0.25)]">
               <i class="fas fa-circle mr-2"></i> Register
             </button>
           </div>
@@ -817,7 +817,7 @@
           </div>
           <div id="chord-explorer-grid" class="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-4"></div>
           <div class="grid grid-cols-2 gap-2">
-            <button onclick="playSelectedChordReference()" class="bg-primary text-black font-bold py-3 px-4 rounded-full btn-press shadow-[0_0_20px_rgba(187,134,252,0.25)]">
+            <button onclick="playSelectedChordReference()" class="bg-primary text-black font-bold py-3 px-4 rounded-full btn-press shadow-[0_0_20px_rgba(156,106,61,0.25)]">
               <i class="fas fa-volume-up mr-2"></i> Play
             </button>
             <button id="btn-chord-explorer-edit" onclick="loadSelectedChordToBuilder()" class="btn-soft font-bold py-3 px-4 rounded-full btn-press">
@@ -871,7 +871,7 @@
             </div>
           </div>
           <div id="tool-chord-preview" class="mb-4"></div>
-          <button id="btn-save-chord-library" onclick="saveChordToLibrary()" class="w-full bg-primary text-black font-bold py-3 px-8 rounded-full btn-press shadow-[0_0_20px_rgba(187,134,252,0.25)]">
+          <button id="btn-save-chord-library" onclick="saveChordToLibrary()" class="w-full bg-primary text-black font-bold py-3 px-8 rounded-full btn-press shadow-[0_0_20px_rgba(156,106,61,0.25)]">
             <i class="fas fa-save mr-2"></i> Save Chord To Database
           </button>
         </div>
@@ -890,7 +890,7 @@
           <div id="tool-guitar-tone-editor" class="hidden space-y-3 mb-4 bg-black/20 border border-gray-800 rounded-xl p-3">
             <input id="tool-guitar-tone-name" type="text" placeholder="Tone name (example: Nylon Warm)" class="w-full bg-black/30 border border-gray-800 rounded-xl px-4 py-3 outline-none text-white">
             <label class="inline-flex items-center gap-2 text-xs text-gray-300">
-              <input id="tool-guitar-tone-use-urls" type="checkbox" onchange="toggleGuitarToneUseUrls(this.checked)" class="accent-[#bb86fc]">
+              <input id="tool-guitar-tone-use-urls" type="checkbox" onchange="toggleGuitarToneUseUrls(this.checked)" class="accent-[#9c6a3d]">
               Use URLs
             </label>
             <div id="tool-guitar-tone-upload-wrap" class="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -923,7 +923,7 @@
             </div>
             <p id="tool-guitar-tone-editor-status" class="text-xs text-gray-500">Upload at least one open-string sample to create a tone.</p>
             <div class="grid grid-cols-2 gap-2">
-              <button id="btn-save-guitar-tone" onclick="saveGuitarToneProfile()" class="bg-primary text-black font-bold py-3 rounded-xl btn-press shadow-[0_0_20px_rgba(187,134,252,0.25)]">
+              <button id="btn-save-guitar-tone" onclick="saveGuitarToneProfile()" class="bg-primary text-black font-bold py-3 rounded-xl btn-press shadow-[0_0_20px_rgba(156,106,61,0.25)]">
                 <i class="fas fa-save mr-2"></i>Save Tone
               </button>
               <button onclick="toggleGuitarToneEditor()" class="btn-soft font-bold py-3 rounded-xl btn-press">
@@ -1003,7 +1003,7 @@
               <span id="tool-looper-time-current">0:00</span>
               <span id="tool-looper-time-duration">0:00</span>
             </div>
-            <input id="tool-looper-seek" type="range" min="0" max="100" step="0.1" value="0" oninput="onLooperSeekInput(this.value)" class="w-full accent-[#bb86fc]">
+            <input id="tool-looper-seek" type="range" min="0" max="100" step="0.1" value="0" oninput="onLooperSeekInput(this.value)" class="w-full accent-[#9c6a3d]">
           </div>
 
           <div class="mb-4">
@@ -1013,7 +1013,7 @@
               <button id="tool-looper-mode-ab" onclick="toggleLooperABMode()" class="looper-mode-btn btn-press" type="button">Repeat A-B Section</button>
             </div>
             <label class="mt-3 inline-flex items-center gap-2 text-xs text-gray-300">
-              <input id="tool-looper-app-bg" type="checkbox" onchange="toggleLooperAppBackground(this.checked)" class="accent-[#bb86fc]">
+              <input id="tool-looper-app-bg" type="checkbox" onchange="toggleLooperAppBackground(this.checked)" class="accent-[#9c6a3d]">
               App background (keep playing when changing app pages)
             </label>
           </div>
@@ -1080,7 +1080,7 @@
               <button id="btn-tabs-save" onclick="saveTabsPreviewHistoryItem()" class="w-full btn-soft font-bold py-3 rounded-xl btn-press">
                 <i class="fas fa-save mr-2"></i>Save
               </button>
-              <button id="btn-tabs-preview-play" onclick="playTabsPreview()" class="w-full bg-primary text-black font-bold py-3 rounded-xl btn-press shadow-[0_0_20px_rgba(187,134,252,0.25)]">
+              <button id="btn-tabs-preview-play" onclick="playTabsPreview()" class="w-full bg-primary text-black font-bold py-3 rounded-xl btn-press shadow-[0_0_20px_rgba(156,106,61,0.25)]">
                 <i class="fas fa-play mr-2"></i>Preview
               </button>
               <button id="btn-tabs-preview-stop" onclick="stopTabsPreview()" class="w-full btn-soft font-bold py-3 rounded-xl btn-press">
@@ -1111,7 +1111,7 @@
           <div id="tool-gp-file-manager" class="space-y-3">
             <div class="flex items-center justify-between gap-3">
               <p class="text-xs uppercase tracking-[0.2em] text-gray-500">Saved Files</p>
-              <button id="btn-gp-add-file" onclick="openGuitarProEditorForNewFile()" class="bg-primary text-black font-bold py-2 px-4 rounded-xl btn-press shadow-[0_0_20px_rgba(187,134,252,0.25)]">
+              <button id="btn-gp-add-file" onclick="openGuitarProEditorForNewFile()" class="bg-primary text-black font-bold py-2 px-4 rounded-xl btn-press shadow-[0_0_20px_rgba(156,106,61,0.25)]">
                 <i class="fas fa-plus mr-2"></i>Add
               </button>
             </div>
@@ -1129,7 +1129,7 @@
             </div>
             <div class="grid sm:grid-cols-[1fr_auto_auto_auto] gap-2 mb-3">
               <input id="tool-gp-file" type="file" accept=".gp3,.gp4,application/octet-stream" onchange="handleGuitarProFileSelected(event)" class="w-full text-sm bg-black/30 border border-gray-800 rounded-xl px-3 py-2.5">
-              <button onclick="renderSelectedGuitarProFile()" class="bg-primary text-black font-bold py-2.5 px-4 rounded-xl btn-press shadow-[0_0_20px_rgba(187,134,252,0.25)]">
+              <button onclick="renderSelectedGuitarProFile()" class="bg-primary text-black font-bold py-2.5 px-4 rounded-xl btn-press shadow-[0_0_20px_rgba(156,106,61,0.25)]">
                 <i class="fas fa-eye mr-2"></i>Render
               </button>
               <button onclick="saveCurrentGuitarProFile()" class="btn-soft font-bold py-2.5 px-4 rounded-xl btn-press">
@@ -1154,7 +1154,7 @@
                   <p class="text-[10px] uppercase tracking-[0.2em] text-gray-500">Metronome</p>
                   <span id="tool-gp-bpm-value" class="text-xs text-primary font-bold">100 BPM</span>
                 </div>
-                <input id="tool-gp-bpm" type="range" min="40" max="240" value="100" oninput="updateGuitarProBpm(this.value)" class="w-full accent-[#bb86fc] mb-2">
+                <input id="tool-gp-bpm" type="range" min="40" max="240" value="100" oninput="updateGuitarProBpm(this.value)" class="w-full accent-[#9c6a3d] mb-2">
                 <div class="grid grid-cols-2 gap-2">
                   <button id="btn-gp-metronome-toggle" onclick="toggleGuitarProMetronome()" class="bg-primary text-black rounded-lg py-2 text-xs font-bold btn-press">Play</button>
                   <button onclick="resetGuitarProMetronome()" class="btn-soft rounded-lg py-2 text-xs font-bold btn-press">Reset</button>
@@ -1188,7 +1188,7 @@
             </label>
             <p id="tool-chord-translation-detected" class="text-xs text-gray-500">Detected: waiting for input.</p>
             <div class="grid grid-cols-2 gap-2">
-              <button onclick="runChordTranslation()" class="bg-primary text-black font-bold py-3 rounded-xl btn-press shadow-[0_0_20px_rgba(187,134,252,0.25)]">
+              <button onclick="runChordTranslation()" class="bg-primary text-black font-bold py-3 rounded-xl btn-press shadow-[0_0_20px_rgba(156,106,61,0.25)]">
                 <i class="fas fa-right-left mr-2"></i>Translate
               </button>
               <button onclick="clearChordTranslation()" class="btn-soft font-bold py-3 rounded-xl btn-press">
@@ -1225,10 +1225,10 @@
               <input id="ai-song-artist" type="text" placeholder="Artist name (optional)" class="w-full bg-black/30 border border-gray-800 rounded-xl px-4 py-3 outline-none text-white">
             </div>
             <label class="flex items-center gap-2 text-sm text-gray-300">
-              <input id="ai-simple-mode" type="checkbox" class="accent-[#bb86fc]">
+              <input id="ai-simple-mode" type="checkbox" class="accent-[#9c6a3d]">
               Simple mode (easy chords + simple pattern)
             </label>
-            <button id="btn-generate-ai-song" onclick="generateSongWithAI()" class="w-full bg-primary text-black font-bold py-3 rounded-xl btn-press shadow-[0_0_20px_rgba(187,134,252,0.25)]">
+            <button id="btn-generate-ai-song" onclick="generateSongWithAI()" class="w-full bg-primary text-black font-bold py-3 rounded-xl btn-press shadow-[0_0_20px_rgba(156,106,61,0.25)]">
               <i class="fas fa-sparkles mr-2"></i> Generate Song Draft
             </button>
             <p class="text-[11px] text-gray-500">Provide YouTube link OR title + artist. Then review/edit in Add Song before saving.</p>
@@ -1276,7 +1276,7 @@
             </div>
             <span id="settings-text-size-label" class="text-primary font-bold text-sm">14 px</span>
           </div>
-          <input id="settings-text-size" type="range" min="11" max="24" value="14" oninput="previewTextSize(this.value)" class="w-full accent-[#bb86fc]">
+          <input id="settings-text-size" type="range" min="11" max="24" value="14" oninput="previewTextSize(this.value)" class="w-full accent-[#9c6a3d]">
           <div class="mt-4 bg-black/30 rounded-xl border border-gray-800 p-3">
             <label class="text-[10px] uppercase tracking-[0.2em] text-gray-500 block mb-2">Guitar Tone</label>
             <select id="settings-guitar-tone" class="w-full bg-transparent text-white outline-none">
@@ -1290,7 +1290,7 @@
               <option value="solfege">Solfège / Fixed Do (Do Re Mi Fa Sol La Si)</option>
             </select>
           </div>
-          <button onclick="saveSettings()" class="mt-4 bg-primary text-black font-bold py-3 px-6 rounded-full btn-press shadow-[0_0_20px_rgba(187,134,252,0.35)]">
+          <button onclick="saveSettings()" class="mt-4 bg-primary text-black font-bold py-3 px-6 rounded-full btn-press shadow-[0_0_20px_rgba(156,106,61,0.35)]">
             <i class="fas fa-save mr-2"></i> Save Settings
           </button>
           <div class="mt-4 bg-black/30 rounded-xl border border-gray-800 p-3">
@@ -1300,7 +1300,17 @@
               <button id="settings-update-btn" onclick="forceAppUpdate()" class="bg-active text-black font-bold py-2 px-4 rounded-full btn-press shadow-[0_0_14px_rgba(3,218,198,0.25)]">
                 <i class="fas fa-sync-alt mr-2"></i> Update
               </button>
+              <button id="settings-check-update-btn" onclick="checkForAppUpdate(true)" class="btn-soft font-bold py-2 px-4 rounded-full btn-press">
+                <i class="fas fa-search mr-2"></i> Check Update
+              </button>
               <span id="settings-update-ready" class="hidden text-[11px] text-[#f5ff4a] uppercase tracking-[0.15em]">New version ready</span>
+            </div>
+            <div id="settings-update-description" class="hidden mt-3 bg-black/35 border border-gray-800 rounded-xl p-3"></div>
+            <div class="mt-4">
+              <p class="text-[10px] uppercase tracking-[0.2em] text-gray-500 mb-2">Update Log History</p>
+              <div id="settings-update-history" class="space-y-2">
+                <p class="text-xs text-gray-500">Loading update history...</p>
+              </div>
             </div>
           </div>
         </div>
@@ -1415,7 +1425,7 @@
       <div class="space-y-3" id="practice-steps-container"></div>
       <div class="mt-6">
         <div class="grid grid-cols-2 gap-2">
-          <button onclick="startPractice(0)" class="w-full bg-primary font-bold py-4 rounded-2xl btn-press shadow-[0_0_20px_rgba(187,134,252,0.25)]">Open Preview</button>
+          <button onclick="startPractice(0)" class="w-full bg-primary font-bold py-4 rounded-2xl btn-press shadow-[0_0_20px_rgba(156,106,61,0.25)]">Open Preview</button>
           <button onclick="startSongQuickPreview()" class="w-full btn-soft font-bold py-4 rounded-2xl btn-press"><i class="fas fa-play mr-2"></i>Play Song</button>
         </div>
       </div>
@@ -1428,7 +1438,7 @@
         </div>
         <div class="grid gap-3 mb-4">
           <textarea id="detail-comment-input" rows="3" class="w-full bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm focus:border-primary focus:outline-none" placeholder="Write a comment..."></textarea>
-          <button onclick="submitSongComment()" class="bg-primary font-bold py-3 px-6 rounded-full btn-press shadow-[0_0_20px_rgba(187,134,252,0.25)]">Post Comment</button>
+          <button onclick="submitSongComment()" class="bg-primary font-bold py-3 px-6 rounded-full btn-press shadow-[0_0_20px_rgba(156,106,61,0.25)]">Post Comment</button>
         </div>
         <div id="detail-comments-list" class="space-y-3"></div>
       </div>
@@ -1454,7 +1464,7 @@
               <span>BPM</span>
               <span id="practice-bpm-value" class="text-primary font-bold">80</span>
             </div>
-            <input type="range" min="40" max="240" id="practice-bpm" oninput="updatePracticeBpmLabel(this.value)" class="w-full accent-[#bb86fc]">
+            <input type="range" min="40" max="240" id="practice-bpm" oninput="updatePracticeBpmLabel(this.value)" class="w-full accent-[#9c6a3d]">
           </div>
         </div>
 <button id="btn-practice-text-settings" onclick="openTextSettingsModal()" class="w-9 h-9 rounded-lg btn-soft btn-press" title="Text Settings">
@@ -1488,12 +1498,12 @@
         <!-- Generated Dynamically -->
       </div>
       <div class="flex justify-center">
-        <button id="btn-play" onclick="togglePlay()" class="bg-primary text-black font-bold py-4 px-16 rounded-full text-lg btn-press shadow-[0_0_20px_rgba(187,134,252,0.4)]">
+        <button id="btn-play" onclick="togglePlay()" class="bg-primary text-black font-bold py-4 px-16 rounded-full text-lg btn-press shadow-[0_0_20px_rgba(156,106,61,0.4)]">
           <i class="fas fa-play mr-2"></i> Start
         </button>
       </div>
     </footer>
-    <button id="btn-start-step1-fab" class="hidden fixed bottom-24 right-6 bg-primary text-black font-bold py-3 px-6 rounded-full text-base btn-press shadow-[0_0_24px_rgba(187,134,252,0.6)] z-30">
+    <button id="btn-start-step1-fab" class="hidden fixed bottom-24 right-6 bg-primary text-black font-bold py-3 px-6 rounded-full text-base btn-press shadow-[0_0_24px_rgba(156,106,61,0.6)] z-30">
       <i class="fas fa-play mr-2"></i> Start Step 1
     </button>
     <button id="practice-floating-stop" onclick="stopPracticePlaybackNow()" class="hidden fixed bottom-24 left-6 bg-danger text-white font-bold py-3 px-5 rounded-full text-sm btn-press shadow-[0_0_20px_rgba(207,102,121,0.55)] z-30">
@@ -1566,7 +1576,7 @@
         <span class="text-xs uppercase tracking-[0.25em] text-gray-500">Size</span>
         <span id="modal-text-size-label" class="text-primary font-bold">14 px</span>
       </div>
-      <input id="modal-text-size" type="range" min="11" max="24" value="14" oninput="previewTextSize(this.value, true)" class="w-full accent-[#bb86fc]">
+      <input id="modal-text-size" type="range" min="11" max="24" value="14" oninput="previewTextSize(this.value, true)" class="w-full accent-[#9c6a3d]">
       <div class="flex justify-end gap-3 mt-5">
 <button onclick="closeTextSettingsModal()" class="px-4 py-2 rounded-full btn-soft btn-press">Cancel</button>
         <button onclick="saveSettingsFromModal()" class="px-5 py-2 rounded-full bg-primary text-black font-bold btn-press">Save</button>
