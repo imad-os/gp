@@ -167,7 +167,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.6',
+      version: 'v2026.04.22.7',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -8482,6 +8482,16 @@ Rules:
 
     window.checkForAppUpdate = checkForAppUpdate;
 
+    function hardReloadWithBypass() {
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.set('__app_update', String(Date.now()));
+        window.location.replace(url.toString());
+      } catch {
+        window.location.reload();
+      }
+    }
+
     async function runForceUpdateFlow() {
       if (!('serviceWorker' in navigator)) {
         showToast('This browser does not support service worker updates.');
@@ -8495,10 +8505,14 @@ Rules:
         btn.innerHTML = '<i class="fas fa-sync-alt mr-2 fa-spin"></i> Updating...';
       }
       swUpdateFlowStarted = true;
+      showToast('Applying update...');
       try {
-        const reg = swRegistration || await navigator.serviceWorker.getRegistration();
+        let reg = swRegistration || await navigator.serviceWorker.getRegistration();
         if (!reg) {
-          window.location.reload();
+          reg = await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' });
+        }
+        if (!reg) {
+          hardReloadWithBypass();
           return;
         }
         swRegistration = reg;
@@ -8513,13 +8527,19 @@ Rules:
           return;
         }
 
+        // If no waiting SW yet, aggressively clear app caches before refresh.
+        if ('caches' in window) {
+          const keys = await caches.keys();
+          await Promise.all(keys.filter(key => key.startsWith('guitartrainer-')).map(key => caches.delete(key)));
+        }
+
         if (navigator.serviceWorker.controller) {
           navigator.serviceWorker.controller.postMessage({ type: 'FORCE_UPDATE' });
         }
         if (status) status.innerText = 'Refreshing cached app files...';
         setTimeout(() => {
-          window.location.reload();
-        }, 700);
+          hardReloadWithBypass();
+        }, 1500);
       } catch (err) {
         console.error('Force update failed', err);
         swUpdateFlowStarted = false;
@@ -8576,7 +8596,7 @@ Rules:
             updateSettingsUpdateUi();
             showToast('App files refreshed. Reloading...', true);
             if (swUpdateFlowStarted) {
-              setTimeout(() => window.location.reload(), 500);
+              setTimeout(() => hardReloadWithBypass(), 500);
             }
             return;
           }

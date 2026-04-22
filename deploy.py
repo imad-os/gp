@@ -31,12 +31,12 @@ def find_executable(candidates):
 
 
 def resolve_firebase_deploy_command():
-    firebase_bin = find_executable(["firebase", "firebase.cmd", "firebase.exe"])
-    if firebase_bin:
-        return [firebase_bin, "deploy"]
     npx_bin = find_executable(["npx", "npx.cmd", "npx.exe"])
     if npx_bin:
         return [npx_bin, "firebase-tools", "deploy"]
+    firebase_bin = find_executable(["firebase.cmd", "firebase.exe", "firebase"])
+    if firebase_bin:
+        return [firebase_bin, "deploy"]
     return None
 
 
