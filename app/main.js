@@ -8233,6 +8233,96 @@ Rules:
       el.innerText = `Version ${APP_BUILD.version} • Updated ${localPcTime}`;
     }
 
+    let swRegistration = null;
+    let swUpdateReady = false;
+    let swUpdateFlowStarted = false;
+    let swControllerReloadTriggered = false;
+
+    function setOfflineUi(offline = false) {
+      const badge = document.getElementById('network-status-pill');
+      if (!badge) return;
+      if (offline) {
+        badge.textContent = 'Offline mode';
+        badge.classList.remove('hidden');
+      } else {
+        badge.textContent = 'Online';
+        badge.classList.add('hidden');
+      }
+    }
+
+    function updateSettingsUpdateUi() {
+      const status = document.getElementById('settings-update-status');
+      const notice = document.getElementById('settings-update-ready');
+      if (status) {
+        status.innerText = swUpdateReady
+          ? 'New version is ready. Tap Update to apply it.'
+          : `App is up to date (build ${APP_BUILD.version}).`;
+      }
+      if (notice) {
+        if (swUpdateReady) notice.classList.remove('hidden');
+        else notice.classList.add('hidden');
+      }
+    }
+
+    function markUpdateReady() {
+      swUpdateReady = true;
+      updateSettingsUpdateUi();
+      showToast('New app version available. Open Settings and tap Update.');
+    }
+
+    async function runForceUpdateFlow() {
+      if (!('serviceWorker' in navigator)) {
+        showToast('This browser does not support service worker updates.');
+        return;
+      }
+      const btn = document.getElementById('settings-update-btn');
+      const originalLabel = btn?.innerHTML || '';
+      if (btn) {
+        btn.disabled = true;
+        btn.classList.add('opacity-60', 'cursor-not-allowed');
+        btn.innerHTML = '<i class="fas fa-sync-alt mr-2 fa-spin"></i> Updating...';
+      }
+      swUpdateFlowStarted = true;
+      try {
+        const reg = swRegistration || await navigator.serviceWorker.getRegistration();
+        if (!reg) {
+          window.location.reload();
+          return;
+        }
+        swRegistration = reg;
+        const status = document.getElementById('settings-update-status');
+        if (status) status.innerText = 'Checking for updates...';
+        await reg.update();
+
+        if (reg.waiting) {
+          swUpdateReady = true;
+          updateSettingsUpdateUi();
+          reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+          return;
+        }
+
+        if (navigator.serviceWorker.controller) {
+          navigator.serviceWorker.controller.postMessage({ type: 'FORCE_UPDATE' });
+        }
+        if (status) status.innerText = 'Refreshing cached app files...';
+        setTimeout(() => {
+          window.location.reload();
+        }, 700);
+      } catch (err) {
+        console.error('Force update failed', err);
+        swUpdateFlowStarted = false;
+        showToast('Could not update right now.');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.classList.remove('opacity-60', 'cursor-not-allowed');
+          btn.innerHTML = originalLabel;
+        }
+      }
+    }
+
+    window.forceAppUpdate = runForceUpdateFlow;
+
     async function registerServiceWorker() {
       if (!('serviceWorker' in navigator)) return;
       const isLocalhost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
@@ -8247,7 +8337,48 @@ Rules:
           }
           return;
         }
-        await navigator.serviceWorker.register('/sw.js');
+        swRegistration = await navigator.serviceWorker.register('/sw.js');
+        if (swRegistration.waiting) markUpdateReady();
+        swRegistration.addEventListener('updatefound', () => {
+          const installing = swRegistration.installing;
+          if (!installing) return;
+          installing.addEventListener('statechange', () => {
+            if (installing.state === 'installed' && navigator.serviceWorker.controller) {
+              markUpdateReady();
+            }
+          });
+        });
+
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (swControllerReloadTriggered) return;
+          swControllerReloadTriggered = true;
+          if (swUpdateFlowStarted) {
+            window.location.reload();
+          }
+        });
+
+        navigator.serviceWorker.addEventListener('message', event => {
+          const data = event?.data || {};
+          if (data.type === 'APP_FILES_REFRESHED') {
+            updateSettingsUpdateUi();
+            showToast('App files refreshed. Reloading...', true);
+            if (swUpdateFlowStarted) {
+              setTimeout(() => window.location.reload(), 500);
+            }
+            return;
+          }
+          if (data.type === 'APP_FILES_REFRESH_FAILED') {
+            swUpdateFlowStarted = false;
+            showToast('Could not refresh all app files.');
+            return;
+          }
+          if (data.type === 'SW_ACTIVE') {
+            swUpdateFlowStarted = false;
+            swUpdateReady = false;
+            updateSettingsUpdateUi();
+            return;
+          }
+        });
       } catch (err) {
         console.error('Service worker registration failed', err);
       }
@@ -8278,12 +8409,21 @@ Rules:
       refreshSavedGuitarProFilesUi();
       renderToolSongsSearch();
       renderBuildInfo();
+      updateSettingsUpdateUi();
+      setOfflineUi(!navigator.onLine);
       refreshLibraryAdminButtons();
       showToolsHome({ skipUrl: true });
       syncAddPatternEditor();
       updateTrainingPatternEditor();
       restoreMetronomeSettings();
       renderStandaloneMetronomeVisual();
+      window.addEventListener('online', () => {
+        setOfflineUi(false);
+        updateSettingsUpdateUi();
+      });
+      window.addEventListener('offline', () => {
+        setOfflineUi(true);
+      });
       document.addEventListener('visibilitychange', () => {
         if (document.hidden) {
           saveCurrentTrainingVideoProgress().catch(() => {});

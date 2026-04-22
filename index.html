@@ -3,9 +3,6 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-  <meta http-equiv="Pragma" content="no-cache">
-  <meta http-equiv="Expires" content="0">
   <meta name="theme-color" content="#121212">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -359,6 +356,9 @@
 
   <!-- Toast Notifications -->
   <div id="toast-msg" class="fixed top-4 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-xl shadow-lg z-[100] transition-all duration-300 translate-y-[-150%] opacity-0 font-bold text-center w-11/12 max-w-sm pointer-events-none"></div>
+  <div id="network-status-pill" class="hidden fixed top-4 right-3 z-[95] bg-[#7d3142] text-white border border-[#ff9bb0] px-3 py-1.5 rounded-full text-xs font-bold shadow-[0_10px_22px_rgba(207,102,121,0.35)]">
+    Offline mode
+  </div>
 
   <!-- Modal: Auth (Login/Signup) -->
   <div id="view-auth" class="fixed inset-0 bg-black/65 z-50 hidden items-center justify-center p-6">
@@ -1293,6 +1293,16 @@
           <button onclick="saveSettings()" class="mt-4 bg-primary text-black font-bold py-3 px-6 rounded-full btn-press shadow-[0_0_20px_rgba(187,134,252,0.35)]">
             <i class="fas fa-save mr-2"></i> Save Settings
           </button>
+          <div class="mt-4 bg-black/30 rounded-xl border border-gray-800 p-3">
+            <p class="text-[10px] uppercase tracking-[0.2em] text-gray-500 mb-2">App Update</p>
+            <p id="settings-update-status" class="text-sm text-gray-300">Checking update status...</p>
+            <div class="mt-3 flex items-center gap-3">
+              <button id="settings-update-btn" onclick="forceAppUpdate()" class="bg-active text-black font-bold py-2 px-4 rounded-full btn-press shadow-[0_0_14px_rgba(3,218,198,0.25)]">
+                <i class="fas fa-sync-alt mr-2"></i> Update
+              </button>
+              <span id="settings-update-ready" class="hidden text-[11px] text-[#f5ff4a] uppercase tracking-[0.15em]">New version ready</span>
+            </div>
+          </div>
         </div>
         <div class="text-center text-[11px] text-gray-500 py-2">
           <span id="settings-build-info">Version - • Updated -</span>
@@ -1524,8 +1534,10 @@
           } catch {}
         }
 
-        const versionToken = isLocalhost ? String(Date.now()) : '20260410b';
-        await import(`./app/main.js?v=${encodeURIComponent(versionToken)}`);
+        const modulePath = isLocalhost
+          ? `/app/main.js?v=${encodeURIComponent(String(Date.now()))}`
+          : '/app/main.js';
+        await import(modulePath);
       } catch (err) {
         console.error('Main module failed to load', err);
         const loader = document.getElementById('loading-overlay');
