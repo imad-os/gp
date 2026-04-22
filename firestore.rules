@@ -67,6 +67,18 @@ service cloud.firestore {
       }
     }
 
+    match /public_loops/{shareId} {
+      allow read: if true;
+      allow create: if signedIn() && request.resource.data.ownerId == request.auth.uid;
+      allow update, delete: if signedIn() && resource.data.ownerId == request.auth.uid;
+
+      match /media_chunks/{chunkId} {
+        allow read: if true;
+        allow create, update, delete: if signedIn()
+          && get(/databases/$(database)/documents/public_loops/$(shareId)).data.ownerId == request.auth.uid;
+      }
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

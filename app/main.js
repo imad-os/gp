@@ -167,7 +167,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.10',
+      version: 'v2026.04.22.11',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -846,6 +846,77 @@ Drop back to 70 BPM for clean finish.`,
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+    }
+
+    function buildAbsoluteUrl(path = '/') {
+      try {
+        return new URL(path, window.location.origin).toString();
+      } catch {
+        return `${window.location.origin}${path}`;
+      }
+    }
+
+    async function copyText(text = '') {
+      const value = String(text || '').trim();
+      if (!value) return false;
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(value);
+          return true;
+        }
+      } catch {}
+      try {
+        const area = document.createElement('textarea');
+        area.value = value;
+        area.setAttribute('readonly', 'readonly');
+        area.style.position = 'fixed';
+        area.style.opacity = '0';
+        document.body.appendChild(area);
+        area.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(area);
+        return !!ok;
+      } catch {
+        return false;
+      }
+    }
+
+    function dataUrlToBlob(dataUrl = '') {
+      const raw = String(dataUrl || '');
+      const parts = raw.split(',');
+      if (parts.length < 2) return null;
+      const meta = parts[0] || '';
+      const payload = parts.slice(1).join(',');
+      const mimeMatch = meta.match(/^data:([^;]+);base64$/i);
+      if (!mimeMatch) return null;
+      const mime = mimeMatch[1] || 'application/octet-stream';
+      try {
+        const binary = atob(payload);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+        return new Blob([bytes], { type: mime });
+      } catch {
+        return null;
+      }
+    }
+
+    async function shareTextOrUrl({ title = '', text = '', url = '' } = {}) {
+      try {
+        if (navigator.share) {
+          await navigator.share({
+            ...(title ? { title } : {}),
+            ...(text ? { text } : {}),
+            ...(url ? { url } : {})
+          });
+          return true;
+        }
+      } catch (err) {
+        if (err?.name === 'AbortError') return false;
+      }
+      const copied = await copyText(url || text || title || '');
+      if (copied) showToast('Share link copied.', true);
+      else showToast('Could not share on this browser.');
+      return copied;
     }
 
     function normalizeTagKey(rawTag = "") {
@@ -2889,6 +2960,80 @@ Drop back to 70 BPM for clean finish.`,
       }
     }
 
+    async function ensurePublicLooperShare(item) {
+      if (!item) return null;
+      if (!user || user.isAnonymous) {
+        showToast('Sign in to create public loop share links.');
+        return null;
+      }
+      if (item.sourceType !== 'upload') return null;
+      if (item.publicShareId) return item.publicShareId;
+
+      const mediaDataUrl = await repository.loadLooperMediaData(user.uid, item.id);
+      if (!mediaDataUrl) return null;
+      const now = Date.now();
+      const sharePayload = {
+        ownerId: user.uid,
+        sourceHistoryId: item.id,
+        sourceType: 'upload',
+        mediaType: item.mediaType === 'video' ? 'video' : 'audio',
+        title: sanitizeLooperTitle(item.title),
+        duration: Number(item.duration || 0) || 0,
+        pointA: Number(item.pointA || 0) || 0,
+        pointB: Number(item.pointB || 0) || 0,
+        repeatEnabled: !!item.repeatEnabled,
+        abEnabled: !!item.abEnabled,
+        noteText: String(item.noteText || ''),
+        createdAt: now,
+        updatedAt: now
+      };
+      const shareId = await repository.addPublicLooperShare(sharePayload);
+      const chunkCount = await repository.savePublicLooperMediaData(shareId, mediaDataUrl);
+      await repository.updatePublicLooperShare(shareId, {
+        mediaStored: true,
+        mediaChunkCount: chunkCount,
+        updatedAt: Date.now()
+      });
+      await repository.updateLooperHistory(user.uid, item.id, { publicShareId: shareId, updatedAt: Date.now() });
+      const idx = looperHistory.findIndex(entry => entry.id === item.id);
+      if (idx >= 0) looperHistory[idx] = { ...looperHistory[idx], publicShareId: shareId };
+      return shareId;
+    }
+
+    async function openPublicLooperShare(shareId = '') {
+      const safeShareId = String(shareId || '').trim();
+      if (!safeShareId) return;
+      try {
+        const shared = await repository.loadPublicLooperShare(safeShareId);
+        if (!shared) {
+          showToast('Shared loop was not found.');
+          return;
+        }
+        destroyLooperYoutubePlayer();
+        resetLooperObjectUrl();
+        looperPendingUploadFile = null;
+        looperPendingDataUrl = '';
+        activeLooperHistoryId = '';
+        setLooperNoteText(shared.noteText || '');
+        const mediaDataUrl = await repository.loadPublicLooperMediaData(safeShareId);
+        if (!mediaDataUrl) {
+          showToast('Shared loop media is unavailable.');
+          return;
+        }
+        looperActiveSource = {
+          sourceType: 'upload',
+          mediaType: shared.mediaType === 'video' ? 'video' : 'audio',
+          title: sanitizeLooperTitle(shared.title || 'Shared Loop'),
+          mediaStored: true
+        };
+        await attachLooperMediaSource(mediaDataUrl, looperActiveSource.mediaType, { fromHistoryEntry: shared });
+        showToast('Shared loop loaded.', true);
+      } catch (err) {
+        console.error('Could not load shared loop', err);
+        showToast('Could not load shared loop.');
+      }
+    }
+
     function getLooperHistoryTypeLabel(item = {}) {
       if (item.sourceType === 'youtube') return 'YouTube';
       if (item.mediaType === 'video') return 'Video';
@@ -2920,6 +3065,9 @@ Drop back to 70 BPM for clean finish.`,
               <button onclick="openLooperHistoryItem('${item.id}')" class="w-8 h-8 rounded-full btn-soft btn-press ${(looperDeletingHistoryId === item.id || looperOpeningHistoryId === item.id) ? 'opacity-50 pointer-events-none' : ''}" title="Open">
                 <i class="fas fa-play text-xs"></i>
               </button>
+              <button onclick="shareLooperHistoryItem('${item.id}')" class="w-8 h-8 rounded-full btn-soft btn-press ${(looperDeletingHistoryId === item.id || looperOpeningHistoryId === item.id) ? 'opacity-50 pointer-events-none' : ''}" title="Share">
+                <i class="fas fa-share-alt text-xs"></i>
+              </button>
               <button onclick="deleteLooperHistoryItem('${item.id}')" class="w-8 h-8 rounded-full btn-soft btn-press ${(looperDeletingHistoryId === item.id || looperOpeningHistoryId === item.id) ? 'opacity-50 pointer-events-none' : ''}" title="Delete">
                 <i class="fas fa-trash text-xs"></i>
               </button>
@@ -2945,6 +3093,9 @@ Drop back to 70 BPM for clean finish.`,
             </div>
             <div class="flex items-center gap-2">
               <span class="text-[10px] uppercase tracking-[0.25em] text-gray-500">${Math.max(1, Math.round((recording.durationMs || 0) / 1000))}s</span>
+              <button onclick="shareToolRecording('${recording.id}')" class="w-8 h-8 rounded-full btn-soft btn-press" title="Share">
+                <i class="fas fa-share-alt text-xs"></i>
+              </button>
               <button onclick="downloadToolRecording('${recording.id}')" class="w-8 h-8 rounded-full btn-soft btn-press">
                 <i class="fas fa-download text-xs"></i>
               </button>
@@ -3029,6 +3180,34 @@ Drop back to 70 BPM for clean finish.`,
       link.href = recording.dataUrl;
       link.download = `${(recording.name || 'recording').replace(/[^a-z0-9_-]+/gi, '_')}.webm`;
       link.click();
+    };
+
+    window.shareToolRecording = async function(recordingId) {
+      const recording = toolRecordings.find(item => item.id === recordingId);
+      if (!recording?.dataUrl) return;
+      const safeName = (recording.name || 'recording').replace(/[^a-z0-9_-]+/gi, '_');
+      const blob = dataUrlToBlob(recording.dataUrl);
+      if (!blob) {
+        showToast('Could not prepare recording for sharing.');
+        return;
+      }
+      const fileExt = String(blob.type || '').includes('ogg') ? 'ogg' : 'webm';
+      const file = new File([blob], `${safeName}.${fileExt}`, { type: blob.type || 'audio/webm' });
+      try {
+        if (navigator.share && navigator.canShare?.({ files: [file] })) {
+          await navigator.share({
+            title: recording.name || 'Recorded Audio',
+            text: 'Shared from GuitarTrainer',
+            files: [file]
+          });
+          return;
+        }
+      } catch (err) {
+        if (err?.name === 'AbortError') return;
+      }
+      // Fallback if file-sharing is unsupported.
+      window.downloadToolRecording(recordingId);
+      showToast('Sharing is not supported here. Download started instead.', true);
     };
 
     function renderChordExplorer() {
@@ -3683,6 +3862,41 @@ Drop back to 70 BPM for clean finish.`,
         }, 220);
       }
       renderLooperHistory();
+    };
+
+    window.shareLooperHistoryItem = async function(itemId) {
+      const item = looperHistory.find(entry => entry.id === itemId);
+      if (!item) return;
+      try {
+        if (item.sourceType === 'youtube' && item.youtubeUrl) {
+          await shareTextOrUrl({
+            title: item.title || 'Looper Track',
+            text: 'Check this looper track',
+            url: item.youtubeUrl
+          });
+          return;
+        }
+
+        if (item.sourceType === 'upload') {
+          const shareId = await ensurePublicLooperShare(item);
+          if (!shareId) {
+            showToast('Could not create public share for this loop.');
+            return;
+          }
+          const url = buildAbsoluteUrl(`/share/loop/${encodeURIComponent(shareId)}`);
+          await shareTextOrUrl({
+            title: item.title || 'Shared Loop',
+            text: 'Open this shared looper track',
+            url
+          });
+          return;
+        }
+
+        showToast('This looper item cannot be shared yet.');
+      } catch (err) {
+        console.error('Share looper item failed', err);
+        showToast('Could not share this looper item.');
+      }
     };
 
     window.deleteLooperHistoryItem = async function(itemId) {
@@ -6289,6 +6503,19 @@ Rules:
           return;
         }
 
+        if (parts[0] === 'share' && parts[1] === 'loop') {
+          const shareId = decodeURIComponent(parts[2] || '');
+          if (!shareId) {
+            navigate('home', { skipUrl: true });
+            if (replaceUnknown) pushUrlPath('/', { replace: true });
+            return;
+          }
+          navigate('tools', { skipUrl: true });
+          openToolPage('looper', { skipUrl: true });
+          await openPublicLooperShare(shareId);
+          return;
+        }
+
         if (parts[0] === 'tools') {
           navigate('tools', { skipUrl: true });
           const tool = decodeURIComponent(parts[1] || '');
@@ -7202,6 +7429,19 @@ Rules:
       setTimeout(() => {
         if (!isPlaying) togglePlay();
       }, 160);
+    };
+
+    window.shareCurrentSong = async function() {
+      if (!currentSong?.id) {
+        showToast('Open a song first.');
+        return;
+      }
+      const songUrl = buildAbsoluteUrl(`/songs/${encodeURIComponent(currentSong.id)}`);
+      await shareTextOrUrl({
+        title: `${currentSong.title || 'Song'}${currentSong.artist ? ` - ${currentSong.artist}` : ''}`,
+        text: 'Check this song on GuitarTrainer',
+        url: songUrl
+      });
     };
 
     window.openSongDetails = async function(id, options = {}) {
