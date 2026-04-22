@@ -45,23 +45,39 @@ def find_windows_node_tool(tool_name):
     return None
 
 
-def resolve_firebase_deploy_command():
+def resolve_firebase_deploy_commands():
+    commands = []
+
+    if os.name == "nt":
+        # Try same style as manual terminal usage.
+        commands.append(
+            [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                "firebase deploy",
+            ]
+        )
+
     npx_bin = find_executable(["npx", "npx.cmd", "npx.exe"])
     if not npx_bin:
         npx_bin = find_windows_node_tool("npx")
     if npx_bin:
-        return [npx_bin, "firebase-tools", "deploy"]
+        commands.append([npx_bin, "firebase-tools", "deploy"])
 
     npm_bin = find_executable(["npm", "npm.cmd", "npm.exe"])
     if not npm_bin:
         npm_bin = find_windows_node_tool("npm")
     if npm_bin:
-        return [npm_bin, "exec", "firebase-tools", "deploy"]
+        commands.append([npm_bin, "exec", "firebase-tools", "deploy"])
 
     firebase_bin = find_executable(["firebase.cmd", "firebase.exe", "firebase"])
     if firebase_bin:
-        return [firebase_bin, "deploy"]
-    return None
+        commands.append([firebase_bin, "deploy"])
+
+    return commands
 
 
 def read_text(path):
@@ -148,7 +164,7 @@ def main():
     description = (args.description or "").strip()
     changes_raw = (args.changes or "").strip()
     changes = [c.strip() for c in changes_raw.split(";") if c.strip()]
-    firebase_deploy_cmd = resolve_firebase_deploy_command()
+    firebase_deploy_cmds = resolve_firebase_deploy_commands()
 
     main_js_text = read_text(MAIN_JS)
     current_version = extract_app_version(main_js_text)
@@ -166,7 +182,7 @@ def main():
     if args.dry_run:
         print("\nDry run complete. Files updated locally, no git/firebase commands were run.")
         return 0
-    if not firebase_deploy_cmd:
+    if not firebase_deploy_cmds:
         print(
             "\nCould not find Firebase CLI.\n"
             "Install it with `npm i -g firebase-tools` or ensure `npx` is available in PATH."
@@ -176,7 +192,17 @@ def main():
     run(["git", "add", "-A"])
     run(["git", "commit", "-m", commit_msg])
     run(["git", "push"])
-    run(firebase_deploy_cmd)
+    deploy_ran = False
+    for cmd in firebase_deploy_cmds:
+        try:
+            run(cmd)
+            deploy_ran = True
+            break
+        except RuntimeError as exc:
+            print(f"Skipping unavailable command: {exc}")
+    if not deploy_ran:
+        print("\nCould not execute Firebase deploy command.")
+        return 1
     print("\nDeploy complete.")
     return 0
 
