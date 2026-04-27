@@ -1043,6 +1043,16 @@
             <textarea id="tool-looper-note" rows="5" maxlength="4000" oninput="onLooperNotesInput()" class="w-full bg-black/20 border border-gray-800 rounded-xl px-3 py-2.5 outline-none text-white text-sm leading-relaxed" placeholder="Add lyrics, cues, or song ideas..."></textarea>
           </div>
 
+          <div id="tool-looper-song-linker" class="mt-4 bg-black/30 border border-gray-800 rounded-xl p-3 hidden">
+            <div class="flex items-center justify-between gap-3 mb-2">
+              <p class="text-xs uppercase tracking-[0.2em] text-gray-500">Link To Song (Owner)</p>
+              <button onclick="unlinkActiveLooperSong()" class="btn-soft rounded-lg px-3 py-1.5 text-xs btn-press">Unlink</button>
+            </div>
+            <p id="tool-looper-song-linker-status" class="text-[11px] text-gray-400 mb-2">Select a saved looper item first.</p>
+            <input id="tool-looper-song-link-search" type="search" oninput="onLooperSongLinkSearchInput(this.value)" placeholder="Type song title or artist..." class="w-full bg-black/20 border border-gray-800 rounded-xl px-3 py-2.5 outline-none text-white text-sm">
+            <div id="tool-looper-song-link-results" class="space-y-2 mt-2"></div>
+          </div>
+
           <div class="mt-4">
             <div class="flex items-center justify-between gap-3 mb-2">
               <p class="text-xs uppercase tracking-[0.2em] text-gray-500">History</p>
