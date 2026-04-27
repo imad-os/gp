@@ -170,7 +170,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.20',
+      version: 'v2026.04.22.21',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -7345,25 +7345,52 @@ Rules:
       renderHomeDashboard();
     };
 
-    function getRecentLooperLinkedSongs(limit = 5) {
+    function getRecentLooperHistoryItems(limit = 5) {
       const max = Math.max(1, Number(limit) || 5);
-      const linkedByLooperId = new Map(
-        songs
-          .filter(song => String(song?.linkedLooperHistoryId || '').trim())
-          .map(song => [String(song.linkedLooperHistoryId), song])
-      );
-      const seenSongIds = new Set();
-      const results = [];
-      const sortedHistory = [...(looperHistory || [])].sort((a, b) => (Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0)));
-      for (const item of sortedHistory) {
-        const song = linkedByLooperId.get(String(item?.id || ''));
-        if (!song || seenSongIds.has(song.id)) continue;
-        seenSongIds.add(song.id);
-        results.push(song);
-        if (results.length >= max) break;
-      }
-      return results;
+      return [...(looperHistory || [])]
+        .filter(item => item?.sourceType === 'upload' && item?.mediaType === 'audio')
+        .sort((a, b) => (Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0)))
+        .slice(0, max);
     }
+
+    function buildContinueListeningCard(item) {
+      const title = sanitizeLooperTitle(item?.title, 'Looper Audio');
+      const safePos = Math.max(0, Math.floor(Number(item?.lastPosition || 0)));
+      const updatedAt = Number(item?.updatedAt || 0);
+      const updatedLabel = updatedAt ? new Date(updatedAt).toLocaleDateString() : '';
+      return `
+        <button onclick="openContinueListeningLooper('${item.id}')" class="w-full text-left tool-nav-card btn-press">
+          <div class="flex items-start gap-3">
+            <div class="w-16 h-16 rounded-xl border border-gray-700 bg-black/40 flex items-center justify-center text-primary">
+              <i class="fas fa-music"></i>
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 mb-1">
+                <span class="text-[10px] uppercase tracking-[0.2em] text-gray-400">Looper</span>
+                <span class="text-[10px] uppercase tracking-[0.2em] text-gray-500">-</span>
+                <span class="text-[10px] uppercase tracking-[0.2em] text-gray-400">Audio</span>
+              </div>
+              <p class="font-bold text-white truncate">${escapeHtml(title)}</p>
+              <p class="text-[11px] text-primary mt-2">Continue at ${formatLooperTime(safePos)}</p>
+              ${updatedLabel ? `<p class="text-[11px] text-gray-500 mt-1">Updated ${escapeHtml(updatedLabel)}</p>` : ''}
+            </div>
+            <i class="fas fa-chevron-right text-primary mt-1"></i>
+          </div>
+        </button>
+      `;
+    }
+
+    window.openContinueListeningLooper = async function(itemId) {
+      const item = looperHistory.find(entry => entry.id === itemId);
+      if (!item) {
+        showToast('Looper item not found.');
+        return;
+      }
+      navigate('tools', { skipUrl: true });
+      openToolPage('looper', { skipUrl: true });
+      pushUrlPath('/tools/looper');
+      await openLooperHistoryItem(item.id);
+    };
 
     function buildSongDashboardCard(song, options = {}) {
       const stepProgress = userProgress && currentSong?.id === song.id ? userProgress : null;
@@ -7412,15 +7439,10 @@ Rules:
     function renderHomeDashboard() {
       const favorites = songs.filter(song => (userSettings.favoriteSongIds || []).includes(song.id));
       const recentEntries = userSettings.recentPractice || [];
-      const recentProgressBySongId = new Map(
-        recentEntries
-          .filter(entry => entry?.songId)
-          .map(entry => [entry.songId, entry.progress])
-      );
       const recentSongs = recentEntries
         .map(entry => ({ song: songs.find(song => song.id === entry.songId), progress: entry.progress }))
         .filter(entry => entry.song);
-      const recentListeningSongs = getRecentLooperLinkedSongs(5);
+      const recentListeningItems = getRecentLooperHistoryItems(5);
 
       const favoritesContainer = document.getElementById('home-favorites-list');
       const recentContainer = document.getElementById('home-recent-practice-list');
@@ -7444,9 +7466,9 @@ Rules:
 
       if (favoritesContainer) favoritesContainer.innerHTML = favorites.length ? favoritesVisible.map(song => buildSongDashboardCard(song)).join('') : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No favorite songs yet.</div>`;
       if (recentContainer) recentContainer.innerHTML = recentSongs.length ? practiceVisible.map(({ song, progress }) => buildSongDashboardCard(song, { progress })).join('') : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No started practice songs yet.</div>`;
-      if (listeningContainer) listeningContainer.innerHTML = recentListeningSongs.length
-        ? recentListeningSongs.map(song => buildSongDashboardCard(song, { progress: recentProgressBySongId.get(song.id) || null })).join('')
-        : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No linked looper songs yet.</div>`;
+      if (listeningContainer) listeningContainer.innerHTML = recentListeningItems.length
+        ? recentListeningItems.map(item => buildContinueListeningCard(item)).join('')
+        : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No looper audio yet.</div>`;
 
       const practiceShortcuts = document.getElementById('training-practice-shortcuts');
       if (practiceShortcuts) practiceShortcuts.innerHTML = recentSongs.length ? recentSongs.slice(0, 4).map(({ song, progress }) => buildSongDashboardCard(song, { progress })).join('') : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">Start from a song on Home to see it here.</div>`;
