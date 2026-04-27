@@ -167,7 +167,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.13',
+      version: 'v2026.04.22.14',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -8902,6 +8902,8 @@ Rules:
       setOfflineUi(!navigator.onLine);
       refreshLibraryAdminButtons();
       showToolsHome({ skipUrl: true });
+      navigate('home', { skipUrl: true });
+      showLoading(false);
       syncAddPatternEditor();
       updateTrainingPatternEditor();
       restoreMetronomeSettings();
