@@ -106,7 +106,7 @@ export function renderChordDiagramSvgWithData(chordName, data, large = false) {
       const endX = stringXs[Math.min(stringXs.length - 1, barreCandidate.indices[barreCandidate.indices.length - 1])] + 7;
       return `
         <rect x="${startX}" y="${barreY - 6}" width="${Math.max(12, endX - startX)}" height="12" rx="6" fill="#f2e7dc" stroke="#c9b29b" stroke-width="0.9"></rect>
-        ${barreFinger ? `<text x="${((startX + endX) / 2) - 0.8}" y="${barreY + 3.5}" text-anchor="middle" fill="#4f3726" font-size="10" font-weight="800">${barreFinger}</text>` : ''}
+        ${barreFinger ? `<text x="${((startX + endX) / 2) - 0.8}" y="${barreY + 4}" text-anchor="middle" fill="#4f3726" font-size="12" font-weight="500">${barreFinger}</text>` : ''}
       `;
     })()
     : '';
@@ -123,7 +123,7 @@ export function renderChordDiagramSvgWithData(chordName, data, large = false) {
 
   const nutLine = baseFret === 1 ? `<line x1="18" y1="28" x2="102" y2="28" stroke="#9a9a9a" stroke-width="4"/>` : '';
   const positionBadge = baseFret > 1
-    ? `<rect x="0" y="27" width="22" height="24" rx="5" fill="#1f1f1f" stroke="#5a5a5a" stroke-width="1.2"/><text x="10.4" y="43" text-anchor="middle" fill="#f2f2f2" font-size="12" font-weight="800">${baseFret}</text>`
+    ? `<rect x="0" y="27" width="22" height="24" rx="5" fill="#1f1f1f" stroke="#5a5a5a" stroke-width="1.2"/><text x="10.4" y="43.5" text-anchor="middle" fill="#f2f2f2" font-size="14" font-weight="500">${baseFret}</text>`
     : '';
   return `
     <div class="chord-diagram-card ${large ? 'large' : ''}">
