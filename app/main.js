@@ -133,8 +133,7 @@ import { FirestoreRepository } from './modules/repository.js';
     let trainingVideoLastSavedSec = -1;
     let homeSectionExpanded = {
       favorites: false,
-      practice: false,
-      courses: false
+      practice: false
     };
     let lastNonPracticePath = '/';
     let tunerStream = null;
@@ -171,7 +170,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.19',
+      version: 'v2026.04.22.20',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -2958,6 +2957,7 @@ Drop back to 70 BPM for clean finish.`,
     async function loadLooperHistory() {
       if (!user) {
         looperHistory = [];
+        renderHomeDashboard();
         return;
       }
       try {
@@ -2966,6 +2966,7 @@ Drop back to 70 BPM for clean finish.`,
         console.error("Failed to load looper history", e);
         looperHistory = [];
       }
+      renderHomeDashboard();
     }
 
     async function ensurePublicLooperShare(item) {
@@ -7339,10 +7340,30 @@ Rules:
 
     window.toggleHomeSection = function(sectionKey) {
       const key = String(sectionKey || '').trim();
-      if (!['favorites', 'practice', 'courses'].includes(key)) return;
+      if (!['favorites', 'practice'].includes(key)) return;
       homeSectionExpanded[key] = !homeSectionExpanded[key];
       renderHomeDashboard();
     };
+
+    function getRecentLooperLinkedSongs(limit = 5) {
+      const max = Math.max(1, Number(limit) || 5);
+      const linkedByLooperId = new Map(
+        songs
+          .filter(song => String(song?.linkedLooperHistoryId || '').trim())
+          .map(song => [String(song.linkedLooperHistoryId), song])
+      );
+      const seenSongIds = new Set();
+      const results = [];
+      const sortedHistory = [...(looperHistory || [])].sort((a, b) => (Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0)));
+      for (const item of sortedHistory) {
+        const song = linkedByLooperId.get(String(item?.id || ''));
+        if (!song || seenSongIds.has(song.id)) continue;
+        seenSongIds.add(song.id);
+        results.push(song);
+        if (results.length >= max) break;
+      }
+      return results;
+    }
 
     function buildSongDashboardCard(song, options = {}) {
       const stepProgress = userProgress && currentSong?.id === song.id ? userProgress : null;
@@ -7391,26 +7412,24 @@ Rules:
     function renderHomeDashboard() {
       const favorites = songs.filter(song => (userSettings.favoriteSongIds || []).includes(song.id));
       const recentEntries = userSettings.recentPractice || [];
+      const recentProgressBySongId = new Map(
+        recentEntries
+          .filter(entry => entry?.songId)
+          .map(entry => [entry.songId, entry.progress])
+      );
       const recentSongs = recentEntries
         .map(entry => ({ song: songs.find(song => song.id === entry.songId), progress: entry.progress }))
         .filter(entry => entry.song);
-      const recentCourses = normalizeRecentCourses(userSettings.recentCourses || [])
-        .map(entry => ({
-          article: trainingArticles.find(item => item.id === entry.articleId && item.category === 'courses'),
-          positionSec: entry.positionSec
-        }))
-        .filter(item => !!item.article);
+      const recentListeningSongs = getRecentLooperLinkedSongs(5);
 
       const favoritesContainer = document.getElementById('home-favorites-list');
       const recentContainer = document.getElementById('home-recent-practice-list');
-      const coursesContainer = document.getElementById('home-continue-courses-list');
+      const listeningContainer = document.getElementById('home-continue-listening-list');
       const favoritesShowAllBtn = document.getElementById('home-favorites-show-all');
       const practiceShowAllBtn = document.getElementById('home-practice-show-all');
-      const coursesShowAllBtn = document.getElementById('home-courses-show-all');
 
       const favoritesVisible = homeSectionExpanded.favorites ? favorites : favorites.slice(0, 5);
       const practiceVisible = homeSectionExpanded.practice ? recentSongs : recentSongs.slice(0, 5);
-      const coursesVisible = homeSectionExpanded.courses ? recentCourses : recentCourses.slice(0, 5);
 
       if (favoritesShowAllBtn) {
         const hasMore = favorites.length > 5;
@@ -7422,15 +7441,12 @@ Rules:
         practiceShowAllBtn.classList.toggle('hidden', !hasMore);
         practiceShowAllBtn.innerText = homeSectionExpanded.practice ? 'Show less' : 'Show all';
       }
-      if (coursesShowAllBtn) {
-        const hasMore = recentCourses.length > 5;
-        coursesShowAllBtn.classList.toggle('hidden', !hasMore);
-        coursesShowAllBtn.innerText = homeSectionExpanded.courses ? 'Show less' : 'Show all';
-      }
 
       if (favoritesContainer) favoritesContainer.innerHTML = favorites.length ? favoritesVisible.map(song => buildSongDashboardCard(song)).join('') : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No favorite songs yet.</div>`;
       if (recentContainer) recentContainer.innerHTML = recentSongs.length ? practiceVisible.map(({ song, progress }) => buildSongDashboardCard(song, { progress })).join('') : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No started practice songs yet.</div>`;
-      if (coursesContainer) coursesContainer.innerHTML = recentCourses.length ? coursesVisible.map(({ article, positionSec }) => buildContinueCourseCard(article, positionSec)).join('') : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No started courses yet.</div>`;
+      if (listeningContainer) listeningContainer.innerHTML = recentListeningSongs.length
+        ? recentListeningSongs.map(song => buildSongDashboardCard(song, { progress: recentProgressBySongId.get(song.id) || null })).join('')
+        : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No linked looper songs yet.</div>`;
 
       const practiceShortcuts = document.getElementById('training-practice-shortcuts');
       if (practiceShortcuts) practiceShortcuts.innerHTML = recentSongs.length ? recentSongs.slice(0, 4).map(({ song, progress }) => buildSongDashboardCard(song, { progress })).join('') : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">Start from a song on Home to see it here.</div>`;
