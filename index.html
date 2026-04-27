@@ -1424,12 +1424,15 @@
         </div>
       </div>
       <div class="space-y-3" id="practice-steps-container"></div>
-      <div class="mt-6">
-        <div class="grid grid-cols-2 gap-2">
-          <button onclick="startPractice(0)" class="w-full bg-primary font-bold py-4 rounded-2xl btn-press shadow-[0_0_20px_rgba(156,106,61,0.25)]">Open Preview</button>
-          <button onclick="startSongQuickPreview()" class="w-full btn-soft font-bold py-4 rounded-2xl btn-press"><i class="fas fa-play mr-2"></i>Play Song</button>
+        <div class="mt-6">
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <button onclick="startPractice(0)" class="w-full bg-primary font-bold py-4 rounded-2xl btn-press shadow-[0_0_20px_rgba(156,106,61,0.25)]">Open Preview</button>
+            <button onclick="startSongQuickPreview()" class="w-full btn-soft font-bold py-4 rounded-2xl btn-press"><i class="fas fa-play mr-2"></i>Play Song</button>
+            <button id="btn-open-linked-looper" onclick="openCurrentSongLinkedLooper()" class="hidden w-full btn-soft font-bold py-4 rounded-2xl btn-press">
+              <i class="fas fa-repeat mr-2"></i>Open Linked Loop
+            </button>
+          </div>
         </div>
-      </div>
       <div class="bg-surface rounded-xl p-5 mt-6 border border-gray-800 shadow-xl">
         <div class="flex items-center justify-between mb-3">
           <div>

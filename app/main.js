@@ -109,6 +109,7 @@ import { FirestoreRepository } from './modules/repository.js';
     let looperOpeningProgress = 0;
     let looperSharingHistoryId = '';
     let looperSharingHistoryStatus = '';
+    let looperLinkingHistoryId = '';
     let tabsPreviewTimerIds = [];
     let tabsPreviewSessionId = 0;
     let tabsPreviewHistory = [];
@@ -169,7 +170,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.15',
+      version: 'v2026.04.22.16',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -1216,6 +1217,8 @@ Drop back to 70 BPM for clean finish.`,
            song.rawText = song.chords.map(c => `${c.chord}\n${c.lyric}`).join('\n\n');
        }
        song.youtubeUrl = typeof song.youtubeUrl === 'string' ? song.youtubeUrl : '';
+       song.linkedLooperHistoryId = typeof song.linkedLooperHistoryId === 'string' ? song.linkedLooperHistoryId : '';
+       song.linkedLooperTitle = typeof song.linkedLooperTitle === 'string' ? song.linkedLooperTitle : '';
        song.capo = song.capo || "No capo";
        const fallbackTimeSignature = normalizeTimeSignature(song.timeSignature || "4/4");
        song.strummingPatterns = normalizeSongStrummingPatterns(song);
@@ -3044,6 +3047,31 @@ Drop back to 70 BPM for clean finish.`,
       return 'Audio';
     }
 
+    function getLooperLinkSelectId(itemId = '') {
+      return `looper-link-song-${String(itemId || '').replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    }
+
+    function findLinkedSongForLooper(itemId = '') {
+      const target = String(itemId || '').trim();
+      if (!target) return null;
+      return songs.find(song => String(song?.linkedLooperHistoryId || '') === target) || null;
+    }
+
+    function getCurrentSongLinkedLooperItem() {
+      const linkedId = String(currentSong?.linkedLooperHistoryId || '').trim();
+      if (!linkedId) return null;
+      return looperHistory.find(item => item.id === linkedId) || null;
+    }
+
+    function renderCurrentSongLinkedLooperCta() {
+      const btn = document.getElementById('btn-open-linked-looper');
+      if (!btn) return;
+      const linkedItem = getCurrentSongLinkedLooperItem();
+      const canShow = isLibraryAdmin() && !!linkedItem;
+      btn.classList.toggle('hidden', !canShow);
+      btn.title = linkedItem ? `Open linked looper: ${sanitizeLooperTitle(linkedItem.title, 'Looper')}` : 'Open linked looper';
+    }
+
     function renderLooperHistory() {
       const list = document.getElementById('tool-looper-history-list');
       if (!list) return;
@@ -3051,8 +3079,9 @@ Drop back to 70 BPM for clean finish.`,
         list.innerHTML = `<div class="bg-black/30 border border-gray-800 rounded-xl px-3 py-2 text-sm text-gray-500">No looper history yet.</div>`;
         return;
       }
+      const canManageSongLinks = isLibraryAdmin();
       list.innerHTML = looperHistory.map(item => `
-        <div class="bg-black/30 border ${item.id === activeLooperHistoryId ? 'border-primary/60' : 'border-gray-800'} rounded-xl px-3 py-3 ${(looperDeletingHistoryId === item.id || looperOpeningHistoryId === item.id || looperSharingHistoryId === item.id) ? 'opacity-70' : ''}">
+        <div class="bg-black/30 border ${item.id === activeLooperHistoryId ? 'border-primary/60' : 'border-gray-800'} rounded-xl px-3 py-3 ${(looperDeletingHistoryId === item.id || looperOpeningHistoryId === item.id || looperSharingHistoryId === item.id || looperLinkingHistoryId === item.id) ? 'opacity-70' : ''}">
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
               <p class="font-semibold text-sm text-white truncate">${escapeHtml(item.title || 'Untitled media')}</p>
@@ -3065,15 +3094,37 @@ Drop back to 70 BPM for clean finish.`,
                 <div class="mt-1.5 h-1.5 rounded-full bg-gray-800 overflow-hidden"><div class="h-full bg-primary transition-all duration-150" style="width:${Math.max(0, Math.min(100, looperOpeningProgress))}%"></div></div>
               ` : ''}
               ${looperSharingHistoryId === item.id ? `<p class="text-[11px] text-primary mt-1"><i class="fas fa-spinner fa-spin mr-1"></i>${escapeHtml(looperSharingHistoryStatus || 'Preparing share link...')}</p>` : ''}
+              ${canManageSongLinks ? `
+                <div class="mt-2 pt-2 border-t border-gray-800/80">
+                  <p class="text-[10px] uppercase tracking-[0.18em] text-gray-500 mb-1">Song Link (Owner)</p>
+                  <div class="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
+                    <select id="${getLooperLinkSelectId(item.id)}" class="bg-black/30 border border-gray-800 rounded-lg px-2 py-2 text-xs text-white outline-none ${(looperLinkingHistoryId === item.id) ? 'opacity-60 pointer-events-none' : ''}">
+                      <option value="">No linked song</option>
+                      ${songs.map(song => {
+                        const songTitle = String(song?.title || 'Untitled');
+                        const songArtist = String(song?.artist || 'Unknown artist');
+                        const isSelected = String(song?.linkedLooperHistoryId || '') === String(item.id);
+                        const optionLabel = `${songTitle} - ${songArtist}`;
+                        return `<option value="${escapeHtml(song.id)}" ${isSelected ? 'selected' : ''}>${escapeHtml(optionLabel)}</option>`;
+                      }).join('')}
+                    </select>
+                    <button onclick="linkLooperHistoryItemToSong('${item.id}')" class="btn-soft rounded-lg px-3 py-2 text-xs font-semibold btn-press ${(looperLinkingHistoryId === item.id) ? 'opacity-60 pointer-events-none' : ''}">
+                      ${findLinkedSongForLooper(item.id) ? 'Update Link' : 'Link Song'}
+                    </button>
+                  </div>
+                  ${findLinkedSongForLooper(item.id) ? `<p class="text-[11px] text-gray-400 mt-1">Linked to: ${escapeHtml(findLinkedSongForLooper(item.id).title || 'Untitled')}</p>` : ''}
+                  ${looperLinkingHistoryId === item.id ? `<p class="text-[11px] text-primary mt-1"><i class="fas fa-spinner fa-spin mr-1"></i>Saving song link...</p>` : ''}
+                </div>
+              ` : ''}
             </div>
             <div class="flex items-center gap-2 shrink-0">
-              <button onclick="openLooperHistoryItem('${item.id}')" class="w-8 h-8 rounded-full btn-soft btn-press ${(looperDeletingHistoryId === item.id || looperOpeningHistoryId === item.id || looperSharingHistoryId === item.id) ? 'opacity-50 pointer-events-none' : ''}" title="Open">
+              <button onclick="openLooperHistoryItem('${item.id}')" class="w-8 h-8 rounded-full btn-soft btn-press ${(looperDeletingHistoryId === item.id || looperOpeningHistoryId === item.id || looperSharingHistoryId === item.id || looperLinkingHistoryId === item.id) ? 'opacity-50 pointer-events-none' : ''}" title="Open">
                 <i class="fas fa-play text-xs"></i>
               </button>
-              <button onclick="shareLooperHistoryItem('${item.id}')" class="w-8 h-8 rounded-full btn-soft btn-press ${(looperDeletingHistoryId === item.id || looperOpeningHistoryId === item.id || looperSharingHistoryId === item.id) ? 'opacity-50 pointer-events-none' : ''}" title="Share">
+              <button onclick="shareLooperHistoryItem('${item.id}')" class="w-8 h-8 rounded-full btn-soft btn-press ${(looperDeletingHistoryId === item.id || looperOpeningHistoryId === item.id || looperSharingHistoryId === item.id || looperLinkingHistoryId === item.id) ? 'opacity-50 pointer-events-none' : ''}" title="Share">
                 <i class="fas ${looperSharingHistoryId === item.id ? 'fa-spinner fa-spin' : 'fa-share-alt'} text-xs"></i>
               </button>
-              <button onclick="deleteLooperHistoryItem('${item.id}')" class="w-8 h-8 rounded-full btn-soft btn-press ${(looperDeletingHistoryId === item.id || looperOpeningHistoryId === item.id || looperSharingHistoryId === item.id) ? 'opacity-50 pointer-events-none' : ''}" title="Delete">
+              <button onclick="deleteLooperHistoryItem('${item.id}')" class="w-8 h-8 rounded-full btn-soft btn-press ${(looperDeletingHistoryId === item.id || looperOpeningHistoryId === item.id || looperSharingHistoryId === item.id || looperLinkingHistoryId === item.id) ? 'opacity-50 pointer-events-none' : ''}" title="Delete">
                 <i class="fas fa-trash text-xs"></i>
               </button>
             </div>
@@ -3917,6 +3968,85 @@ Drop back to 70 BPM for clean finish.`,
       }
     };
 
+    window.linkLooperHistoryItemToSong = async function(itemId) {
+      if (!isLibraryAdmin()) return;
+      const item = looperHistory.find(entry => entry.id === itemId);
+      if (!item || !repository) return;
+      if (looperLinkingHistoryId === itemId) return;
+
+      const select = document.getElementById(getLooperLinkSelectId(itemId));
+      const selectedSongId = String(select?.value || '').trim();
+      const now = Date.now();
+
+      looperLinkingHistoryId = itemId;
+      renderLooperHistory();
+      try {
+        const updates = [];
+        const linkedSongs = songs.filter(song => String(song?.linkedLooperHistoryId || '') === String(itemId));
+        linkedSongs.forEach(song => {
+          if (song.id === selectedSongId) return;
+          updates.push(repository.updateSongMeta(song.id, {
+            linkedLooperHistoryId: '',
+            linkedLooperTitle: '',
+            linkedLooperUpdatedAt: now
+          }));
+        });
+
+        if (selectedSongId) {
+          updates.push(repository.updateSongMeta(selectedSongId, {
+            linkedLooperHistoryId: itemId,
+            linkedLooperTitle: sanitizeLooperTitle(item.title || 'Looper'),
+            linkedLooperUpdatedAt: now
+          }));
+        }
+
+        await Promise.all(updates);
+
+        songs = songs.map(song => {
+          if (String(song?.linkedLooperHistoryId || '') === String(itemId) && song.id !== selectedSongId) {
+            return ensureSongFormat({ ...song, linkedLooperHistoryId: '', linkedLooperTitle: '', linkedLooperUpdatedAt: now });
+          }
+          if (song.id === selectedSongId) {
+            return ensureSongFormat({
+              ...song,
+              linkedLooperHistoryId: itemId,
+              linkedLooperTitle: sanitizeLooperTitle(item.title || 'Looper'),
+              linkedLooperUpdatedAt: now
+            });
+          }
+          return song;
+        });
+
+        if (currentSong?.id) {
+          const refreshed = songs.find(song => song.id === currentSong.id);
+          if (refreshed) currentSong = refreshed;
+        }
+
+        renderHomeList();
+        renderToolSongsSearch(document.getElementById('tool-song-search')?.value || '');
+        renderCurrentSongLinkedLooperCta();
+        showToast(selectedSongId ? 'Linked looper to song.' : 'Removed linked looper from song.', true);
+      } catch (err) {
+        console.error('Failed to link looper to song', err);
+        showToast('Could not save song link.');
+      } finally {
+        looperLinkingHistoryId = '';
+        renderLooperHistory();
+      }
+    };
+
+    window.openCurrentSongLinkedLooper = async function() {
+      if (!isLibraryAdmin()) return;
+      const linkedItem = getCurrentSongLinkedLooperItem();
+      if (!linkedItem) {
+        showToast('No linked looper found for this song.');
+        return;
+      }
+      navigate('tools');
+      openToolPage('looper');
+      await openLooperHistoryItem(linkedItem.id);
+    };
+
     window.deleteLooperHistoryItem = async function(itemId) {
       const item = looperHistory.find(entry => entry.id === itemId);
       if (!item || !user) return;
@@ -3926,10 +4056,27 @@ Drop back to 70 BPM for clean finish.`,
       try {
         await repository.deleteLooperMediaData(user.uid, itemId);
         await repository.deleteLooperHistory(user.uid, itemId);
+        const linkedSongs = songs.filter(song => String(song?.linkedLooperHistoryId || '') === String(itemId));
+        if (linkedSongs.length) {
+          await Promise.all(linkedSongs.map(song => repository.updateSongMeta(song.id, {
+            linkedLooperHistoryId: '',
+            linkedLooperTitle: '',
+            linkedLooperUpdatedAt: Date.now()
+          })));
+          songs = songs.map(song => String(song?.linkedLooperHistoryId || '') === String(itemId)
+            ? ensureSongFormat({ ...song, linkedLooperHistoryId: '', linkedLooperTitle: '', linkedLooperUpdatedAt: Date.now() })
+            : song
+          );
+        }
         looperHistory = looperHistory.filter(entry => entry.id !== itemId);
         if (activeLooperHistoryId === itemId) {
           activeLooperHistoryId = '';
           setLooperNoteText('');
+        }
+        if (currentSong?.id) {
+          const refreshed = songs.find(song => song.id === currentSong.id);
+          if (refreshed) currentSong = refreshed;
+          renderCurrentSongLinkedLooperCta();
         }
         showToast('History item removed.', true);
       } catch (e) {
@@ -4030,6 +4177,7 @@ Drop back to 70 BPM for clean finish.`,
       looperOpeningProgress = 0;
       looperSharingHistoryId = '';
       looperSharingHistoryStatus = '';
+      looperLinkingHistoryId = '';
       setLooperNoteText('');
       updateLooperMaxUploadLabel();
       renderLooperHistory();
@@ -7503,6 +7651,7 @@ Rules:
       renderChordLibrary('detail-chords', unique);
       updateFavoriteButton();
       renderSongYouTube();
+      renderCurrentSongLinkedLooperCta();
 
       navigate('details', { skipUrl, replaceUrl, pathOverride: `/songs/${encodeURIComponent(currentSong.id)}` });
       renderSteps();
@@ -7731,6 +7880,11 @@ Rules:
                 <button onclick="openSongDetails('${currentSong.id}')" class="btn-soft rounded-full px-5 py-2 text-sm btn-press">
                   <i class="fas fa-file-lines mr-2"></i> Open Song Details
                 </button>
+                ${isLibraryAdmin() && getCurrentSongLinkedLooperItem() ? `
+                  <button onclick="openCurrentSongLinkedLooper()" class="btn-soft rounded-full px-5 py-2 text-sm btn-press">
+                    <i class="fas fa-repeat mr-2"></i> Open Linked Loop
+                  </button>
+                ` : ''}
               </div>
             </div>
             <div class="bg-surface rounded-2xl p-5 border border-gray-800">
