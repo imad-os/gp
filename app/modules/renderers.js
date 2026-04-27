@@ -105,8 +105,8 @@ export function renderChordDiagramSvgWithData(chordName, data, large = false) {
       const startX = stringXs[Math.max(0, barreCandidate.indices[0])] - 7;
       const endX = stringXs[Math.min(stringXs.length - 1, barreCandidate.indices[barreCandidate.indices.length - 1])] + 7;
       return `
-        <rect x="${startX}" y="${barreY - 6}" width="${Math.max(12, endX - startX)}" height="12" rx="6" fill="#bb86fc"></rect>
-        ${barreFinger ? `<text x="${(startX + endX) / 2}" y="${barreY + 3.5}" text-anchor="middle" fill="#111" font-size="10" font-weight="800">${barreFinger}</text>` : ''}
+        <rect x="${startX}" y="${barreY - 6}" width="${Math.max(12, endX - startX)}" height="12" rx="6" fill="#f2e7dc" stroke="#c9b29b" stroke-width="0.9"></rect>
+        ${barreFinger ? `<text x="${((startX + endX) / 2) - 0.8}" y="${barreY + 3.5}" text-anchor="middle" fill="#4f3726" font-size="10" font-weight="800">${barreFinger}</text>` : ''}
       `;
     })()
     : '';
@@ -118,12 +118,12 @@ export function renderChordDiagramSvgWithData(chordName, data, large = false) {
     if (barreCandidate && barreIndices.has(idx) && fret === barreCandidate.fret && (Number(fingers[idx]) || 0) === barreFinger) return '';
     const localFret = Math.max(1, fret - baseFret + 1);
     const y = fretYs[Math.min(localFret - 1, fretYs.length - 1)];
-    return `<circle cx="${x}" cy="${y}" r="7" fill="#bb86fc"/><text x="${x}" y="${y + 3}" text-anchor="middle" fill="#111" font-size="8" font-weight="700">${fingers[idx] || ''}</text>`;
+    return `<circle cx="${x}" cy="${y}" r="7" fill="#f3e9df" stroke="#cfb8a0" stroke-width="1"/><text x="${x}" y="${y + 3}" text-anchor="middle" fill="#4f3726" font-size="8" font-weight="700">${fingers[idx] || ''}</text>`;
   }).join('');
 
   const nutLine = baseFret === 1 ? `<line x1="18" y1="28" x2="102" y2="28" stroke="#9a9a9a" stroke-width="4"/>` : '';
   const positionBadge = baseFret > 1
-    ? `<rect x="1" y="27" width="18" height="24" rx="5" fill="#1f1f1f" stroke="#5a5a5a" stroke-width="1.2"/><text x="10" y="43" text-anchor="middle" fill="#f2f2f2" font-size="12" font-weight="800">${baseFret}</text>`
+    ? `<rect x="0" y="27" width="22" height="24" rx="5" fill="#1f1f1f" stroke="#5a5a5a" stroke-width="1.2"/><text x="10.4" y="43" text-anchor="middle" fill="#f2f2f2" font-size="12" font-weight="800">${baseFret}</text>`
     : '';
   return `
     <div class="chord-diagram-card ${large ? 'large' : ''}">
