@@ -167,7 +167,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.12',
+      version: 'v2026.04.22.13',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -2817,8 +2817,8 @@ Drop back to 70 BPM for clean finish.`,
       }
     }
 
-    async function initApp() {
-      showLoading(true, "Initializing...");
+    async function initApp({ showOverlay = false } = {}) {
+      if (showOverlay) showLoading(true, "Initializing...");
       try {
         app = initializeApp(firebaseConfig);
         auth = getAuth(app);
@@ -2876,13 +2876,13 @@ Drop back to 70 BPM for clean finish.`,
             console.error('Auth initialization failed', err);
             showToast("Failed to initialize app data.");
           } finally {
-            showLoading(false);
+            if (showOverlay) showLoading(false);
           }
         });
       } catch (err) {
         console.error(err);
         showToast("Failed to connect to servers.");
-        showLoading(false);
+        if (showOverlay) showLoading(false);
       }
     }
 
@@ -8858,6 +8858,21 @@ Rules:
     }
 
     let appBooted = false;
+    let backgroundInitQueued = false;
+    function queueBackgroundInitialization() {
+      if (backgroundInitQueued) return;
+      backgroundInitQueued = true;
+      const run = () => {
+        initApp({ showOverlay: false });
+        refreshVersionCatalog(false).catch(() => {});
+      };
+      if (typeof requestIdleCallback === 'function') {
+        requestIdleCallback(() => setTimeout(run, 0), { timeout: 1200 });
+      } else {
+        setTimeout(run, 0);
+      }
+    }
+
     function bootApp() {
       if (appBooted) return;
       appBooted = true;
@@ -8884,7 +8899,6 @@ Rules:
       renderBuildInfo();
       updateSettingsUpdateUi();
       renderUpdateHistoryUi();
-      refreshVersionCatalog(false).catch(() => {});
       setOfflineUi(!navigator.onLine);
       refreshLibraryAdminButtons();
       showToolsHome({ skipUrl: true });
@@ -8931,11 +8945,13 @@ Rules:
       window.addEventListener('beforeunload', () => {
         stopLooperPlayback();
       });
-      initApp();
+      queueBackgroundInitialization();
     }
 
     if (document.readyState === 'complete' || document.readyState === 'interactive') {
-      bootApp();
+      requestAnimationFrame(() => setTimeout(bootApp, 0));
     } else {
-      window.addEventListener('load', bootApp, { once: true });
+      document.addEventListener('DOMContentLoaded', () => {
+        requestAnimationFrame(() => setTimeout(bootApp, 0));
+      }, { once: true });
     }
