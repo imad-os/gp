@@ -830,12 +830,17 @@
             <div>
               <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-1">Tool</p>
               <h2 class="font-bold text-lg">Add Chord</h2>
-              <p class="text-sm text-gray-400">Pick string positions, then save. Duplicate names or duplicate shapes are blocked.</p>
+              <p class="text-sm text-gray-400">Pick string positions, mark the shape type, then save. Exact duplicate shapes are blocked.</p>
               <p id="chord-builder-admin-hint" class="hidden text-xs text-gray-500 mt-2">Only the library owner can add or edit chords.</p>
             </div>
           </div>
           <div class="space-y-3 mb-4">
             <input id="tool-chord-name" type="text" oninput="updateChordBuilderPreview()" placeholder="Chord name (example: Gm7)" class="w-full bg-black/30 border border-gray-800 rounded-xl px-4 py-3 outline-none text-white">
+            <select id="tool-chord-voicing-type" onchange="updateChordBuilderPreview()" class="w-full bg-black/30 border border-gray-800 rounded-xl px-4 py-3 outline-none text-white text-sm">
+              <option value="open">Open shape</option>
+              <option value="barre">Barre shape</option>
+              <option value="other">Other shape</option>
+            </select>
             <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
               <label class="bg-black/30 border border-gray-800 rounded-xl px-3 py-2 text-xs text-gray-300">E6
                 <select id="tool-chord-string-e6" onchange="updateChordBuilderPreview()" class="mt-1 w-full bg-transparent outline-none text-white">
@@ -1344,6 +1349,14 @@
         
         <input type="number" id="add-bpm" placeholder="Default BPM (e.g., 80)" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 focus:border-primary focus:outline-none">
         <select id="add-capo" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 focus:border-primary focus:outline-none text-white"></select>
+        <div>
+          <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Preferred Chord Shapes</label>
+          <select id="add-chord-voicing-preference" class="w-full bg-surface border border-gray-700 rounded-xl px-4 py-3 focus:border-primary focus:outline-none text-white">
+            <option value="auto">Auto (prefer open when available)</option>
+            <option value="open">Open shapes</option>
+            <option value="barre">Barre shapes</option>
+          </select>
+        </div>
         
         <div>
           <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Chords & Lyrics</label>

@@ -170,7 +170,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.24',
+      version: 'v2026.04.22.25',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -329,17 +329,39 @@ import { FirestoreRepository } from './modules/repository.js';
       'G/B': { baseFret: 1, strings: ['x', 2, 0, 0, 0, 3], fingers: [0, 1, 0, 0, 0, 3] },
       'D/F#': { baseFret: 1, strings: [2, 'x', 0, 2, 3, 2], fingers: [1, 0, 0, 2, 4, 3] }
     };
+    const DEFAULT_BARRE_CHORD_VARIANTS = [
+      { name: 'Em', baseFret: 7, strings: [7, 7, 9, 9, 8, 7], fingers: [1, 1, 3, 4, 2, 1], voicingType: 'barre' },
+      { name: 'E', baseFret: 12, strings: [12, 14, 14, 13, 12, 12], fingers: [1, 3, 4, 2, 1, 1], voicingType: 'barre' },
+      { name: 'Am', baseFret: 5, strings: [5, 7, 7, 5, 5, 5], fingers: [1, 3, 4, 1, 1, 1], voicingType: 'barre' },
+      { name: 'A', baseFret: 5, strings: [5, 7, 7, 6, 5, 5], fingers: [1, 3, 4, 2, 1, 1], voicingType: 'barre' },
+      { name: 'Dm', baseFret: 5, strings: ['x', 5, 7, 7, 6, 5], fingers: [0, 1, 3, 4, 2, 1], voicingType: 'barre' },
+      { name: 'D', baseFret: 5, strings: ['x', 5, 7, 7, 7, 5], fingers: [0, 1, 3, 3, 4, 1], voicingType: 'barre' },
+      { name: 'C', baseFret: 3, strings: ['x', 3, 5, 5, 5, 3], fingers: [0, 1, 3, 3, 4, 1], voicingType: 'barre' },
+      { name: 'G', baseFret: 3, strings: [3, 5, 5, 4, 3, 3], fingers: [1, 3, 4, 2, 1, 1], voicingType: 'barre' },
+      { name: 'Gm', baseFret: 3, strings: [3, 5, 5, 3, 3, 3], fingers: [1, 3, 4, 1, 1, 1], voicingType: 'barre' },
+      { name: 'F#m', baseFret: 2, strings: [2, 4, 4, 2, 2, 2], fingers: [1, 3, 4, 1, 1, 1], voicingType: 'barre' },
+      { name: 'B', baseFret: 7, strings: [7, 9, 9, 8, 7, 7], fingers: [1, 3, 4, 2, 1, 1], voicingType: 'barre' },
+      { name: 'C#m', baseFret: 4, strings: [4, 6, 6, 4, 4, 4], fingers: [1, 3, 4, 1, 1, 1], voicingType: 'barre' },
+      { name: 'C#', baseFret: 9, strings: [9, 11, 11, 10, 9, 9], fingers: [1, 3, 4, 2, 1, 1], voicingType: 'barre' },
+      { name: 'A#', baseFret: 6, strings: [6, 8, 8, 7, 6, 6], fingers: [1, 3, 4, 2, 1, 1], voicingType: 'barre' },
+      { name: 'A#m', baseFret: 6, strings: [6, 8, 8, 6, 6, 6], fingers: [1, 3, 4, 1, 1, 1], voicingType: 'barre' },
+      { name: 'D#', baseFret: 11, strings: [11, 13, 13, 12, 11, 11], fingers: [1, 3, 4, 2, 1, 1], voicingType: 'barre' },
+      { name: 'D#m', baseFret: 11, strings: [11, 13, 13, 11, 11, 11], fingers: [1, 3, 4, 1, 1, 1], voicingType: 'barre' }
+    ];
     let CHORD_LIBRARY = { ...DEFAULT_CHORD_LIBRARY };
     const NOTE_INDEX = { C: 0, 'B#': 0, 'C#': 1, Db: 1, D: 2, 'D#': 3, Eb: 3, E: 4, Fb: 4, F: 5, 'E#': 5, 'F#': 6, Gb: 6, G: 7, 'G#': 8, Ab: 8, A: 9, 'A#': 10, Bb: 10, B: 11, Cb: 11 };
     const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
     let CHORD_EXPLORER_LIST = Object.keys(CHORD_LIBRARY).sort((a, b) => a.localeCompare(b));
     let chordEntries = [];
+    let activeChordVoicingPreference = 'auto';
     let isHandlingRouteChange = false;
     const chordPopoverState = {
       visible: false,
       chordName: '',
       anchorEl: null,
-      container: null
+      container: null,
+      variants: [],
+      variantIndex: 0
     };
 
     const MOCK_SONG = {
@@ -729,6 +751,60 @@ Drop back to 70 BPM for clean finish.`,
       });
     }
 
+    function getActiveChordVoicingPreference() {
+      return normalizeChordVoicingPreference(
+        activeChordVoicingPreference || currentSong?.chordVoicingPreference || 'auto'
+      );
+    }
+
+    function applyChordVoicingPreferenceUi(mode = 'auto') {
+      ['preview-chord-voicing', 'add-chord-voicing-preference'].forEach(id => {
+        const select = document.getElementById(id);
+        if (select) select.value = mode;
+      });
+    }
+
+    function refreshChordVoicingInCurrentUi() {
+      if (currentSong) {
+        const unique = [...new Set((currentSong.chords || []).map(c => c.chord).filter(Boolean))];
+        if (unique.length) {
+          renderChordLibrary('detail-chords', unique);
+          renderPreviewChordsFound(currentSong);
+        }
+        const practiceChordPanel = document.getElementById('practice-current-chord');
+        if (practiceChordPanel && !document.getElementById('practice-current-chord-panel')?.classList.contains('hidden')) {
+          const activeChordEl = document.querySelector('[id^="chord-hl-"].text-active');
+          const activeChord = activeChordEl?.getAttribute('data-chord') || currentSong.chords?.[0]?.chord || '';
+          if (activeChord) renderChordLibrary('practice-current-chord', [activeChord], activeChord);
+        }
+      }
+      const previewName = document.getElementById('practice-preview-chord-name');
+      if (previewName) {
+        const raw = String(previewName.dataset?.chord || '').trim();
+        if (raw) setPreviewChordDiagram(raw);
+      }
+      if (chordPopoverState.visible && chordPopoverState.chordName) {
+        const refreshed = getChordEntriesForName(chordPopoverState.chordName);
+        chordPopoverState.variants = refreshed;
+        chordPopoverState.variantIndex = getPreferredChordVariantIndex(refreshed, getActiveChordVoicingPreference());
+        renderChordPopoverContent();
+      }
+      renderChordExplorer();
+    }
+
+    function setChordVoicingPreference(value = '', options = {}) {
+      const { persist = false } = options || {};
+      const mode = normalizeChordVoicingPreference(value);
+      activeChordVoicingPreference = mode;
+      applyChordVoicingPreferenceUi(mode);
+      if (currentSong) currentSong.chordVoicingPreference = mode;
+      refreshChordVoicingInCurrentUi();
+      if (!persist || !currentSong?.id || !repository || !user || user.isAnonymous || user.uid !== currentSong.ownerId) return;
+      repository.updateSongMeta(currentSong.id, { chordVoicingPreference: mode }).catch(err => {
+        console.error('Could not save chord shape preference', err);
+      });
+    }
+
     async function setChordNotationPreference(value = '', options = {}) {
       const { persist = true } = options || {};
       const mode = normalizeChordNotationMode(value);
@@ -756,8 +832,26 @@ Drop back to 70 BPM for clean finish.`,
       `;
     }
 
+    function renderChordVoicingSelectHtml(selectId = 'preview-chord-voicing') {
+      const mode = getActiveChordVoicingPreference();
+      return `
+        <div class="mt-3 bg-black/30 rounded-xl border border-gray-800 p-3">
+          <label class="text-[10px] uppercase tracking-[0.2em] text-gray-500 block mb-2">Chord Shape Preference</label>
+          <select id="${selectId}" onchange="setChordVoicingFromQuick(this.value)" class="w-full bg-transparent text-white outline-none text-sm">
+            <option value="auto" ${mode === 'auto' ? 'selected' : ''}>Auto (prefer open when available)</option>
+            <option value="open" ${mode === 'open' ? 'selected' : ''}>Open shapes</option>
+            <option value="barre" ${mode === 'barre' ? 'selected' : ''}>Barre shapes</option>
+          </select>
+        </div>
+      `;
+    }
+
     window.setChordNotationFromQuick = async function(value = '') {
       await setChordNotationPreference(value, { persist: true });
+    };
+
+    window.setChordVoicingFromQuick = function(value = '') {
+      setChordVoicingPreference(value, { persist: false });
     };
 
     function refreshChordNotationInCurrentUi() {
@@ -1015,17 +1109,46 @@ Drop back to 70 BPM for clean finish.`,
       return String(name || '').trim().toLowerCase();
     }
 
+    function normalizeChordVoicingType(type = '') {
+      const value = String(type || '').trim().toLowerCase();
+      if (value === 'open') return 'open';
+      if (value === 'barre') return 'barre';
+      return 'other';
+    }
+
+    function inferChordVoicingType(strings = [], baseFret = 1) {
+      const fretted = strings.filter(v => typeof v === 'number' && v > 0);
+      if (!fretted.length) return 'other';
+      const hasOpen = strings.some(v => v === 0);
+      const hasLowBarreLikeDensity = fretted.length >= 4 && !hasOpen;
+      if (hasLowBarreLikeDensity) return 'barre';
+      const counts = new Map();
+      fretted.forEach(v => counts.set(v, (counts.get(v) || 0) + 1));
+      const maxSameFret = Math.max(0, ...Array.from(counts.values()));
+      if (maxSameFret >= 3 && (Number(baseFret) > 1 || Math.min(...fretted) > 0)) return 'barre';
+      return hasOpen ? 'open' : 'other';
+    }
+
+    function normalizeChordVoicingPreference(value = '') {
+      const mode = String(value || '').trim().toLowerCase();
+      if (mode === 'open') return 'open';
+      if (mode === 'barre') return 'barre';
+      return 'auto';
+    }
+
     function normalizeChordShapeKey(strings = []) {
       return strings.map(v => String(v).trim().toLowerCase()).join('|');
     }
 
     function toDefaultChordEntries() {
-      return Object.entries(DEFAULT_CHORD_LIBRARY).map(([name, data]) => ({
+      const openDefaults = Object.entries(DEFAULT_CHORD_LIBRARY).map(([name, data]) => ({
         name,
         baseFret: Number(data.baseFret) || 1,
         strings: Array.isArray(data.strings) ? data.strings.map(v => (String(v).toLowerCase() === 'x' ? 'x' : Number(v) || 0)) : ['x', 0, 0, 0, 0, 0],
-        fingers: Array.isArray(data.fingers) ? data.fingers.map(v => Number(v) || 0) : [0, 0, 0, 0, 0, 0]
+        fingers: Array.isArray(data.fingers) ? data.fingers.map(v => Number(v) || 0) : [0, 0, 0, 0, 0, 0],
+        voicingType: 'open'
       }));
+      return [...openDefaults, ...DEFAULT_BARRE_CHORD_VARIANTS];
     }
 
     function normalizeChordEntry(raw = {}) {
@@ -1044,6 +1167,7 @@ Drop back to 70 BPM for clean finish.`,
           ? raw.fingers.map(v => Number(v) || 0)
           : strings.map(v => (v === 'x' || v === 0 ? 0 : 1))
       };
+      normalized.voicingType = normalizeChordVoicingType(raw.voicingType || inferChordVoicingType(normalized.strings, normalized.baseFret));
       normalized.shapeKey = normalizeChordShapeKey(normalized.strings);
       return normalized;
     }
@@ -1066,17 +1190,32 @@ Drop back to 70 BPM for clean finish.`,
     }
 
     function refreshChordLibraryFromEntries(entries = []) {
-      const next = {};
+      const entriesByName = new Map();
       entries.forEach(entry => {
-        if (!entry.name) return;
-        next[entry.name] = {
-          baseFret: entry.baseFret,
-          strings: entry.strings,
-          fingers: entry.fingers
+        const key = normalizeChordNameKey(entry?.name || '');
+        if (!key) return;
+        if (!entriesByName.has(key)) entriesByName.set(key, []);
+        entriesByName.get(key).push(entry);
+      });
+      CHORD_LIBRARY = {};
+      entriesByName.forEach((group, key) => {
+        if (!group.length) return;
+        const preferred = getPreferredChordEntryFromGroup(group, 'auto');
+        if (!preferred) return;
+        CHORD_LIBRARY[preferred.name] = {
+          baseFret: preferred.baseFret,
+          strings: preferred.strings,
+          fingers: preferred.fingers
         };
       });
-      CHORD_LIBRARY = Object.keys(next).length ? next : { ...DEFAULT_CHORD_LIBRARY };
-      CHORD_EXPLORER_LIST = Object.keys(CHORD_LIBRARY).sort((a, b) => a.localeCompare(b));
+      CHORD_EXPLORER_LIST = Array.from(entriesByName.values())
+        .map(group => group[0]?.name || '')
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b));
+      if (!CHORD_EXPLORER_LIST.length) {
+        CHORD_LIBRARY = { ...DEFAULT_CHORD_LIBRARY };
+        CHORD_EXPLORER_LIST = Object.keys(CHORD_LIBRARY).sort((a, b) => a.localeCompare(b));
+      }
       if (!CHORD_EXPLORER_LIST.includes(selectedChordReference)) {
         selectedChordReference = CHORD_EXPLORER_LIST[0] || 'C';
       }
@@ -1219,6 +1358,7 @@ Drop back to 70 BPM for clean finish.`,
        song.youtubeUrl = typeof song.youtubeUrl === 'string' ? song.youtubeUrl : '';
        song.linkedLooperHistoryId = typeof song.linkedLooperHistoryId === 'string' ? song.linkedLooperHistoryId : '';
        song.linkedLooperTitle = typeof song.linkedLooperTitle === 'string' ? song.linkedLooperTitle : '';
+       song.chordVoicingPreference = normalizeChordVoicingPreference(song.chordVoicingPreference || 'auto');
        song.capo = song.capo || "No capo";
        const fallbackTimeSignature = normalizeTimeSignature(song.timeSignature || "4/4");
        song.strummingPatterns = normalizeSongStrummingPatterns(song);
@@ -3343,8 +3483,8 @@ Drop back to 70 BPM for clean finish.`,
     };
 
     function getSelectedChordEntry() {
-      const key = normalizeChordNameKey(selectedChordReference);
-      return chordEntries.find(entry => entry.nameKey === key) || null;
+      const entries = getChordEntriesForName(selectedChordReference);
+      return getPreferredChordEntryFromGroup(entries, getActiveChordVoicingPreference()) || null;
     }
 
     window.loadSelectedChordToBuilder = async function() {
@@ -3361,6 +3501,8 @@ Drop back to 70 BPM for clean finish.`,
         const el = document.getElementById(id);
         if (el) el.value = String(values[idx]);
       });
+      const typeEl = document.getElementById('tool-chord-voicing-type');
+      if (typeEl) typeEl.value = normalizeChordVoicingType(entry.voicingType || inferChordVoicingType(values, entry.baseFret));
       updateChordBuilderPreview();
       openToolPage('chord-builder');
       showToast(`Loaded ${entry.name} for editing.`, true);
@@ -3391,6 +3533,8 @@ Drop back to 70 BPM for clean finish.`,
       chordBuilderEditingId = '';
       const nameEl = document.getElementById('tool-chord-name');
       if (nameEl) nameEl.value = '';
+      const typeEl = document.getElementById('tool-chord-voicing-type');
+      if (typeEl) typeEl.value = 'open';
       ['tool-chord-string-e6', 'tool-chord-string-a', 'tool-chord-string-d', 'tool-chord-string-g', 'tool-chord-string-b', 'tool-chord-string-e1'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = 'x';
@@ -3423,36 +3567,36 @@ Drop back to 70 BPM for clean finish.`,
       await loadChordLibraryData();
       const nameKey = normalizeChordNameKey(name);
       const shapeKey = normalizeChordShapeKey(strings);
-      const duplicateByName = chordEntries.find(entry => entry.nameKey === nameKey);
       const duplicateByShape = chordEntries.find(entry => entry.shapeKey === shapeKey);
+      const duplicateSameNameAndShape = chordEntries.find(entry => entry.nameKey === nameKey && entry.shapeKey === shapeKey);
       const isEditingExisting = !!chordBuilderEditingId;
       const editingEntry = isEditingExisting ? chordEntries.find(entry => entry.id === chordBuilderEditingId) : null;
-      const duplicateByNameIsOther = duplicateByName && duplicateByName.id !== chordBuilderEditingId;
       const duplicateByShapeIsOther = duplicateByShape && duplicateByShape.id !== chordBuilderEditingId;
-      if (duplicateByNameIsOther && duplicateByShapeIsOther) {
-        showToast(`Already exists: name "${duplicateByName.name}" and shape match.`);
-        return;
-      }
-      if (duplicateByNameIsOther) {
-        showToast(`Chord name "${duplicateByName.name}" already exists.`);
+      const duplicateSameNameAndShapeIsOther = duplicateSameNameAndShape && duplicateSameNameAndShape.id !== chordBuilderEditingId;
+      if (duplicateSameNameAndShapeIsOther) {
+        showToast(`This exact chord shape already exists for "${duplicateSameNameAndShape.name}".`);
         return;
       }
       if (duplicateByShapeIsOther) {
         showToast(`Chord shape already exists as "${duplicateByShape.name}".`);
         return;
       }
-      const targetEntry = editingEntry || duplicateByName || null;
+      const targetEntry = editingEntry || null;
       if (targetEntry?.createdBy && targetEntry.createdBy !== user.uid && !isLibraryAdmin()) {
         showToast("You can only edit chords you created.");
         return;
       }
       const minFret = strings.filter(v => typeof v === 'number' && v > 0).reduce((min, v) => Math.min(min, v), Infinity);
       const baseFret = Number.isFinite(minFret) ? Math.max(1, minFret) : 1;
+      const voicingType = normalizeChordVoicingType(
+        document.getElementById('tool-chord-voicing-type')?.value || inferChordVoicingType(strings, baseFret)
+      );
       const chordPayload = {
         name,
         baseFret,
         strings,
         fingers: strings.map(v => (v === 'x' || v === 0 ? 0 : 1)),
+        voicingType,
         createdAt: targetEntry?.createdAt || Date.now(),
         createdBy: targetEntry?.createdBy || user.uid
       };
@@ -5682,13 +5826,75 @@ Rules:
         .trim();
     }
 
-    function getChordDiagramData(chordName) {
+    function getChordEntriesForName(chordName = '') {
+      const normalized = normalizeChordLookupName(chordName);
+      if (!normalized) return [];
+      const candidates = [normalized];
+      const slashRoot = normalized.split('/')[0];
+      if (slashRoot && !candidates.includes(slashRoot)) candidates.push(slashRoot);
+      const fallback = slashRoot.replace(/maj7|maj|7|sus4|sus2|sus|add\d+|dim|aug/g, '');
+      if (fallback && !candidates.includes(fallback)) candidates.push(fallback);
+      for (const token of candidates) {
+        const key = normalizeChordNameKey(token);
+        const matches = chordEntries.filter(entry => entry.nameKey === key);
+        if (matches.length) return matches;
+      }
+      return [];
+    }
+
+    function getPreferredChordEntryFromGroup(group = [], preference = 'auto') {
+      const pref = normalizeChordVoicingPreference(preference);
+      const list = Array.isArray(group) ? group : [];
+      if (!list.length) return null;
+      const rankFor = (entry) => {
+        const type = normalizeChordVoicingType(entry?.voicingType);
+        if (pref === 'open') {
+          if (type === 'open') return 0;
+          if (type === 'other') return 1;
+          return 2;
+        }
+        if (pref === 'barre') {
+          if (type === 'barre') return 0;
+          if (type === 'other') return 1;
+          return 2;
+        }
+        if (type === 'open') return 0;
+        if (type === 'other') return 1;
+        return 2;
+      };
+      return [...list].sort((a, b) => {
+        const rankDiff = rankFor(a) - rankFor(b);
+        if (rankDiff !== 0) return rankDiff;
+        const fretA = Number(a?.baseFret || 1);
+        const fretB = Number(b?.baseFret || 1);
+        if (fretA !== fretB) return fretA - fretB;
+        const idA = String(a?.id || '');
+        const idB = String(b?.id || '');
+        return idA.localeCompare(idB);
+      })[0] || null;
+    }
+
+    function getPreferredChordVariantIndex(entries = [], preference = 'auto') {
+      const preferred = getPreferredChordEntryFromGroup(entries, preference);
+      if (!preferred) return 0;
+      const idx = entries.findIndex(entry => entry.id && preferred.id && entry.id === preferred.id);
+      if (idx >= 0) return idx;
+      const fallbackIdx = entries.findIndex(entry => entry.shapeKey === preferred.shapeKey && entry.nameKey === preferred.nameKey);
+      return fallbackIdx >= 0 ? fallbackIdx : 0;
+    }
+
+    function getChordDiagramData(chordName, options = {}) {
+      const preference = normalizeChordVoicingPreference(options?.preference || getActiveChordVoicingPreference());
+      const entries = getChordEntriesForName(chordName);
+      const preferred = getPreferredChordEntryFromGroup(entries, preference);
+      if (preferred) return preferred;
       const normalized = normalizeChordLookupName(chordName);
       if (CHORD_LIBRARY[normalized]) return CHORD_LIBRARY[normalized];
       const slashRoot = normalized.split('/')[0];
       if (CHORD_LIBRARY[slashRoot]) return CHORD_LIBRARY[slashRoot];
       const fallback = slashRoot.replace(/maj7|maj|7|sus4|sus2|sus|add\d+|dim|aug/g, '');
-      return CHORD_LIBRARY[fallback] || null;
+      if (CHORD_LIBRARY[fallback]) return CHORD_LIBRARY[fallback];
+      return null;
     }
 
     function renderChordDiagramSvg(chordName, large = false, overrideData = null) {
@@ -5706,7 +5912,7 @@ Rules:
       container.innerHTML = `<div class="chord-library-grid">${chords.map(chord => renderChordDiagramSvg(chord)).join('')}</div>`;
     }
 
-    function setPreviewChordDiagram(chordName = '') {
+    function setPreviewChordDiagram(chordName = '', overrideEntry = null) {
       const wrap = document.getElementById('practice-preview-chord-diagram');
       const title = document.getElementById('practice-preview-chord-name');
       if (!wrap || !title) return;
@@ -5718,7 +5924,7 @@ Rules:
       }
       title.dataset.chord = chordName;
       title.innerText = getDisplayChordName(chordName);
-      wrap.innerHTML = renderChordDiagramSvg(chordName, true);
+      wrap.innerHTML = renderChordDiagramSvg(chordName, true, overrideEntry);
     }
 
     function renderPreviewChordsFound(song = currentSong) {
@@ -5772,15 +5978,49 @@ Rules:
       modal.style.left = `${left}px`;
     }
 
+    function renderChordPopoverContent() {
+      const modal = ensureChordPopoverContainer();
+      if (!modal || !chordPopoverState.chordName) return;
+      const total = chordPopoverState.variants.length;
+      const safeIndex = total ? Math.max(0, Math.min(total - 1, chordPopoverState.variantIndex)) : 0;
+      chordPopoverState.variantIndex = safeIndex;
+      const currentEntry = total ? chordPopoverState.variants[safeIndex] : null;
+      const voicingType = normalizeChordVoicingType(currentEntry?.voicingType);
+      const voicingLabel = voicingType === 'barre' ? 'Barre' : (voicingType === 'open' ? 'Open' : 'Other');
+      modal.innerHTML = `
+        <div>
+          ${renderChordDiagramSvg(chordPopoverState.chordName, false, currentEntry)}
+          ${total > 1 ? `
+            <div class="mt-2 flex items-center justify-between gap-2">
+              <button onclick="shiftChordPopoverVariant(-1)" class="w-8 h-8 rounded-full btn-soft btn-press" title="Previous shape">
+                <i class="fas fa-chevron-left text-xs"></i>
+              </button>
+              <div class="text-[10px] text-gray-400 uppercase tracking-[0.2em]">
+                ${voicingLabel} ${safeIndex + 1}/${total}
+              </div>
+              <button onclick="shiftChordPopoverVariant(1)" class="w-8 h-8 rounded-full btn-soft btn-press" title="Next shape">
+                <i class="fas fa-chevron-right text-xs"></i>
+              </button>
+            </div>
+          ` : `
+            <div class="mt-1 text-[10px] text-center text-gray-500 uppercase tracking-[0.18em]">${voicingLabel} shape</div>
+          `}
+        </div>
+      `;
+      setPreviewChordDiagram(chordPopoverState.chordName, currentEntry);
+      positionChordPopover();
+    }
+
     function showChordPopover(chordName, anchorEl = null) {
       const modal = ensureChordPopoverContainer();
       if (!modal) return;
-      modal.innerHTML = renderChordDiagramSvg(chordName, false);
       modal.classList.remove('hidden');
       chordPopoverState.visible = true;
       chordPopoverState.chordName = chordName;
       chordPopoverState.anchorEl = anchorEl instanceof HTMLElement ? anchorEl : null;
-      positionChordPopover();
+      chordPopoverState.variants = getChordEntriesForName(chordName);
+      chordPopoverState.variantIndex = getPreferredChordVariantIndex(chordPopoverState.variants, getActiveChordVoicingPreference());
+      renderChordPopoverContent();
     }
 
     function hideChordPopover() {
@@ -5790,8 +6030,18 @@ Rules:
       chordPopoverState.visible = false;
       chordPopoverState.chordName = '';
       chordPopoverState.anchorEl = null;
+      chordPopoverState.variants = [];
+      chordPopoverState.variantIndex = 0;
       modal.innerHTML = '';
     }
+
+    window.shiftChordPopoverVariant = function(delta = 1) {
+      if (!chordPopoverState.visible || !chordPopoverState.variants.length) return;
+      const total = chordPopoverState.variants.length;
+      const step = Number(delta) >= 0 ? 1 : -1;
+      chordPopoverState.variantIndex = (chordPopoverState.variantIndex + step + total) % total;
+      renderChordPopoverContent();
+    };
 
     function setupChordPopoverHandlers() {
       if (window.__chordPopoverHandlersBound) return;
@@ -5816,7 +6066,6 @@ Rules:
     window.openPreviewChordDiagram = function(chordName, anchorEl = null) {
       const normalized = normalizeChordLookupName(chordName);
       if (!normalized) return;
-      setPreviewChordDiagram(normalized);
       showChordPopover(normalized, anchorEl);
     };
 
@@ -6450,6 +6699,7 @@ Rules:
       const bpm = Math.max(40, Math.min(240, parseInt(draft.bpm, 10) || 80));
       const defaultTimeSignature = normalizeTimeSignature(draft.timeSignature || '4/4');
       const capo = String(draft.capo || 'No capo').trim() || 'No capo';
+      const chordVoicingPreference = normalizeChordVoicingPreference(draft.chordVoicingPreference || 'auto');
       const rawText = String(draft.rawText || '').trim();
 
       document.getElementById('add-title').value = title || 'Untitled';
@@ -6457,6 +6707,7 @@ Rules:
       document.getElementById('add-youtube-url').value = youtubeUrl;
       document.getElementById('add-bpm').value = String(bpm);
       document.getElementById('add-capo').value = capo;
+      document.getElementById('add-chord-voicing-preference').value = chordVoicingPreference;
       document.getElementById('add-chords-text').value = rawText || 'C\nEmpty';
 
       const patterns = Array.isArray(draft.strummingPatterns) ? draft.strummingPatterns : [];
@@ -6490,6 +6741,7 @@ Rules:
       document.getElementById('add-youtube-url').value = '';
       document.getElementById('add-bpm').value = '';
       document.getElementById('add-capo').value = 'No capo';
+      document.getElementById('add-chord-voicing-preference').value = 'auto';
       document.getElementById('add-chords-text').value = '';
       addPatternEntries = [{ id: nextAddPatternEntryId++, tags: [], timeSignature: '4/4', patternText: normalizePatternText('', 4) }];
       syncAddPatternEditor();
@@ -6511,6 +6763,7 @@ Rules:
       document.getElementById('add-youtube-url').value = currentSong.youtubeUrl || '';
       document.getElementById('add-bpm').value = currentSong.bpm;
       document.getElementById('add-capo').value = currentSong.capo || 'No capo';
+      document.getElementById('add-chord-voicing-preference').value = normalizeChordVoicingPreference(currentSong.chordVoicingPreference || 'auto');
       document.getElementById('add-chords-text').value = currentSong.rawText;
       const defaultTimeSignature = normalizeTimeSignature(currentSong.timeSignature || '4/4');
       const sourcePatterns = Array.isArray(currentSong.strummingPatterns) && currentSong.strummingPatterns.length
@@ -6545,6 +6798,7 @@ Rules:
         const youtubeUrl = normalizeYouTubeUrl(document.getElementById('add-youtube-url').value || '');
         const bpm = parseInt(document.getElementById('add-bpm').value) || 80;
         const capo = document.getElementById('add-capo').value || "No capo";
+        const chordVoicingPreference = normalizeChordVoicingPreference(document.getElementById('add-chord-voicing-preference')?.value || 'auto');
         const rawText = document.getElementById('add-chords-text').value || "C\nEmpty";
         
         const tagOptionMap = new Map(extractTagOptionsFromRawText(rawText).map(item => [item.key, item.label]));
@@ -6582,7 +6836,7 @@ Rules:
           : normalizeTimeSignature(primaryPattern?.timeSignature || '4/4');
 
         const newSongData = {
-          title, artist, youtubeUrl, bpm, timeSignature: songTimeSignature, capo, rawText,
+          title, artist, youtubeUrl, bpm, timeSignature: songTimeSignature, capo, chordVoicingPreference, rawText,
           strumming: primaryPattern.strumming,
           strummingPatterns: normalizedPatterns.map(entry => ({
             tag: entry.tag,
@@ -7675,6 +7929,8 @@ Rules:
         return;
       }
       currentSong = song;
+      activeChordVoicingPreference = normalizeChordVoicingPreference(song.chordVoicingPreference || 'auto');
+      applyChordVoicingPreferenceUi(activeChordVoicingPreference);
       userProgress = getRecentProgressForSong(songId) || getEmptyProgress();
       userProgressSongId = songId;
       startPractice(0);
@@ -7719,6 +7975,8 @@ Rules:
         if (skipUrl || isHandlingRouteChange) pushUrlPath('/songs', { replace: true });
         return;
       }
+      activeChordVoicingPreference = normalizeChordVoicingPreference(currentSong.chordVoicingPreference || 'auto');
+      applyChordVoicingPreferenceUi(activeChordVoicingPreference);
       userProgress = getRecentProgressForSong(currentSong.id) || getEmptyProgress();
       userProgressSongId = currentSong.id;
       renderToolSongsSearch(document.getElementById('tool-song-search')?.value || '');
@@ -7971,6 +8229,7 @@ Rules:
                 <div><div class="text-[10px] uppercase tracking-[0.2em] text-gray-500 mb-1">Capo</div><div class="text-white font-semibold">${currentSong.capo || 'No capo'}</div></div>
               </div>
               ${renderChordNotationSelectHtml('preview-chord-notation')}
+              ${renderChordVoicingSelectHtml('preview-chord-voicing')}
               <div class="mt-4 flex items-center justify-end gap-2">
                 <button id="btn-preview-play" onclick="togglePlay()" class="bg-primary text-black rounded-full px-5 py-2 text-sm font-bold btn-press">
                   <i class="fas fa-play mr-2"></i> Play Preview

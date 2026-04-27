@@ -275,10 +275,19 @@ export class FirestoreRepository {
     const existing = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     if (!defaultChords.length) return existing;
 
-    const existingByName = new Set(existing.map(item => String(item?.name || '').trim().toLowerCase()).filter(Boolean));
+    const makeShapeKey = (strings = []) => (Array.isArray(strings) ? strings.map(v => String(v).trim().toLowerCase()).join('|') : '');
+    const existingKeys = new Set(
+      existing.map(item => {
+        const nameKey = String(item?.name || '').trim().toLowerCase();
+        const shapeKey = makeShapeKey(item?.strings || []);
+        return `${nameKey}::${shapeKey}`;
+      }).filter(key => key !== '::')
+    );
     const missing = defaultChords.filter(item => {
-      const key = String(item?.name || '').trim().toLowerCase();
-      return !!key && !existingByName.has(key);
+      const nameKey = String(item?.name || '').trim().toLowerCase();
+      const shapeKey = makeShapeKey(item?.strings || []);
+      const key = `${nameKey}::${shapeKey}`;
+      return !!nameKey && !!shapeKey && !existingKeys.has(key);
     });
     if (!missing.length) return existing;
 
