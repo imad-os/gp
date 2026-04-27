@@ -171,7 +171,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.18',
+      version: 'v2026.04.22.19',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -3076,7 +3076,7 @@ Drop back to 70 BPM for clean finish.`,
 
     function getSongSearchMatches(query = '', max = 10) {
       const q = String(query || '').trim().toLowerCase();
-      if (!q) return songs.slice(0, max);
+      if (!q) return [];
       return songs
         .filter(song => {
           const title = String(song?.title || '').toLowerCase();
@@ -3100,9 +3100,12 @@ Drop back to 70 BPM for clean finish.`,
       const activeItem = getActiveLooperHistoryItem();
       const linkedSong = activeItem ? findLinkedSongForLooper(activeItem.id) : null;
       const isBusy = !!looperLinkingHistoryId;
+      const hasLinkedSong = !!linkedSong;
+      const query = String(looperSongLinkSearchQuery || '').trim();
 
       input.disabled = !activeItem || isBusy;
       input.value = looperSongLinkSearchQuery;
+      input.classList.toggle('hidden', hasLinkedSong);
 
       if (!activeItem) {
         status.innerText = 'Open or save a looper item first, then link it to a song.';
@@ -3115,7 +3118,17 @@ Drop back to 70 BPM for clean finish.`,
         ? `Selected looper: ${activeTitle}. Linked song: ${linkedSong.title || 'Untitled'}.`
         : `Selected looper: ${activeTitle}. No song linked yet.`;
 
-      const matches = getSongSearchMatches(looperSongLinkSearchQuery, 12);
+      if (hasLinkedSong) {
+        results.innerHTML = '';
+        return;
+      }
+
+      if (!query) {
+        results.innerHTML = '';
+        return;
+      }
+
+      const matches = getSongSearchMatches(query, 12);
       if (!matches.length) {
         results.innerHTML = `<p class="text-[11px] text-gray-500">No matched songs found.</p>`;
         return;
