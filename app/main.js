@@ -107,6 +107,8 @@ import { FirestoreRepository } from './modules/repository.js';
     let looperDeletingHistoryId = '';
     let looperOpeningHistoryId = '';
     let looperOpeningProgress = 0;
+    let looperSharingHistoryId = '';
+    let looperSharingHistoryStatus = '';
     let tabsPreviewTimerIds = [];
     let tabsPreviewSessionId = 0;
     let tabsPreviewHistory = [];
@@ -167,7 +169,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.14',
+      version: 'v2026.04.22.15',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -2248,7 +2250,9 @@ Drop back to 70 BPM for clean finish.`,
       if (!btn || !label) return;
       const onLooperPage = activeTab === 'tools' && activeToolPage === 'looper';
       const shouldShow = hasActiveLooperTrack() && isLooperPlaying() && !onLooperPage;
+      const shouldShowLabel = window.innerWidth > 700;
       btn.classList.toggle('hidden', !shouldShow);
+      label.classList.toggle('hidden', !shouldShow || !shouldShowLabel);
       if (!shouldShow) return;
       const title = sanitizeLooperTitle(looperActiveSource?.title, 'Looper');
       label.innerText = title.length > 30 ? `${title.slice(0, 30)}...` : title;
@@ -3048,7 +3052,7 @@ Drop back to 70 BPM for clean finish.`,
         return;
       }
       list.innerHTML = looperHistory.map(item => `
-        <div class="bg-black/30 border ${item.id === activeLooperHistoryId ? 'border-primary/60' : 'border-gray-800'} rounded-xl px-3 py-3 ${(looperDeletingHistoryId === item.id || looperOpeningHistoryId === item.id) ? 'opacity-70' : ''}">
+        <div class="bg-black/30 border ${item.id === activeLooperHistoryId ? 'border-primary/60' : 'border-gray-800'} rounded-xl px-3 py-3 ${(looperDeletingHistoryId === item.id || looperOpeningHistoryId === item.id || looperSharingHistoryId === item.id) ? 'opacity-70' : ''}">
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
               <p class="font-semibold text-sm text-white truncate">${escapeHtml(item.title || 'Untitled media')}</p>
@@ -3060,15 +3064,16 @@ Drop back to 70 BPM for clean finish.`,
                 <p class="text-[11px] text-primary mt-1"><i class="fas fa-spinner fa-spin mr-1"></i>Loading... ${Math.max(0, Math.min(100, Math.round(looperOpeningProgress)))}%</p>
                 <div class="mt-1.5 h-1.5 rounded-full bg-gray-800 overflow-hidden"><div class="h-full bg-primary transition-all duration-150" style="width:${Math.max(0, Math.min(100, looperOpeningProgress))}%"></div></div>
               ` : ''}
+              ${looperSharingHistoryId === item.id ? `<p class="text-[11px] text-primary mt-1"><i class="fas fa-spinner fa-spin mr-1"></i>${escapeHtml(looperSharingHistoryStatus || 'Preparing share link...')}</p>` : ''}
             </div>
             <div class="flex items-center gap-2 shrink-0">
-              <button onclick="openLooperHistoryItem('${item.id}')" class="w-8 h-8 rounded-full btn-soft btn-press ${(looperDeletingHistoryId === item.id || looperOpeningHistoryId === item.id) ? 'opacity-50 pointer-events-none' : ''}" title="Open">
+              <button onclick="openLooperHistoryItem('${item.id}')" class="w-8 h-8 rounded-full btn-soft btn-press ${(looperDeletingHistoryId === item.id || looperOpeningHistoryId === item.id || looperSharingHistoryId === item.id) ? 'opacity-50 pointer-events-none' : ''}" title="Open">
                 <i class="fas fa-play text-xs"></i>
               </button>
-              <button onclick="shareLooperHistoryItem('${item.id}')" class="w-8 h-8 rounded-full btn-soft btn-press ${(looperDeletingHistoryId === item.id || looperOpeningHistoryId === item.id) ? 'opacity-50 pointer-events-none' : ''}" title="Share">
-                <i class="fas fa-share-alt text-xs"></i>
+              <button onclick="shareLooperHistoryItem('${item.id}')" class="w-8 h-8 rounded-full btn-soft btn-press ${(looperDeletingHistoryId === item.id || looperOpeningHistoryId === item.id || looperSharingHistoryId === item.id) ? 'opacity-50 pointer-events-none' : ''}" title="Share">
+                <i class="fas ${looperSharingHistoryId === item.id ? 'fa-spinner fa-spin' : 'fa-share-alt'} text-xs"></i>
               </button>
-              <button onclick="deleteLooperHistoryItem('${item.id}')" class="w-8 h-8 rounded-full btn-soft btn-press ${(looperDeletingHistoryId === item.id || looperOpeningHistoryId === item.id) ? 'opacity-50 pointer-events-none' : ''}" title="Delete">
+              <button onclick="deleteLooperHistoryItem('${item.id}')" class="w-8 h-8 rounded-full btn-soft btn-press ${(looperDeletingHistoryId === item.id || looperOpeningHistoryId === item.id || looperSharingHistoryId === item.id) ? 'opacity-50 pointer-events-none' : ''}" title="Delete">
                 <i class="fas fa-trash text-xs"></i>
               </button>
             </div>
@@ -3867,6 +3872,13 @@ Drop back to 70 BPM for clean finish.`,
     window.shareLooperHistoryItem = async function(itemId) {
       const item = looperHistory.find(entry => entry.id === itemId);
       if (!item) return;
+      if (looperSharingHistoryId === itemId) return;
+      looperSharingHistoryId = itemId;
+      looperSharingHistoryStatus = item.sourceType === 'upload'
+        ? (item.publicShareId ? 'Preparing share...' : 'Making loop public...')
+        : 'Preparing share...';
+      renderLooperHistory();
+      showToast(looperSharingHistoryStatus, true);
       try {
         if (item.sourceType === 'youtube' && item.youtubeUrl) {
           await shareTextOrUrl({
@@ -3896,6 +3908,12 @@ Drop back to 70 BPM for clean finish.`,
       } catch (err) {
         console.error('Share looper item failed', err);
         showToast('Could not share this looper item.');
+      } finally {
+        if (looperSharingHistoryId === itemId) {
+          looperSharingHistoryId = '';
+          looperSharingHistoryStatus = '';
+          renderLooperHistory();
+        }
       }
     };
 
@@ -4010,6 +4028,8 @@ Drop back to 70 BPM for clean finish.`,
       looperDeletingHistoryId = '';
       looperOpeningHistoryId = '';
       looperOpeningProgress = 0;
+      looperSharingHistoryId = '';
+      looperSharingHistoryStatus = '';
       setLooperNoteText('');
       updateLooperMaxUploadLabel();
       renderLooperHistory();
@@ -8946,6 +8966,9 @@ Rules:
       });
       window.addEventListener('beforeunload', () => {
         stopLooperPlayback();
+      });
+      window.addEventListener('resize', () => {
+        updateLooperNowPlayingIndicator();
       });
       queueBackgroundInitialization();
     }
