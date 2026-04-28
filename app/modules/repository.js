@@ -43,6 +43,22 @@ export class FirestoreRepository {
     return created.id;
   }
 
+  async deleteSong(songId) {
+    const commentsRef = collection(this.db, 'songs', songId, 'comments');
+    const commentsSnap = await getDocs(commentsRef);
+    for (const entry of commentsSnap.docs) {
+      await deleteDoc(entry.ref);
+    }
+
+    const ratingsRef = collection(this.db, 'songs', songId, 'ratings');
+    const ratingsSnap = await getDocs(ratingsRef);
+    for (const entry of ratingsSnap.docs) {
+      await deleteDoc(entry.ref);
+    }
+
+    await deleteDoc(doc(this.db, 'songs', songId));
+  }
+
   async searchSongs(queryText, { ensureSongFormat, max = 30 } = {}) {
     const term = String(queryText || '').trim().toLowerCase();
     if (!term) return [];

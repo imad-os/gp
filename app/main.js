@@ -170,7 +170,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.31',
+      version: 'v2026.04.22.32',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -7691,12 +7691,15 @@ Rules:
     }
 
     function renderHomeDashboard() {
-      const favorites = songs.filter(song => (userSettings.favoriteSongIds || []).includes(song.id));
+      const favorites = songs
+        .filter(song => (userSettings.favoriteSongIds || []).includes(song.id))
+        .sort((a, b) => Number(b?.createdAt || 0) - Number(a?.createdAt || 0));
       const recentEntries = userSettings.recentPractice || [];
       const recentSongs = recentEntries
         .map(entry => ({ song: songs.find(song => song.id === entry.songId), progress: entry.progress }))
         .filter(entry => entry.song);
-      const recentListeningItems = getRecentLooperHistoryItems(5);
+      const recentListeningItems = getRecentLooperHistoryItems(5)
+        .sort((a, b) => Number(b?.updatedAt || b?.createdAt || 0) - Number(a?.updatedAt || a?.createdAt || 0));
 
       const favoritesContainer = document.getElementById('home-favorites-list');
       const recentContainer = document.getElementById('home-recent-practice-list');
@@ -7995,11 +7998,10 @@ Rules:
       document.getElementById('detail-created-at').innerText = currentSong.createdAt ? new Date(currentSong.createdAt).toLocaleDateString() : '-';
       
       const btnEdit = document.getElementById('btn-edit-song');
-      if (user && user.uid === currentSong.ownerId) {
-          btnEdit.classList.remove('hidden');
-      } else {
-          btnEdit.classList.add('hidden');
-      }
+      const btnDelete = document.getElementById('btn-delete-song');
+      const isOwner = !!(user && user.uid === currentSong.ownerId);
+      if (btnEdit) btnEdit.classList.toggle('hidden', !isOwner);
+      if (btnDelete) btnDelete.classList.toggle('hidden', !isOwner);
       
       renderSongDetailPatterns(currentSong);
       
@@ -8021,6 +8023,47 @@ Rules:
           if (viewEl) viewEl.innerText = String(currentSong.stats?.views || 0);
         })
         .catch(err => console.error("Could not update views", err));
+    };
+
+    window.deleteCurrentSong = async function() {
+      if (!currentSong?.id || !repository) return;
+      if (!user || user.isAnonymous) {
+        showToast('Sign in to delete songs.');
+        return;
+      }
+      if (user.uid !== currentSong.ownerId) {
+        showToast('Only the song owner can delete this song.');
+        return;
+      }
+      const title = currentSong.title || 'this song';
+      if (!confirm(`Delete "${title}"? This cannot be undone.`)) return;
+      try {
+        showLoading(true, 'Deleting song...');
+        const deletingSongId = currentSong.id;
+        await repository.deleteSong(deletingSongId);
+
+        songs = songs.filter(song => song.id !== deletingSongId);
+        const nextFavorites = (userSettings.favoriteSongIds || []).filter(id => id !== deletingSongId);
+        const nextRecent = (userSettings.recentPractice || []).filter(entry => entry.songId !== deletingSongId);
+        await persistUserSettingsPartial({
+          favoriteSongIds: nextFavorites,
+          recentPractice: nextRecent
+        });
+
+        currentSong = null;
+        userProgressSongId = null;
+        userProgress = getEmptyProgress();
+        renderHomeList();
+        renderToolSongsSearch(document.getElementById('tool-song-search')?.value || '');
+        renderArtistPageSongs();
+        navigate('home');
+        showToast('Song deleted.', true);
+      } catch (e) {
+        console.error('Delete song failed', e);
+        showToast('Could not delete song.');
+      } finally {
+        showLoading(false);
+      }
     };
 
     async function loadProgress() {
