@@ -106,7 +106,7 @@ export function renderChordDiagramSvgWithData(chordName, data, large = false) {
       const endX = stringXs[Math.min(stringXs.length - 1, barreCandidate.indices[barreCandidate.indices.length - 1])] + 7;
       return `
         <rect x="${startX}" y="${barreY - 6}" width="${Math.max(12, endX - startX)}" height="12" rx="6" fill="#f2e7dc" stroke="#c9b29b" stroke-width="0.9"></rect>
-        ${barreFinger ? `<text x="${((startX + endX) / 2) - 0.8}" y="${barreY + 7.5}" text-anchor="middle" fill="#4f3726" font-size="24" font-weight="500">${barreFinger}</text>` : ''}
+        ${barreFinger ? `<text x="${((startX + endX) / 2) - 5}" y="${barreY + 7.5}" text-anchor="middle" fill="#4f3726" font-size="24" font-weight="500">${barreFinger}</text>` : ''}
       `;
     })()
     : '';
