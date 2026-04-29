@@ -1,4 +1,4 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+﻿import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 import { getFirestore } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import * as UI from './modules/renderers.js';
@@ -172,7 +172,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.48',
+      version: 'v2026.04.22.49',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -2830,7 +2830,6 @@ Drop back to 70 BPM for clean finish.`,
       syncLooperBoundaryUi();
       renderLooperModeButtons();
       renderLooperBackgroundOption();
-      renderLoadedLooperInfo();
       enforceLooperBounds();
       updateLooperNowPlayingIndicator();
     }
@@ -2842,6 +2841,7 @@ Drop back to 70 BPM for clean finish.`,
         if (activeLooperHistoryId && isLooperPlaying()) scheduleLooperHistorySave(1200);
       }, 120);
       refreshLooperUi();
+      renderLoadedLooperInfo();
     }
 
     function destroyLooperYoutubePlayer() {
