@@ -8,6 +8,18 @@ export class FirestoreRepository {
     this.idbName = 'guitartrainer.repo.idb.v1';
     this.idbStore = 'kv';
     this.idbPromise = null;
+    this.connectivityReporter = null;
+  }
+
+  setConnectivityReporter(fn) {
+    this.connectivityReporter = typeof fn === 'function' ? fn : null;
+  }
+
+  reportConnectivity(isOnline, reason = '') {
+    if (!this.connectivityReporter) return;
+    try {
+      this.connectivityReporter(!!isOnline, String(reason || ''));
+    } catch {}
   }
 
   makeCacheKey(scope, key = '') {
@@ -49,10 +61,15 @@ export class FirestoreRepository {
     try {
       const value = await this.withTimeout(Promise.resolve().then(fetcher), timeoutMs);
       this.setCacheJson(cacheKey, value);
+      this.reportConnectivity(true, 'network_read_ok');
       return value;
     } catch (err) {
       const fallback = this.getCacheJson(cacheKey);
-      if (fallback !== null) return fallback;
+      if (fallback !== null) {
+        this.reportConnectivity(false, 'network_read_fallback_cache');
+        return fallback;
+      }
+      this.reportConnectivity(false, 'network_read_failed');
       throw err;
     }
   }
@@ -110,10 +127,15 @@ export class FirestoreRepository {
     try {
       const value = await this.withTimeout(Promise.resolve().then(fetcher), timeoutMs);
       await this.idbSet(cacheKey, value);
+      this.reportConnectivity(true, 'network_read_ok');
       return value;
     } catch (err) {
       const fallback = await this.idbGet(cacheKey);
-      if (fallback !== null) return fallback;
+      if (fallback !== null) {
+        this.reportConnectivity(false, 'network_read_fallback_idb');
+        return fallback;
+      }
+      this.reportConnectivity(false, 'network_read_failed');
       throw err;
     }
   }

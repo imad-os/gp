@@ -172,7 +172,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.39',
+      version: 'v2026.04.22.40',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -3020,6 +3020,7 @@ Drop back to 70 BPM for clean finish.`,
         auth = getAuth(app);
         db = getFirestore(app);
         repository = new FirestoreRepository(db);
+        repository.setConnectivityReporter(handleDataLayerConnectivity);
         looperHistory = withLooperSource(repository?.loadLooperHistoryFromDeviceCache?.() || [], 'device');
         renderLooperHistory();
         renderHomeDashboard();
@@ -9144,6 +9145,17 @@ Rules:
     let latestCatalogVersion = APP_BUILD.version;
     let latestCatalogEntry = null;
     let catalogUpdateAvailable = false;
+    let dataLayerReportsOffline = false;
+
+    function refreshNetworkUiState() {
+      setOfflineUi(!navigator.onLine || dataLayerReportsOffline);
+    }
+
+    function handleDataLayerConnectivity(isOnline, reason = '') {
+      dataLayerReportsOffline = !isOnline;
+      refreshNetworkUiState();
+      if (!isOnline) console.warn('Data layer reports offline mode:', reason || 'unknown');
+    }
 
     function parseVersionParts(version = '') {
       return String(version || '')
@@ -9556,7 +9568,7 @@ Rules:
       renderBuildInfo();
       updateSettingsUpdateUi();
       renderUpdateHistoryUi();
-      setOfflineUi(!navigator.onLine);
+      refreshNetworkUiState();
       refreshLibraryAdminButtons();
       showToolsHome({ skipUrl: true });
       navigate('home', { skipUrl: true });
@@ -9566,12 +9578,12 @@ Rules:
       restoreMetronomeSettings();
       renderStandaloneMetronomeVisual();
       window.addEventListener('online', () => {
-        setOfflineUi(false);
+        refreshNetworkUiState();
         updateSettingsUpdateUi();
         refreshVersionCatalog(false).catch(() => {});
       });
       window.addEventListener('offline', () => {
-        setOfflineUi(true);
+        refreshNetworkUiState();
       });
       document.addEventListener('visibilitychange', () => {
         if (document.hidden) {
