@@ -3,16 +3,132 @@ import { collection, getDocs, doc, setDoc, getDoc, addDoc, deleteDoc, query, whe
 export class FirestoreRepository {
   constructor(db) {
     this.db = db;
+    this.cachePrefix = 'guitartrainer.repo.cache.v1';
+    this.readTimeoutMs = 6500;
+    this.idbName = 'guitartrainer.repo.idb.v1';
+    this.idbStore = 'kv';
+    this.idbPromise = null;
+  }
+
+  makeCacheKey(scope, key = '') {
+    return `${this.cachePrefix}:${scope}:${key}`;
+  }
+
+  withTimeout(promise, timeoutMs = this.readTimeoutMs) {
+    const ms = Math.max(1200, Number(timeoutMs) || this.readTimeoutMs);
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`timeout_${ms}ms`)), ms);
+      promise
+        .then(value => {
+          clearTimeout(timer);
+          resolve(value);
+        })
+        .catch(err => {
+          clearTimeout(timer);
+          reject(err);
+        });
+    });
+  }
+
+  getCacheJson(cacheKey) {
+    try {
+      const raw = localStorage.getItem(cacheKey);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  setCacheJson(cacheKey, value) {
+    try {
+      localStorage.setItem(cacheKey, JSON.stringify(value));
+    } catch {}
+  }
+
+  async readWithCache(cacheKey, fetcher, { timeoutMs = this.readTimeoutMs } = {}) {
+    try {
+      const value = await this.withTimeout(Promise.resolve().then(fetcher), timeoutMs);
+      this.setCacheJson(cacheKey, value);
+      return value;
+    } catch (err) {
+      const fallback = this.getCacheJson(cacheKey);
+      if (fallback !== null) return fallback;
+      throw err;
+    }
+  }
+
+  async getIdb() {
+    if (this.idbPromise) return this.idbPromise;
+    this.idbPromise = new Promise((resolve, reject) => {
+      if (!('indexedDB' in globalThis)) {
+        resolve(null);
+        return;
+      }
+      const req = indexedDB.open(this.idbName, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(this.idbStore)) db.createObjectStore(this.idbStore);
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error || new Error('idb_open_failed'));
+    }).catch(() => null);
+    return this.idbPromise;
+  }
+
+  async idbGet(cacheKey) {
+    const db = await this.getIdb();
+    if (!db) return null;
+    return await new Promise(resolve => {
+      try {
+        const tx = db.transaction(this.idbStore, 'readonly');
+        const store = tx.objectStore(this.idbStore);
+        const req = store.get(cacheKey);
+        req.onsuccess = () => resolve(req.result ?? null);
+        req.onerror = () => resolve(null);
+      } catch {
+        resolve(null);
+      }
+    });
+  }
+
+  async idbSet(cacheKey, value) {
+    const db = await this.getIdb();
+    if (!db) return;
+    await new Promise(resolve => {
+      try {
+        const tx = db.transaction(this.idbStore, 'readwrite');
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+        tx.objectStore(this.idbStore).put(value, cacheKey);
+      } catch {
+        resolve();
+      }
+    });
+  }
+
+  async readWithIdbCache(cacheKey, fetcher, { timeoutMs = this.readTimeoutMs } = {}) {
+    try {
+      const value = await this.withTimeout(Promise.resolve().then(fetcher), timeoutMs);
+      await this.idbSet(cacheKey, value);
+      return value;
+    } catch (err) {
+      const fallback = await this.idbGet(cacheKey);
+      if (fallback !== null) return fallback;
+      throw err;
+    }
   }
 
   async loadSongs({ defaultSong, ensureSongFormat }) {
-    const songsRef = collection(this.db, 'songs');
-    const snap = await getDocs(songsRef);
-    if (snap.empty) {
-      await setDoc(doc(songsRef, 'default_song'), defaultSong);
-      return [ensureSongFormat({ id: 'default_song', ...defaultSong })];
-    }
-    return snap.docs.map(d => ensureSongFormat({ id: d.id, ...d.data() }));
+    const songs = await this.readWithCache(this.makeCacheKey('songs', 'all'), async () => {
+      const songsRef = collection(this.db, 'songs');
+      const snap = await getDocs(songsRef);
+      if (snap.empty) {
+        await setDoc(doc(songsRef, 'default_song'), defaultSong);
+        return [{ id: 'default_song', ...defaultSong }];
+      }
+      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    });
+    return songs.map(d => ensureSongFormat(d));
   }
 
   async saveSong(songData, editingSongId = null) {
@@ -62,55 +178,66 @@ export class FirestoreRepository {
   async searchSongs(queryText, { ensureSongFormat, max = 30 } = {}) {
     const term = String(queryText || '').trim().toLowerCase();
     if (!term) return [];
-    const songsRef = collection(this.db, 'songs');
-    const token = term.split(/\s+/)[0];
-    const snapshots = [];
-    try {
-      snapshots.push(await getDocs(query(songsRef, where('searchTokens', 'array-contains', token), limit(max))));
-      if (term !== token) {
-        snapshots.push(await getDocs(query(songsRef, where('searchTokens', 'array-contains', term), limit(max))));
+    const cacheKey = this.makeCacheKey('song_search', `${term}:${max}`);
+    const result = await this.readWithCache(cacheKey, async () => {
+      const songsRef = collection(this.db, 'songs');
+      const token = term.split(/\s+/)[0];
+      const snapshots = [];
+      try {
+        snapshots.push(await getDocs(query(songsRef, where('searchTokens', 'array-contains', token), limit(max))));
+        if (term !== token) {
+          snapshots.push(await getDocs(query(songsRef, where('searchTokens', 'array-contains', term), limit(max))));
+        }
+      } catch {
+        // Fallback path handled below for legacy documents without search indexes.
       }
-    } catch {
-      // Fallback path handled below for legacy documents without search indexes.
-    }
-    const merged = [];
-    const seen = new Set();
-    for (const snap of snapshots) {
-      snap.docs.forEach(d => {
-        if (seen.has(d.id)) return;
-        seen.add(d.id);
-        merged.push({ id: d.id, ...d.data() });
+      const merged = [];
+      const seen = new Set();
+      for (const snap of snapshots) {
+        snap.docs.forEach(d => {
+          if (seen.has(d.id)) return;
+          seen.add(d.id);
+          merged.push({ id: d.id, ...d.data() });
+        });
+      }
+      const source = merged.length ? merged : (await getDocs(songsRef)).docs.map(d => ({ id: d.id, ...d.data() }));
+      const filtered = source.filter(song => {
+        const title = String(song.title || '').toLowerCase();
+        const artist = String(song.artist || '').toLowerCase();
+        return title.includes(term) || artist.includes(term);
       });
-    }
-    const source = merged.length ? merged : (await getDocs(songsRef)).docs.map(d => ({ id: d.id, ...d.data() }));
-    const filtered = source.filter(song => {
-      const title = String(song.title || '').toLowerCase();
-      const artist = String(song.artist || '').toLowerCase();
-      return title.includes(term) || artist.includes(term);
+      return filtered.slice(0, max);
     });
-    return (ensureSongFormat ? filtered.map(ensureSongFormat) : filtered).slice(0, max);
+    return ensureSongFormat ? result.map(ensureSongFormat) : result;
   }
 
   async loadUserSettings(userId, defaults) {
-    const settingsRef = doc(this.db, 'users', userId, 'settings', 'app');
-    const snap = await getDoc(settingsRef);
-    return snap.exists() ? { ...defaults, ...snap.data() } : { ...defaults };
+    const cached = await this.readWithCache(this.makeCacheKey('user_settings', userId), async () => {
+      const settingsRef = doc(this.db, 'users', userId, 'settings', 'app');
+      const snap = await getDoc(settingsRef);
+      return snap.exists() ? snap.data() : {};
+    });
+    return { ...defaults, ...(cached || {}) };
   }
 
   async saveUserSettings(userId, settings) {
     const settingsRef = doc(this.db, 'users', userId, 'settings', 'app');
     await setDoc(settingsRef, settings, { merge: true });
+    this.setCacheJson(this.makeCacheKey('user_settings', userId), settings);
   }
 
   async loadProgress(userId, songId) {
-    const progRef = doc(this.db, 'users', userId, 'progress', songId);
-    const snap = await getDoc(progRef);
-    return snap.exists() ? snap.data() : { step1: { p: 0 }, step2: { p: 0 }, step3: { p: 0 } };
+    return await this.readWithCache(this.makeCacheKey('progress', `${userId}:${songId}`), async () => {
+      const progRef = doc(this.db, 'users', userId, 'progress', songId);
+      const snap = await getDoc(progRef);
+      return snap.exists() ? snap.data() : { step1: { p: 0 }, step2: { p: 0 }, step3: { p: 0 } };
+    });
   }
 
   async saveProgress(userId, songId, progress) {
     const progRef = doc(this.db, 'users', userId, 'progress', songId);
     await setDoc(progRef, progress, { merge: true });
+    this.setCacheJson(this.makeCacheKey('progress', `${userId}:${songId}`), progress);
   }
 
   async loadToolRecordings(userId) {
@@ -132,25 +259,46 @@ export class FirestoreRepository {
   }
 
   async loadLooperHistory(userId) {
-    const ref = collection(this.db, 'users', userId, 'looper_history');
-    const snap = await getDocs(ref);
-    return snap.docs
-      .map(d => ({ id: d.id, ...d.data() }))
-      .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+    return await this.readWithCache(this.makeCacheKey('looper_history', userId), async () => {
+      const ref = collection(this.db, 'users', userId, 'looper_history');
+      const snap = await getDocs(ref);
+      return snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+    });
   }
 
   async addLooperHistory(userId, item) {
     const ref = collection(this.db, 'users', userId, 'looper_history');
     const created = await addDoc(ref, item);
+    const cacheKey = this.makeCacheKey('looper_history', userId);
+    const current = this.getCacheJson(cacheKey);
+    if (Array.isArray(current)) {
+      const next = [{ id: created.id, ...item }, ...current]
+        .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+      this.setCacheJson(cacheKey, next);
+    }
     return created.id;
   }
 
   async updateLooperHistory(userId, itemId, patch) {
     await setDoc(doc(this.db, 'users', userId, 'looper_history', itemId), patch, { merge: true });
+    const cacheKey = this.makeCacheKey('looper_history', userId);
+    const current = this.getCacheJson(cacheKey);
+    if (Array.isArray(current)) {
+      const next = current.map(item => (item?.id === itemId ? { ...item, ...patch } : item))
+        .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+      this.setCacheJson(cacheKey, next);
+    }
   }
 
   async deleteLooperHistory(userId, itemId) {
     await deleteDoc(doc(this.db, 'users', userId, 'looper_history', itemId));
+    const cacheKey = this.makeCacheKey('looper_history', userId);
+    const current = this.getCacheJson(cacheKey);
+    if (Array.isArray(current)) {
+      this.setCacheJson(cacheKey, current.filter(item => item?.id !== itemId));
+    }
   }
 
   async saveLooperMediaData(userId, itemId, dataUrl) {
@@ -168,29 +316,33 @@ export class FirestoreRepository {
       const chunkId = String(i).padStart(5, '0');
       await setDoc(doc(chunksRef, chunkId), { index: i, data: part });
     }
+    await this.idbSet(this.makeCacheKey('looper_media', `${userId}:${itemId}`), source);
     return chunkCount;
   }
 
   async loadLooperMediaData(userId, itemId, onProgress = null) {
-    const chunksRef = collection(this.db, 'users', userId, 'looper_history', itemId, 'media_chunks');
-    const snap = await getDocs(chunksRef);
-    if (snap.empty) return '';
-    if (typeof onProgress === 'function') onProgress(18);
-    const ordered = snap.docs
-      .map(d => ({ id: d.id, ...d.data() }))
-      .sort((a, b) => (a.index ?? Number(a.id)) - (b.index ?? Number(b.id)));
-    const total = Math.max(1, ordered.length);
-    const parts = [];
-    for (let i = 0; i < ordered.length; i += 1) {
-      parts.push(String(ordered[i].data || ''));
-      if (typeof onProgress === 'function') {
-        const progress = 18 + Math.round(((i + 1) / total) * 72);
-        onProgress(Math.min(90, progress));
+    const cacheKey = this.makeCacheKey('looper_media', `${userId}:${itemId}`);
+    return await this.readWithIdbCache(cacheKey, async () => {
+      const chunksRef = collection(this.db, 'users', userId, 'looper_history', itemId, 'media_chunks');
+      const snap = await getDocs(chunksRef);
+      if (snap.empty) return '';
+      if (typeof onProgress === 'function') onProgress(18);
+      const ordered = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (a.index ?? Number(a.id)) - (b.index ?? Number(b.id)));
+      const total = Math.max(1, ordered.length);
+      const parts = [];
+      for (let i = 0; i < ordered.length; i += 1) {
+        parts.push(String(ordered[i].data || ''));
+        if (typeof onProgress === 'function') {
+          const progress = 18 + Math.round(((i + 1) / total) * 72);
+          onProgress(Math.min(90, progress));
+        }
+        if (i % 25 === 0) await Promise.resolve();
       }
-      if (i % 25 === 0) await Promise.resolve();
-    }
-    if (typeof onProgress === 'function') onProgress(95);
-    return parts.join('');
+      if (typeof onProgress === 'function') onProgress(95);
+      return parts.join('');
+    }, { timeoutMs: 10000 });
   }
 
   async deleteLooperMediaData(userId, itemId) {
@@ -232,29 +384,33 @@ export class FirestoreRepository {
       const chunkId = String(i).padStart(5, '0');
       await setDoc(doc(chunksRef, chunkId), { index: i, data: part });
     }
+    await this.idbSet(this.makeCacheKey('public_looper_media', shareId), source);
     return chunkCount;
   }
 
   async loadPublicLooperMediaData(shareId, onProgress = null) {
-    const chunksRef = collection(this.db, 'public_loops', shareId, 'media_chunks');
-    const snap = await getDocs(chunksRef);
-    if (snap.empty) return '';
-    if (typeof onProgress === 'function') onProgress(18);
-    const ordered = snap.docs
-      .map(d => ({ id: d.id, ...d.data() }))
-      .sort((a, b) => (a.index ?? Number(a.id)) - (b.index ?? Number(b.id)));
-    const total = Math.max(1, ordered.length);
-    const parts = [];
-    for (let i = 0; i < ordered.length; i += 1) {
-      parts.push(String(ordered[i].data || ''));
-      if (typeof onProgress === 'function') {
-        const progress = 18 + Math.round(((i + 1) / total) * 72);
-        onProgress(Math.min(90, progress));
+    const cacheKey = this.makeCacheKey('public_looper_media', shareId);
+    return await this.readWithIdbCache(cacheKey, async () => {
+      const chunksRef = collection(this.db, 'public_loops', shareId, 'media_chunks');
+      const snap = await getDocs(chunksRef);
+      if (snap.empty) return '';
+      if (typeof onProgress === 'function') onProgress(18);
+      const ordered = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (a.index ?? Number(a.id)) - (b.index ?? Number(b.id)));
+      const total = Math.max(1, ordered.length);
+      const parts = [];
+      for (let i = 0; i < ordered.length; i += 1) {
+        parts.push(String(ordered[i].data || ''));
+        if (typeof onProgress === 'function') {
+          const progress = 18 + Math.round(((i + 1) / total) * 72);
+          onProgress(Math.min(90, progress));
+        }
+        if (i % 25 === 0) await Promise.resolve();
       }
-      if (i % 25 === 0) await Promise.resolve();
-    }
-    if (typeof onProgress === 'function') onProgress(95);
-    return parts.join('');
+      if (typeof onProgress === 'function') onProgress(95);
+      return parts.join('');
+    }, { timeoutMs: 10000 });
   }
 
   async loadSongComments(songId) {
