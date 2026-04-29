@@ -172,7 +172,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.44',
+      version: 'v2026.04.22.45',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -2830,6 +2830,7 @@ Drop back to 70 BPM for clean finish.`,
       syncLooperBoundaryUi();
       renderLooperModeButtons();
       renderLooperBackgroundOption();
+      renderLoadedLooperInfo();
       enforceLooperBounds();
       updateLooperNowPlayingIndicator();
     }
@@ -3285,6 +3286,35 @@ Drop back to 70 BPM for clean finish.`,
       return looperHistory.find(item => item.id === activeLooperHistoryId) || null;
     }
 
+    function renderLoadedLooperInfo() {
+      const el = document.getElementById('tool-looper-loaded-info');
+      if (!el) return;
+      const activeItem = getActiveLooperHistoryItem();
+      if (!activeItem) {
+        el.classList.add('hidden');
+        el.innerHTML = '';
+        return;
+      }
+      const linkedSong = findLinkedSongForLooper(activeItem.id);
+      const uploadedAt = activeItem.createdAt || activeItem.updatedAt || 0;
+      const uploadedLabel = uploadedAt ? new Date(uploadedAt).toLocaleString() : 'Unknown';
+      const cacheLabel = activeItem.cacheSource === 'device' ? 'Available (device cache)' : 'Available (cloud)';
+      const sizeLabel = Number(activeItem.sizeBytes || 0) > 0 ? formatBytes(Number(activeItem.sizeBytes || 0)) : 'Unknown';
+      el.classList.remove('hidden');
+      el.innerHTML = `
+        <div class="space-y-1">
+          <p><span class="text-gray-500">Loaded:</span> <span class="text-white">${escapeHtml(activeItem.title || 'Untitled media')}</span></p>
+          <p><span class="text-gray-500">Length:</span> ${formatLooperTime(Number(activeItem.duration || 0))}</p>
+          <p><span class="text-gray-500">Uploaded:</span> ${escapeHtml(uploadedLabel)}</p>
+          <p><span class="text-gray-500">Cache:</span> ${escapeHtml(cacheLabel)}</p>
+          <p><span class="text-gray-500">Size:</span> ${escapeHtml(sizeLabel)}</p>
+          ${linkedSong?.id
+            ? `<button onclick="openLinkedSongPreviewFromLooper('${activeItem.id}')" class="text-primary underline underline-offset-2 btn-press">Linked song: ${escapeHtml(linkedSong.title || 'Untitled')} (Open Preview)</button>`
+            : '<p><span class="text-gray-500">Linked song:</span> None</p>'}
+        </div>
+      `;
+    }
+
     function renderCurrentSongLinkedLooperCta() {
       const btn = document.getElementById('btn-open-linked-looper');
       if (!btn) return;
@@ -3379,21 +3409,10 @@ Drop back to 70 BPM for clean finish.`,
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
               <p class="font-semibold text-sm text-white truncate">${escapeHtml(item.title || 'Untitled media')}</p>
-              <p class="text-[11px] text-gray-500 mt-1">${getLooperHistoryTypeLabel(item)} • ${item.updatedAt ? new Date(item.updatedAt).toLocaleString() : 'Saved'}</p>
-              <p class="text-[11px] text-gray-500 mt-1">
-                ${item.cacheSource === 'device'
-                  ? `<i class="fas fa-mobile-alt mr-1 text-primary" title="Loaded from device cache"></i>Device cache`
-                  : `<i class="fas fa-cloud mr-1 text-primary" title="Loaded from cloud"></i>Cloud`}
-              </p>
-              <p class="text-[11px] text-gray-500 mt-1">A ${formatLooperTime(item.pointA || 0)} | B ${formatLooperTime(item.pointB || 0)}</p>
-              ${findLinkedSongForLooper(item.id)
-                ? `
-                  <button onclick="openLinkedSongPreviewFromLooper('${item.id}')" class="mt-1 text-[11px] text-primary underline underline-offset-2 btn-press">
-                    Linked song: ${escapeHtml(findLinkedSongForLooper(item.id)?.title || 'Untitled')} (Open Preview)
-                  </button>
-                `
-                : ''}
-              ${item.noteText ? `<p class="text-[11px] text-gray-400 mt-1">${escapeHtml(String(item.noteText || '').replace(/\s+/g, ' ').trim())}</p>` : ''}
+              <p class="text-[11px] text-gray-500 mt-1">Length: ${formatLooperTime(Number(item.duration || 0))}</p>
+              <p class="text-[11px] text-gray-500 mt-1">Uploaded: ${item.createdAt ? new Date(item.createdAt).toLocaleString() : (item.updatedAt ? new Date(item.updatedAt).toLocaleString() : 'Saved')}</p>
+              <p class="text-[11px] text-gray-500 mt-1">Cache: ${item.cacheSource === 'device' ? 'Available (device)' : 'Available (cloud)'}</p>
+              <p class="text-[11px] text-gray-500 mt-1">Size: ${Number(item.sizeBytes || 0) > 0 ? formatBytes(Number(item.sizeBytes || 0)) : 'Unknown'}</p>
               ${looperDeletingHistoryId === item.id ? `<p class="text-[11px] text-primary mt-1"><i class="fas fa-spinner fa-spin mr-1"></i>Deleting...</p>` : ''}
               ${looperOpeningHistoryId === item.id ? `
                 <p class="text-[11px] text-primary mt-1"><i class="fas fa-spinner fa-spin mr-1"></i>Loading... ${Math.max(0, Math.min(100, Math.round(looperOpeningProgress)))}%</p>
