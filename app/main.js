@@ -172,7 +172,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.35',
+      version: 'v2026.04.22.36',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -2409,9 +2409,23 @@ Drop back to 70 BPM for clean finish.`,
       openToolPage('looper');
     };
 
+    function persistLooperHistoryDeviceCache() {
+      if (!repository) return;
+      try {
+        repository.setCacheJson(repository.makeCacheKey('looper_history_device', 'all'), looperHistory || []);
+      } catch {}
+    }
+
+    async function cacheLooperMediaToDevice(itemId, dataUrl) {
+      if (!repository || !itemId || !dataUrl) return;
+      try {
+        await repository.idbSet(repository.makeCacheKey('looper_media_device', itemId), String(dataUrl || ''));
+      } catch {}
+    }
+
     async function ensureActiveLooperHistoryEntry() {
       if (activeLooperHistoryId) return activeLooperHistoryId;
-      if (!user || user.isAnonymous || !repository || !hasActiveLooperTrack()) return '';
+      if (!repository || !hasActiveLooperTrack()) return '';
       if (looperHistoryCreatePromise) {
         try {
           return await looperHistoryCreatePromise;
@@ -2431,7 +2445,7 @@ Drop back to 70 BPM for clean finish.`,
             }
           }
           const fingerprint = looperActiveSource.uploadFingerprint || buildUploadFingerprint(looperPendingUploadFile);
-          if (fingerprint) {
+          if (fingerprint && user && !user.isAnonymous) {
             const duplicates = looperHistory.filter(item => item.sourceType === 'upload' && item.uploadFingerprint === fingerprint);
             for (const oldItem of duplicates) {
               try {
@@ -2445,6 +2459,7 @@ Drop back to 70 BPM for clean finish.`,
               const duplicateIds = new Set(duplicates.map(item => item.id));
               looperHistory = looperHistory.filter(item => !duplicateIds.has(item.id));
               if (activeLooperHistoryId && duplicateIds.has(activeLooperHistoryId)) activeLooperHistoryId = '';
+              persistLooperHistoryDeviceCache();
             }
           }
         }
@@ -2463,14 +2478,22 @@ Drop back to 70 BPM for clean finish.`,
 
         if (looperActiveSource.sourceType === 'upload' && looperPendingDataUrl) {
           try {
-            const chunkCount = await repository.saveLooperMediaData(user.uid, createdId, looperPendingDataUrl);
+            if (user && !user.isAnonymous) {
+              const chunkCount = await repository.saveLooperMediaData(user.uid, createdId, looperPendingDataUrl);
+              await repository.updateLooperHistory(user.uid, createdId, { mediaStored: true, mediaChunkCount: chunkCount, updatedAt: Date.now() });
+            } else {
+              await cacheLooperMediaToDevice(createdId, looperPendingDataUrl);
+            }
             looperActiveSource = { ...looperActiveSource, mediaStored: true };
             looperPendingUploadFile = null;
             looperPendingDataUrl = '';
-            await repository.updateLooperHistory(user.uid, createdId, { mediaStored: true, mediaChunkCount: chunkCount, updatedAt: Date.now() });
+            const idx = looperHistory.findIndex(item => item.id === createdId);
+            if (idx >= 0) looperHistory[idx] = { ...looperHistory[idx], mediaStored: true, updatedAt: Date.now() };
+            persistLooperHistoryDeviceCache();
           } catch (err) {
             console.error('Deferred looper Firestore save failed', err);
-            return '';
+            await cacheLooperMediaToDevice(createdId, looperPendingDataUrl);
+            persistLooperHistoryDeviceCache();
           }
         }
         return createdId || '';
@@ -2484,7 +2507,7 @@ Drop back to 70 BPM for clean finish.`,
     }
 
     function scheduleLooperHistorySave(delayMs = 700) {
-      if (!user || user.isAnonymous || !repository || !hasActiveLooperTrack()) return;
+      if (!repository || !hasActiveLooperTrack()) return;
       if (looperHistorySaveTimer) clearTimeout(looperHistorySaveTimer);
       looperHistorySaveTimer = setTimeout(() => {
         looperHistorySaveTimer = null;
@@ -2493,22 +2516,26 @@ Drop back to 70 BPM for clean finish.`,
     }
 
     async function upsertActiveLooperHistoryState(forceReload = false) {
-      if (!activeLooperHistoryId || !user || !repository) return;
+      if (!activeLooperHistoryId || !repository) return;
       const patch = getActiveLooperStatePatch();
       try {
-        await repository.updateLooperHistory(user.uid, activeLooperHistoryId, patch);
+        if (user && !user.isAnonymous) {
+          await repository.updateLooperHistory(user.uid, activeLooperHistoryId, patch);
+        }
         const idx = looperHistory.findIndex(item => item.id === activeLooperHistoryId);
         if (idx >= 0) looperHistory[idx] = { ...looperHistory[idx], ...patch };
         looperHistory.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+        persistLooperHistoryDeviceCache();
         renderLooperHistory();
-        if (forceReload) await loadLooperHistory();
+        if (forceReload && user && !user.isAnonymous) await loadLooperHistory();
       } catch (e) {
         console.error('Update looper history failed', e);
+        persistLooperHistoryDeviceCache();
       }
     }
 
     async function createLooperHistoryEntry(payload = {}) {
-      if (!user || !repository) return '';
+      if (!repository) return '';
       try {
         const createdAt = Date.now();
         const item = {
@@ -2530,9 +2557,12 @@ Drop back to 70 BPM for clean finish.`,
           createdAt,
           updatedAt: createdAt
         };
-        const id = await repository.addLooperHistory(user.uid, item);
+        const id = (user && !user.isAnonymous)
+          ? await repository.addLooperHistory(user.uid, item)
+          : `local-${createdAt}-${Math.random().toString(36).slice(2, 8)}`;
         activeLooperHistoryId = id;
         looperHistory.unshift({ id, ...item });
+        persistLooperHistoryDeviceCache();
         renderLooperHistory();
         return id;
       } catch (e) {
@@ -3111,6 +3141,9 @@ Drop back to 70 BPM for clean finish.`,
       renderHomeDashboard();
       try {
         looperHistory = await repository.loadLooperHistory(user.uid);
+        if (!Array.isArray(looperHistory) || !looperHistory.length) {
+          looperHistory = repository?.loadLooperHistoryFromDeviceCache?.() || [];
+        }
       } catch (e) {
         console.error("Failed to load looper history", e);
         looperHistory = repository?.loadLooperHistoryFromDeviceCache?.() || [];
@@ -4040,6 +4073,9 @@ Drop back to 70 BPM for clean finish.`,
       try {
         looperPendingDataUrl = await readFileAsDataUrl(file);
         activeLooperHistoryId = await ensureActiveLooperHistoryEntry();
+        if (activeLooperHistoryId && looperPendingDataUrl) {
+          await cacheLooperMediaToDevice(activeLooperHistoryId, looperPendingDataUrl);
+        }
         scheduleLooperHistorySave(120);
       } catch (e) {
         console.error('Save looper media to Firestore failed', e);
