@@ -135,6 +135,8 @@ import { FirestoreRepository } from './modules/repository.js';
       favorites: false,
       practice: false
     };
+    let isHomeSongsLoading = false;
+    let isHomeLooperLoading = false;
     let lastNonPracticePath = '/';
     let tunerStream = null;
     let tunerAnalyser = null;
@@ -170,7 +172,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.33',
+      version: 'v2026.04.22.34',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -3034,6 +3036,8 @@ Drop back to 70 BPM for clean finish.`,
     }
 
     async function loadSongs() {
+      isHomeSongsLoading = true;
+      renderHomeDashboard();
       try {
         songs = await repository.loadSongs({ defaultSong: MOCK_SONG, ensureSongFormat });
         renderHomeList();
@@ -3041,6 +3045,9 @@ Drop back to 70 BPM for clean finish.`,
         console.error("Failed to load songs", e);
         songs = [ensureSongFormat(MOCK_SONG)]; 
         renderHomeList();
+      } finally {
+        isHomeSongsLoading = false;
+        renderHomeDashboard();
       }
     }
 
@@ -3096,15 +3103,19 @@ Drop back to 70 BPM for clean finish.`,
 
     async function loadLooperHistory() {
       if (!user) {
-        looperHistory = [];
+        looperHistory = repository?.loadLooperHistoryFromDeviceCache?.() || [];
         renderHomeDashboard();
         return;
       }
+      isHomeLooperLoading = true;
+      renderHomeDashboard();
       try {
         looperHistory = await repository.loadLooperHistory(user.uid);
       } catch (e) {
         console.error("Failed to load looper history", e);
-        looperHistory = [];
+        looperHistory = repository?.loadLooperHistoryFromDeviceCache?.() || [];
+      } finally {
+        isHomeLooperLoading = false;
       }
       renderHomeDashboard();
     }
@@ -4084,7 +4095,7 @@ Drop back to 70 BPM for clean finish.`,
           resetLooperObjectUrl();
           looperOpeningProgress = 12;
           renderLooperHistory();
-          const mediaDataUrl = await repository.loadLooperMediaData(user.uid, item.id, (progress) => {
+          const mediaDataUrl = await repository.loadLooperMediaData(user?.uid || 'device', item.id, (progress) => {
             looperOpeningProgress = Math.max(looperOpeningProgress, progress);
             renderLooperHistory();
           });
@@ -7721,11 +7732,15 @@ Rules:
         practiceShowAllBtn.innerText = homeSectionExpanded.practice ? 'Show less' : 'Show all';
       }
 
-      if (favoritesContainer) favoritesContainer.innerHTML = favorites.length ? favoritesVisible.map(song => buildSongDashboardCard(song)).join('') : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No favorite songs yet.</div>`;
+      if (favoritesContainer) favoritesContainer.innerHTML = isHomeSongsLoading
+        ? `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">Loading favorite songs...</div>`
+        : (favorites.length ? favoritesVisible.map(song => buildSongDashboardCard(song)).join('') : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No favorite songs yet.</div>`);
       if (recentContainer) recentContainer.innerHTML = recentSongs.length ? practiceVisible.map(({ song, progress }) => buildSongDashboardCard(song, { progress })).join('') : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No started practice songs yet.</div>`;
-      if (listeningContainer) listeningContainer.innerHTML = recentListeningItems.length
-        ? recentListeningItems.map(item => buildContinueListeningCard(item)).join('')
-        : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No looper audio yet.</div>`;
+      if (listeningContainer) listeningContainer.innerHTML = isHomeLooperLoading
+        ? `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">Loading looper history...</div>`
+        : (recentListeningItems.length
+          ? recentListeningItems.map(item => buildContinueListeningCard(item)).join('')
+          : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No looper audio yet.</div>`);
 
       const practiceShortcuts = document.getElementById('training-practice-shortcuts');
       if (practiceShortcuts) practiceShortcuts.innerHTML = recentSongs.length ? recentSongs.slice(0, 4).map(({ song, progress }) => buildSongDashboardCard(song, { progress })).join('') : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">Start from a song on Home to see it here.</div>`;

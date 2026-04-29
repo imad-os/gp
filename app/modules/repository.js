@@ -259,13 +259,19 @@ export class FirestoreRepository {
   }
 
   async loadLooperHistory(userId) {
-    return await this.readWithCache(this.makeCacheKey('looper_history', userId), async () => {
+    const history = await this.readWithCache(this.makeCacheKey('looper_history', userId), async () => {
       const ref = collection(this.db, 'users', userId, 'looper_history');
       const snap = await getDocs(ref);
       return snap.docs
         .map(d => ({ id: d.id, ...d.data() }))
         .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
     });
+    this.setCacheJson(this.makeCacheKey('looper_history_device', 'all'), history);
+    return history;
+  }
+
+  loadLooperHistoryFromDeviceCache() {
+    return this.getCacheJson(this.makeCacheKey('looper_history_device', 'all')) || [];
   }
 
   async addLooperHistory(userId, item) {
@@ -273,11 +279,11 @@ export class FirestoreRepository {
     const created = await addDoc(ref, item);
     const cacheKey = this.makeCacheKey('looper_history', userId);
     const current = this.getCacheJson(cacheKey);
-    if (Array.isArray(current)) {
-      const next = [{ id: created.id, ...item }, ...current]
-        .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
-      this.setCacheJson(cacheKey, next);
-    }
+    const base = Array.isArray(current) ? current : [];
+    const next = [{ id: created.id, ...item }, ...base]
+      .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+    this.setCacheJson(cacheKey, next);
+    this.setCacheJson(this.makeCacheKey('looper_history_device', 'all'), next);
     return created.id;
   }
 
@@ -289,6 +295,7 @@ export class FirestoreRepository {
       const next = current.map(item => (item?.id === itemId ? { ...item, ...patch } : item))
         .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
       this.setCacheJson(cacheKey, next);
+      this.setCacheJson(this.makeCacheKey('looper_history_device', 'all'), next);
     }
   }
 
@@ -297,7 +304,9 @@ export class FirestoreRepository {
     const cacheKey = this.makeCacheKey('looper_history', userId);
     const current = this.getCacheJson(cacheKey);
     if (Array.isArray(current)) {
-      this.setCacheJson(cacheKey, current.filter(item => item?.id !== itemId));
+      const next = current.filter(item => item?.id !== itemId);
+      this.setCacheJson(cacheKey, next);
+      this.setCacheJson(this.makeCacheKey('looper_history_device', 'all'), next);
     }
   }
 
@@ -317,32 +326,40 @@ export class FirestoreRepository {
       await setDoc(doc(chunksRef, chunkId), { index: i, data: part });
     }
     await this.idbSet(this.makeCacheKey('looper_media', `${userId}:${itemId}`), source);
+    await this.idbSet(this.makeCacheKey('looper_media_device', itemId), source);
     return chunkCount;
   }
 
   async loadLooperMediaData(userId, itemId, onProgress = null) {
     const cacheKey = this.makeCacheKey('looper_media', `${userId}:${itemId}`);
-    return await this.readWithIdbCache(cacheKey, async () => {
-      const chunksRef = collection(this.db, 'users', userId, 'looper_history', itemId, 'media_chunks');
-      const snap = await getDocs(chunksRef);
-      if (snap.empty) return '';
-      if (typeof onProgress === 'function') onProgress(18);
-      const ordered = snap.docs
-        .map(d => ({ id: d.id, ...d.data() }))
-        .sort((a, b) => (a.index ?? Number(a.id)) - (b.index ?? Number(b.id)));
-      const total = Math.max(1, ordered.length);
-      const parts = [];
-      for (let i = 0; i < ordered.length; i += 1) {
-        parts.push(String(ordered[i].data || ''));
-        if (typeof onProgress === 'function') {
-          const progress = 18 + Math.round(((i + 1) / total) * 72);
-          onProgress(Math.min(90, progress));
+    try {
+      const value = await this.readWithIdbCache(cacheKey, async () => {
+        const chunksRef = collection(this.db, 'users', userId, 'looper_history', itemId, 'media_chunks');
+        const snap = await getDocs(chunksRef);
+        if (snap.empty) return '';
+        if (typeof onProgress === 'function') onProgress(18);
+        const ordered = snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => (a.index ?? Number(a.id)) - (b.index ?? Number(b.id)));
+        const total = Math.max(1, ordered.length);
+        const parts = [];
+        for (let i = 0; i < ordered.length; i += 1) {
+          parts.push(String(ordered[i].data || ''));
+          if (typeof onProgress === 'function') {
+            const progress = 18 + Math.round(((i + 1) / total) * 72);
+            onProgress(Math.min(90, progress));
+          }
+          if (i % 25 === 0) await Promise.resolve();
         }
-        if (i % 25 === 0) await Promise.resolve();
-      }
-      if (typeof onProgress === 'function') onProgress(95);
-      return parts.join('');
-    }, { timeoutMs: 10000 });
+        if (typeof onProgress === 'function') onProgress(95);
+        return parts.join('');
+      }, { timeoutMs: 10000 });
+      if (value) await this.idbSet(this.makeCacheKey('looper_media_device', itemId), value);
+      return value;
+    } catch {
+      const globalFallback = await this.idbGet(this.makeCacheKey('looper_media_device', itemId));
+      return globalFallback || '';
+    }
   }
 
   async deleteLooperMediaData(userId, itemId) {
