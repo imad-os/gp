@@ -172,7 +172,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.45',
+      version: 'v2026.04.22.46',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -3290,22 +3290,31 @@ Drop back to 70 BPM for clean finish.`,
       const el = document.getElementById('tool-looper-loaded-info');
       if (!el) return;
       const activeItem = getActiveLooperHistoryItem();
-      if (!activeItem) {
+      const hasLoadedTrack = looperMode !== 'none' && !!looperActiveSource;
+      if (!hasLoadedTrack) {
         el.classList.add('hidden');
         el.innerHTML = '';
         return;
       }
-      const linkedSong = findLinkedSongForLooper(activeItem.id);
-      const uploadedAt = activeItem.createdAt || activeItem.updatedAt || 0;
+      const linkedSong = activeItem ? findLinkedSongForLooper(activeItem.id) : null;
+      const uploadedAt = activeItem ? (activeItem.createdAt || activeItem.updatedAt || 0) : 0;
       const uploadedLabel = uploadedAt ? new Date(uploadedAt).toLocaleString() : 'Unknown';
-      const cacheLabel = activeItem.cacheSource === 'device' ? 'Available (device cache)' : 'Available (cloud)';
-      const sizeLabel = Number(activeItem.sizeBytes || 0) > 0 ? formatBytes(Number(activeItem.sizeBytes || 0)) : 'Unknown';
+      const cacheLabel = activeItem
+        ? (activeItem.cacheSource === 'device' ? 'Available (device cache)' : 'Available (cloud)')
+        : 'Not saved yet';
+      const activeSizeBytes = Number(activeItem?.sizeBytes || 0);
+      const pendingSizeBytes = Number(looperPendingUploadFile?.size || 0);
+      const sizeLabel = activeSizeBytes > 0
+        ? formatBytes(activeSizeBytes)
+        : (pendingSizeBytes > 0 ? formatBytes(pendingSizeBytes) : 'Unknown');
+      const loadedTitle = activeItem?.title || looperActiveSource?.title || getDefaultLooperTitle();
+      const loadedDuration = Number(activeItem?.duration || looperDuration || getLooperDuration() || 0);
       el.classList.remove('hidden');
       el.innerHTML = `
         <div class="space-y-1">
-          <p><span class="text-gray-500">Loaded:</span> <span class="text-white">${escapeHtml(activeItem.title || 'Untitled media')}</span></p>
-          <p><span class="text-gray-500">Length:</span> ${formatLooperTime(Number(activeItem.duration || 0))}</p>
-          <p><span class="text-gray-500">Uploaded:</span> ${escapeHtml(uploadedLabel)}</p>
+          <p><span class="text-gray-500">Loaded:</span> <span class="text-white">${escapeHtml(loadedTitle || 'Untitled media')}</span></p>
+          <p><span class="text-gray-500">Length:</span> ${formatLooperTime(loadedDuration)}</p>
+          <p><span class="text-gray-500">Uploaded:</span> ${escapeHtml(activeItem ? uploadedLabel : 'Not saved yet')}</p>
           <p><span class="text-gray-500">Cache:</span> ${escapeHtml(cacheLabel)}</p>
           <p><span class="text-gray-500">Size:</span> ${escapeHtml(sizeLabel)}</p>
           ${linkedSong?.id
