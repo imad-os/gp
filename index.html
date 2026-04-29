@@ -188,6 +188,28 @@
       object-fit: cover;
       box-shadow: 0 0 8px rgba(187, 134, 252, 0.25);
     }
+    .brand-icon-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .header-network-dot {
+      position: absolute;
+      top: -4px;
+      left: -4px;
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(0, 0, 0, 0.5);
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+      background: #16a34a;
+      transition: background-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .header-network-dot.offline {
+      background: #ef4444;
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 0 10px rgba(239, 68, 68, 0.45);
+    }
     button { color: #f3f4f6; }
     button.bg-primary,
     button.bg-active { color: #ffffff; }
@@ -409,7 +431,7 @@
   <div id="view-home" class="view active">
     <header class="bg-surface p-4 border-b border-gray-800 flex justify-between items-center shadow-md">
       <h1 class="text-xl font-bold text-primary flex items-center gap-2">
-        <img src="/assets/pwa/icon-192.png" alt="" class="brand-logo-sm"> Home
+        <span class="brand-icon-wrap"><img src="/assets/pwa/icon-192.png" alt="" class="brand-logo-sm"><span class="header-network-dot"></span></span> Home
       </h1>
       <div class="flex items-center gap-3">
         <button id="btn-open-profile" onclick="openProfilePage()" class="px-3 py-1.5 rounded-full bg-black/30 border border-gray-700 text-sm font-semibold text-white max-w-[220px] truncate btn-press"></button>
@@ -459,7 +481,7 @@
   <div id="view-training" class="view">
     <header class="bg-surface p-4 border-b border-gray-800 shadow-md">
       <h1 class="text-xl font-bold text-primary flex items-center gap-2">
-        <img src="/assets/pwa/icon-192.png" alt="" class="brand-logo-sm"> Training
+        <span class="brand-icon-wrap"><img src="/assets/pwa/icon-192.png" alt="" class="brand-logo-sm"><span class="header-network-dot"></span></span> Training
       </h1>
       <div class="flex items-center justify-between gap-3 mt-1">
         <p id="training-header-subtitle" class="text-xs text-gray-500">Choose a training page.</p>
@@ -643,7 +665,7 @@
   <div id="view-tuner" class="view">
     <header class="bg-surface p-4 border-b border-gray-800 shadow-md">
       <h1 class="text-xl font-bold text-primary flex items-center gap-2">
-        <img src="/assets/pwa/icon-192.png" alt="" class="brand-logo-sm"> Tuner
+        <span class="brand-icon-wrap"><img src="/assets/pwa/icon-192.png" alt="" class="brand-logo-sm"><span class="header-network-dot"></span></span> Tuner
       </h1>
       <p class="text-xs text-gray-500 mt-1">Tune with mic or device playback audio.</p>
     </header>
@@ -683,7 +705,7 @@
       <div class="flex items-center justify-between gap-3">
         <div>
           <h1 class="text-xl font-bold text-primary flex items-center gap-2">
-            <img src="/assets/pwa/icon-192.png" alt="" class="brand-logo-sm"> Tools
+            <span class="brand-icon-wrap"><img src="/assets/pwa/icon-192.png" alt="" class="brand-logo-sm"><span class="header-network-dot"></span></span> Tools
           </h1>
           <p id="tools-header-subtitle" class="text-xs text-gray-500 mt-1">Choose a tool.</p>
         </div>
@@ -1260,7 +1282,7 @@
       <div class="flex items-center justify-between gap-3">
         <div>
           <h1 class="text-xl font-bold text-primary flex items-center gap-2">
-            <img src="/assets/pwa/icon-192.png" alt="" class="brand-logo-sm"> Profile
+            <span class="brand-icon-wrap"><img src="/assets/pwa/icon-192.png" alt="" class="brand-logo-sm"><span class="header-network-dot"></span></span> Profile
           </h1>
           <p class="text-xs text-gray-500 mt-1">Account details, stats, and settings.</p>
         </div>

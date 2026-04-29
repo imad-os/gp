@@ -172,7 +172,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.38',
+      version: 'v2026.04.22.39',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -9252,7 +9252,9 @@ Rules:
 
     function setOfflineUi(offline = false) {
       const badge = document.getElementById('network-status-pill');
+      const dots = document.querySelectorAll('.header-network-dot');
       if (!badge) return;
+      dots.forEach(dot => dot.classList.toggle('offline', !!offline));
       if (offline) {
         badge.innerHTML = `<span class="inline-flex items-center gap-2"><i class="fas fa-wifi-slash animate-pulse"></i><span>Offline mode</span></span>`;
         badge.classList.remove('hidden');
