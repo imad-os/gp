@@ -172,7 +172,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.37',
+      version: 'v2026.04.22.38',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -2423,6 +2423,23 @@ Drop back to 70 BPM for clean finish.`,
       } catch {}
     }
 
+    function withLooperSource(items = [], source = 'device') {
+      return (Array.isArray(items) ? items : []).map(item => ({ ...item, cacheSource: item?.cacheSource || source }));
+    }
+
+    function mergeLooperHistory(primary = [], secondary = []) {
+      const merged = [];
+      const seen = new Set();
+      const push = (entry) => {
+        if (!entry || !entry.id || seen.has(entry.id)) return;
+        seen.add(entry.id);
+        merged.push(entry);
+      };
+      withLooperSource(primary, 'cloud').forEach(push);
+      withLooperSource(secondary, 'device').forEach(push);
+      return merged.sort((a, b) => (Number(b?.updatedAt || b?.createdAt || 0) - Number(a?.updatedAt || a?.createdAt || 0)));
+    }
+
     async function ensureActiveLooperHistoryEntry() {
       if (activeLooperHistoryId) return activeLooperHistoryId;
       if (!repository || !hasActiveLooperTrack()) return '';
@@ -2561,7 +2578,7 @@ Drop back to 70 BPM for clean finish.`,
           ? await repository.addLooperHistory(user.uid, item)
           : `local-${createdAt}-${Math.random().toString(36).slice(2, 8)}`;
         activeLooperHistoryId = id;
-        looperHistory.unshift({ id, ...item });
+        looperHistory.unshift({ id, ...item, cacheSource: (user && !user.isAnonymous) ? 'cloud' : 'device' });
         persistLooperHistoryDeviceCache();
         renderLooperHistory();
         return id;
@@ -3003,6 +3020,9 @@ Drop back to 70 BPM for clean finish.`,
         auth = getAuth(app);
         db = getFirestore(app);
         repository = new FirestoreRepository(db);
+        looperHistory = withLooperSource(repository?.loadLooperHistoryFromDeviceCache?.() || [], 'device');
+        renderLooperHistory();
+        renderHomeDashboard();
 
         const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
         if (token) {
@@ -3043,7 +3063,7 @@ Drop back to 70 BPM for clean finish.`,
             user = null;
             updateUserHeaderState();
             refreshLibraryAdminButtons();
-            looperHistory = repository?.loadLooperHistoryFromDeviceCache?.() || [];
+            looperHistory = withLooperSource(repository?.loadLooperHistoryFromDeviceCache?.() || [], 'device');
             renderLooperHistory();
             renderHomeDashboard();
             try {
@@ -3136,23 +3156,25 @@ Drop back to 70 BPM for clean finish.`,
 
     async function loadLooperHistory() {
       if (!user) {
-        looperHistory = repository?.loadLooperHistoryFromDeviceCache?.() || [];
+        looperHistory = withLooperSource(repository?.loadLooperHistoryFromDeviceCache?.() || [], 'device');
+        renderLooperHistory();
         renderHomeDashboard();
         return;
       }
       isHomeLooperLoading = true;
       renderHomeDashboard();
       try {
-        looperHistory = await repository.loadLooperHistory(user.uid);
-        if (!Array.isArray(looperHistory) || !looperHistory.length) {
-          looperHistory = repository?.loadLooperHistoryFromDeviceCache?.() || [];
-        }
+        const cloudHistory = await repository.loadLooperHistory(user.uid);
+        const deviceHistory = repository?.loadLooperHistoryFromDeviceCache?.() || [];
+        looperHistory = mergeLooperHistory(cloudHistory, deviceHistory);
       } catch (e) {
         console.error("Failed to load looper history", e);
-        looperHistory = repository?.loadLooperHistoryFromDeviceCache?.() || [];
+        looperHistory = withLooperSource(repository?.loadLooperHistoryFromDeviceCache?.() || [], 'device');
       } finally {
         isHomeLooperLoading = false;
       }
+      persistLooperHistoryDeviceCache();
+      renderLooperHistory();
       renderHomeDashboard();
     }
 
@@ -3348,6 +3370,11 @@ Drop back to 70 BPM for clean finish.`,
             <div class="min-w-0">
               <p class="font-semibold text-sm text-white truncate">${escapeHtml(item.title || 'Untitled media')}</p>
               <p class="text-[11px] text-gray-500 mt-1">${getLooperHistoryTypeLabel(item)} • ${item.updatedAt ? new Date(item.updatedAt).toLocaleString() : 'Saved'}</p>
+              <p class="text-[11px] text-gray-500 mt-1">
+                ${item.cacheSource === 'device'
+                  ? `<i class="fas fa-mobile-alt mr-1 text-primary" title="Loaded from device cache"></i>Device cache`
+                  : `<i class="fas fa-cloud mr-1 text-primary" title="Loaded from cloud"></i>Cloud`}
+              </p>
               <p class="text-[11px] text-gray-500 mt-1">A ${formatLooperTime(item.pointA || 0)} | B ${formatLooperTime(item.pointB || 0)}</p>
               ${item.noteText ? `<p class="text-[11px] text-gray-400 mt-1">${escapeHtml(String(item.noteText || '').replace(/\s+/g, ' ').trim())}</p>` : ''}
               ${looperDeletingHistoryId === item.id ? `<p class="text-[11px] text-primary mt-1"><i class="fas fa-spinner fa-spin mr-1"></i>Deleting...</p>` : ''}
