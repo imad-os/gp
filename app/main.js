@@ -172,7 +172,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.34',
+      version: 'v2026.04.22.35',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -7733,11 +7733,11 @@ Rules:
       }
 
       if (favoritesContainer) favoritesContainer.innerHTML = isHomeSongsLoading
-        ? `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">Loading favorite songs...</div>`
+        ? `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-4 text-center"><i class="fas fa-spinner fa-spin text-primary text-lg" aria-label="Loading favorites"></i></div>`
         : (favorites.length ? favoritesVisible.map(song => buildSongDashboardCard(song)).join('') : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No favorite songs yet.</div>`);
       if (recentContainer) recentContainer.innerHTML = recentSongs.length ? practiceVisible.map(({ song, progress }) => buildSongDashboardCard(song, { progress })).join('') : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No started practice songs yet.</div>`;
       if (listeningContainer) listeningContainer.innerHTML = isHomeLooperLoading
-        ? `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">Loading looper history...</div>`
+        ? `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-4 text-center"><i class="fas fa-compact-disc fa-spin text-primary text-lg" aria-label="Loading looper history"></i></div>`
         : (recentListeningItems.length
           ? recentListeningItems.map(item => buildContinueListeningCard(item)).join('')
           : `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No looper audio yet.</div>`);
@@ -9188,10 +9188,10 @@ Rules:
       const badge = document.getElementById('network-status-pill');
       if (!badge) return;
       if (offline) {
-        badge.textContent = 'Offline mode';
+        badge.innerHTML = `<span class="inline-flex items-center gap-2"><i class="fas fa-wifi-slash animate-pulse"></i><span>Offline mode</span></span>`;
         badge.classList.remove('hidden');
       } else {
-        badge.textContent = 'Online';
+        badge.innerHTML = '';
         badge.classList.add('hidden');
       }
     }

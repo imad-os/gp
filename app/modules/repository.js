@@ -354,8 +354,12 @@ export class FirestoreRepository {
         if (typeof onProgress === 'function') onProgress(95);
         return parts.join('');
       }, { timeoutMs: 10000 });
-      if (value) await this.idbSet(this.makeCacheKey('looper_media_device', itemId), value);
-      return value;
+      if (value) {
+        await this.idbSet(this.makeCacheKey('looper_media_device', itemId), value);
+        return value;
+      }
+      const globalFallback = await this.idbGet(this.makeCacheKey('looper_media_device', itemId));
+      return globalFallback || '';
     } catch {
       const globalFallback = await this.idbGet(this.makeCacheKey('looper_media_device', itemId));
       return globalFallback || '';
