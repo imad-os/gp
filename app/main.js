@@ -172,7 +172,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.42',
+      version: 'v2026.04.22.43',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -3265,6 +3265,15 @@ Drop back to 70 BPM for clean finish.`,
       return songs.find(song => String(song?.linkedLooperHistoryId || '') === target) || null;
     }
 
+    window.openLinkedSongPreviewFromLooper = function(itemId = '') {
+      const linkedSong = findLinkedSongForLooper(itemId);
+      if (!linkedSong?.id) {
+        showToast('No linked song found for this looper item.');
+        return;
+      }
+      openSongPreviewFromList(linkedSong.id);
+    };
+
     function getCurrentSongLinkedLooperItem() {
       const linkedId = String(currentSong?.linkedLooperHistoryId || '').trim();
       if (!linkedId) return null;
@@ -3377,6 +3386,13 @@ Drop back to 70 BPM for clean finish.`,
                   : `<i class="fas fa-cloud mr-1 text-primary" title="Loaded from cloud"></i>Cloud`}
               </p>
               <p class="text-[11px] text-gray-500 mt-1">A ${formatLooperTime(item.pointA || 0)} | B ${formatLooperTime(item.pointB || 0)}</p>
+              ${findLinkedSongForLooper(item.id)
+                ? `
+                  <button onclick="openLinkedSongPreviewFromLooper('${item.id}')" class="mt-1 text-[11px] text-primary underline underline-offset-2 btn-press">
+                    Linked song: ${escapeHtml(findLinkedSongForLooper(item.id)?.title || 'Untitled')} (Open Preview)
+                  </button>
+                `
+                : ''}
               ${item.noteText ? `<p class="text-[11px] text-gray-400 mt-1">${escapeHtml(String(item.noteText || '').replace(/\s+/g, ' ').trim())}</p>` : ''}
               ${looperDeletingHistoryId === item.id ? `<p class="text-[11px] text-primary mt-1"><i class="fas fa-spinner fa-spin mr-1"></i>Deleting...</p>` : ''}
               ${looperOpeningHistoryId === item.id ? `
