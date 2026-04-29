@@ -172,7 +172,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.36',
+      version: 'v2026.04.22.37',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -3043,13 +3043,16 @@ Drop back to 70 BPM for clean finish.`,
             user = null;
             updateUserHeaderState();
             refreshLibraryAdminButtons();
-            looperHistory = [];
+            looperHistory = repository?.loadLooperHistoryFromDeviceCache?.() || [];
             renderLooperHistory();
+            renderHomeDashboard();
             try {
               await signInAnonymously(auth);
             } catch (e) {
               console.error('Guest sign-in failed', e);
-              showToast("Failed to start guest session.");
+              await loadSongs();
+              renderLooperHistory();
+              showToast("Offline mode: using local looper cache.", true);
             }
           } catch (err) {
             console.error('Auth initialization failed', err);
