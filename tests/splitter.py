@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 NEURAL STEM — AI-powered audio stem separator
 Futuristic dark GUI · Demucs-powered separation · Waveform visualization
@@ -6,6 +7,7 @@ Futuristic dark GUI · Demucs-powered separation · Waveform visualization
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+import tkinter.font as tkfont
 import threading
 import subprocess
 import os
@@ -66,6 +68,19 @@ MODELS = {
     "mdx_extra":   "MDX-Net Extra      (vocals · drums · bass · other)  — High Quality",
     "mdx":         "MDX-Net Standard   (vocals · drums · bass · other)  — Balanced",
 }
+
+
+def blend_hex(c1, c2, t):
+    """Blend two #RRGGBB colors; t in [0, 1]. Returns Tk-safe #RRGGBB."""
+    t = max(0.0, min(1.0, float(t)))
+    c1 = c1.lstrip("#")
+    c2 = c2.lstrip("#")
+    r1, g1, b1 = int(c1[0:2], 16), int(c1[2:4], 16), int(c1[4:6], 16)
+    r2, g2, b2 = int(c2[0:2], 16), int(c2[2:4], 16), int(c2[4:6], 16)
+    r = int(r1 + (r2 - r1) * t)
+    g = int(g1 + (g2 - g1) * t)
+    b = int(b1 + (b2 - b1) * t)
+    return f"#{r:02x}{g:02x}{b:02x}"
 
 
 def read_wav_samples(path, max_samples=8000):
@@ -129,7 +144,10 @@ class WaveformCanvas(tk.Canvas):
         self._anim_id = self.after(50, self._animate)
 
     def _draw(self):
-        self.delete("all")
+        try:
+            self.delete("all")
+        except tk.TclError:
+            return
         w = self.winfo_width()
         h = self.winfo_height()
         if w < 2 or h < 2:
@@ -146,7 +164,7 @@ class WaveformCanvas(tk.Canvas):
             # Idle flat line with subtle pulse
             pulse = math.sin(self.anim_phase) * 2
             self.create_line(0, mid + pulse, w, mid + pulse,
-                             fill=self.color + "44", width=1, smooth=True)
+                             fill=blend_hex(self.color, C["bg2"], 0.75), width=1, smooth=True)
             self.create_text(w//2, mid, text="NO SIGNAL",
                              fill=C["text_muted"], font=("Courier", 7))
             return
@@ -161,7 +179,7 @@ class WaveformCanvas(tk.Canvas):
 
         if len(pts) >= 4:
             # Glow effect (wider, dimmer line)
-            glow_color = self.color + "33"
+            glow_color = blend_hex(self.color, C["bg2"], 0.7)
             self.create_line(*pts, fill=glow_color, width=4, smooth=True)
             # Main line
             self.create_line(*pts, fill=self.color, width=1, smooth=True)
@@ -169,9 +187,9 @@ class WaveformCanvas(tk.Canvas):
         # Playback position indicator
         if self.is_playing:
             px = int(self.play_pos * w)
-            self.create_line(px, 0, px, h, fill=C["white"] + "cc", width=1)
+            self.create_line(px, 0, px, h, fill=blend_hex(C["white"], C["bg2"], 0.2), width=1)
             # Glow
-            self.create_line(px-1, 0, px-1, h, fill=self.color + "44", width=2)
+            self.create_line(px-1, 0, px-1, h, fill=blend_hex(self.color, C["bg2"], 0.75), width=2)
 
 
 class StemTrack(tk.Frame):
@@ -401,11 +419,21 @@ class NeuralStemApp:
         self.mp3_path = None
         self.output_dir = tk.StringVar(value=str(Path.home() / "NeuralStem_Output"))
         self.selected_model = tk.StringVar(value="htdemucs_6s")
+        self.ui_scale = tk.DoubleVar(value=1.2)
+        self.auto_open_output = tk.BooleanVar(value=False)
+        self.auto_play_after_separation = tk.BooleanVar(value=False)
         self.stem_tracks = {}
         self._sep_thread = None
+        self._font_base = {}
+        self._settings_path = Path.home() / ".neural_stem_settings.json"
+        self._log_path = Path(__file__).resolve().parent / "log.txt"
+
+        self._load_settings()
 
         self._setup_styles()
         self._build_ui()
+        self.selected_model.trace_add("write", self._on_model_changed)
+        self.root.after(30, self.apply_font_scale)
         self._animate_header()
 
     def _setup_styles(self):
@@ -453,6 +481,8 @@ class NeuralStemApp:
                                      fg=C["green"], bg=C["bg"],
                                      font=("Courier", 9, "bold"))
         self.status_badge.pack(side="right", padx=8)
+        self._cyber_btn(title_row, "SETTINGS", self.open_settings,
+                        C["text"], font_size=8).pack(side="right", padx=(0, 6))
 
         sub_lbl = tk.Label(hdr_inner,
                            text="Powered by Meta Demucs · Isolate vocals, drums, bass, guitar, piano & more",
@@ -467,7 +497,7 @@ class NeuralStemApp:
 
         # ── SEPARATOR LINE ──
         tk.Frame(self.root, bg=C["border"], height=1).pack(fill="x")
-        tk.Frame(self.root, bg=C["cyan"] + "33", height=1).pack(fill="x")
+        tk.Frame(self.root, bg=blend_hex(C["cyan"], C["bg"], 0.8), height=1).pack(fill="x")
 
         # ── MAIN CONTENT ──
         content = tk.Frame(self.root, bg=C["bg"])
@@ -582,13 +612,16 @@ class NeuralStemApp:
 
         self.log_text = tk.Text(log_frame, bg=C["bg3"], fg=C["green"],
                                 font=("Courier", 7), relief="flat",
-                                state="disabled", height=8, wrap="word",
+                                state="disabled", height=8, wrap="none",
                                 insertbackground=C["cyan"])
-        scrollbar = tk.Scrollbar(log_frame, command=self.log_text.yview,
-                                 bg=C["bg3"], troughcolor=C["bg3"])
-        self.log_text.configure(yscrollcommand=scrollbar.set)
+        y_scrollbar = tk.Scrollbar(log_frame, command=self.log_text.yview,
+                                   bg=C["bg3"], troughcolor=C["bg3"])
+        x_scrollbar = tk.Scrollbar(log_frame, orient="horizontal", command=self.log_text.xview,
+                                   bg=C["bg3"], troughcolor=C["bg3"])
+        self.log_text.configure(yscrollcommand=y_scrollbar.set, xscrollcommand=x_scrollbar.set)
         self.log_text.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+        y_scrollbar.pack(side="right", fill="y")
+        x_scrollbar.pack(side="bottom", fill="x")
 
         self._log("System initialized.")
         self._log(f"Demucs ready · PyGame: {'OK' if PYGAME_OK else 'OFF'}")
@@ -652,11 +685,36 @@ class NeuralStemApp:
 
         # Mousewheel
         def on_wheel(e):
-            canvas.yview_scroll(int(-1*(e.delta/120)), "units")
-        canvas.bind_all("<MouseWheel>", on_wheel)
+            delta = 0
+            if hasattr(e, "delta") and e.delta:
+                delta = int(-1 * (e.delta / 120))
+            elif getattr(e, "num", None) == 4:
+                delta = -1
+            elif getattr(e, "num", None) == 5:
+                delta = 1
+            if delta:
+                canvas.yview_scroll(delta, "units")
 
-        # Build placeholder track rows
-        self._build_stem_placeholders()
+        canvas.bind_all("<MouseWheel>", on_wheel)
+        canvas.bind_all("<Button-4>", on_wheel)
+        canvas.bind_all("<Button-5>", on_wheel)
+
+        def cleanup_bindings(_e=None):
+            try:
+                canvas.unbind_all("<MouseWheel>")
+                canvas.unbind_all("<Button-4>")
+                canvas.unbind_all("<Button-5>")
+            except Exception:
+                pass
+
+        self.root.bind("<Destroy>", cleanup_bindings, add="+")
+
+        self.no_tracks_lbl = tk.Label(
+            self.tracks_frame,
+            text="No separated stems yet.\nRun SEPARATE STEMS to generate tracks.",
+            fg=C["text_dim"], bg=C["bg"], font=("Courier", 9), justify="center"
+        )
+        self.no_tracks_lbl.pack(fill="both", expand=True, pady=24)
 
     def _build_stem_placeholders(self):
         # Determine stems for selected model
@@ -674,6 +732,19 @@ class NeuralStemApp:
             track = StemTrack(self.tracks_frame, stem, self)
             track.pack(fill="x", pady=(0, 4))
             self.stem_tracks[stem] = track
+        self.apply_font_scale()
+
+    def _clear_stem_tracks(self):
+        for w in self.tracks_frame.winfo_children():
+            w.destroy()
+        self.stem_tracks = {}
+        self.no_tracks_lbl = tk.Label(
+            self.tracks_frame,
+            text="No separated stems yet.\nRun SEPARATE STEMS to generate tracks.",
+            fg=C["text_dim"], bg=C["bg"], font=("Courier", 9), justify="center"
+        )
+        self.no_tracks_lbl.pack(fill="both", expand=True, pady=24)
+        self.apply_font_scale()
 
     # ── Helper builders ──
 
@@ -718,8 +789,7 @@ class NeuralStemApp:
             stem_name = Path(path).stem
             out = str(Path(path).parent / "NeuralStem" / stem_name)
             self.output_dir.set(out)
-            # Rebuild placeholders for selected model
-            self._build_stem_placeholders()
+            self._clear_stem_tracks()
 
     def browse_output(self):
         d = filedialog.askdirectory(title="Select Output Directory")
@@ -754,18 +824,24 @@ class NeuralStemApp:
         self._build_stem_placeholders()
         self.progress_var.set(0)
 
-        self._sep_thread = threading.Thread(target=self._run_separation, daemon=True)
+        model = self.selected_model.get()
+        out_dir = self.output_dir.get()
+        mp3_path = self.mp3_path
+        self._last_sep_request = (model, out_dir, mp3_path)
+        self._sep_thread = threading.Thread(
+            target=self._run_separation,
+            args=(model, out_dir, mp3_path),
+            daemon=True
+        )
         self._sep_thread.start()
         self._poll_progress()
 
-    def _run_separation(self):
+    def _run_separation(self, model, out_dir, mp3_path):
         try:
-            model = self.selected_model.get()
-            out_dir = self.output_dir.get()
             os.makedirs(out_dir, exist_ok=True)
 
             self._log(f"Starting separation with model: {model}")
-            self._log(f"Input: {os.path.basename(self.mp3_path)}")
+            self._log(f"Input: {os.path.basename(mp3_path)}")
             self._log(f"Output: {out_dir}")
             self._update_progress(5, "Initializing Demucs model...")
 
@@ -783,46 +859,41 @@ class NeuralStemApp:
                 sys.executable, "-m", "demucs",
                 "-n", model,
                 "-o", out_dir,
-                self.mp3_path
+                mp3_path
             ]
 
             self._update_progress(10, "Loading model weights...")
             self._log("Running Demucs separation (this may take 1-5 minutes)...")
 
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1
-            )
-
-            progress = 10
-            for line in process.stdout:
-                line = line.strip()
-                if line:
-                    self._log(line[:80])
-                    if "%" in line:
-                        try:
-                            pct = float(line.split("%")[0].split()[-1])
-                            progress = 10 + int(pct * 0.85)
-                            self._update_progress(progress, f"Separating... {pct:.0f}%")
-                        except Exception:
-                            pass
-                    elif "segment" in line.lower() or "chunk" in line.lower():
-                        progress = min(progress + 2, 90)
-                        self._update_progress(progress, "Processing audio chunks...")
-
-            process.wait()
-            rc = process.returncode
+            rc, output_lines = self._run_demucs_process(cmd, env=None)
 
             if rc != 0:
                 self._log(f"ERROR: Demucs exited with code {rc}")
+                out_text = "\n".join(output_lines).lower()
+                if "could not load libtorchcodec" in out_text:
+                    self._log("TorchCodec native load failed. Retrying with legacy torchaudio backend...")
+                    legacy_env = os.environ.copy()
+                    legacy_env["TORCHAUDIO_USE_BACKEND_DISPATCHER"] = "0"
+                    rc2, output2 = self._run_demucs_process(cmd, env=legacy_env)
+                    if rc2 == 0:
+                        self._log("Fallback run succeeded with legacy torchaudio backend.")
+                        self._update_progress(95, "Locating output files...")
+                        self._find_and_load_stems(out_dir, model, mp3_path)
+                        self._update_progress(100, "Complete!")
+                        self.root.after(0, self._on_separation_done)
+                        return
+                    out_text = "\n".join(output2).lower()
+                    self._log(f"Fallback also failed (code {rc2}).")
+                    self.root.after(0, lambda: self._on_libtorchcodec_failed())
+                    return
+                if "no module named 'torchcodec'" in out_text or "torchcodec is required" in out_text:
+                    self.root.after(0, self._on_missing_torchcodec)
+                    return
                 self.root.after(0, lambda: self._on_separation_failed())
                 return
 
             self._update_progress(95, "Locating output files...")
-            self._find_and_load_stems(out_dir, model)
+            self._find_and_load_stems(out_dir, model, mp3_path)
             self._update_progress(100, "Complete!")
             self.root.after(0, self._on_separation_done)
 
@@ -832,9 +903,39 @@ class NeuralStemApp:
             self._log(traceback.format_exc()[:200])
             self.root.after(0, lambda: self._on_separation_failed())
 
-    def _find_and_load_stems(self, out_dir, model):
+    def _run_demucs_process(self, cmd, env=None):
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            env=env
+        )
+        progress = 10
+        output_lines = []
+        for line in process.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            output_lines.append(line)
+            self._log(line)
+            if "%" in line:
+                try:
+                    pct = float(line.split("%")[0].split()[-1])
+                    progress = 10 + int(pct * 0.85)
+                    self._update_progress(progress, f"Separating... {pct:.0f}%")
+                except Exception:
+                    pass
+            elif "segment" in line.lower() or "chunk" in line.lower():
+                progress = min(progress + 2, 90)
+                self._update_progress(progress, "Processing audio chunks...")
+        process.wait()
+        return process.returncode, output_lines
+
+    def _find_and_load_stems(self, out_dir, model, mp3_path):
         """Find the output wav files and load them into track widgets."""
-        song_name = Path(self.mp3_path).stem
+        song_name = Path(mp3_path).stem
         # Demucs outputs to: out_dir / model / song_name / stem.wav
         stem_dir = Path(out_dir) / model / song_name
 
@@ -851,6 +952,10 @@ class NeuralStemApp:
         self._log(f"Looking for stems in: {stem_dir}")
 
         if stem_dir.exists():
+            if not self.stem_tracks:
+                self.root.after(0, self._build_stem_placeholders)
+                self.root.after(30, lambda: self._find_and_load_stems(out_dir, model, mp3_path))
+                return
             for stem_name, track in self.stem_tracks.items():
                 for ext in ['.wav', '.mp3']:
                     p = stem_dir / f"{stem_name}{ext}"
@@ -860,15 +965,85 @@ class NeuralStemApp:
                         break
 
     def _on_separation_done(self):
-        self.sep_btn.config(state="normal", text="⚡  SEPARATE STEMS")
+        self.sep_btn.config(state="normal", text="SEPARATE STEMS")
         self.status_badge.config(text="● COMPLETE", fg=C["green"])
         self._log("✓ Separation complete! Stems ready.")
+        if self.auto_open_output.get():
+            self.open_output_folder()
+        if self.auto_play_after_separation.get():
+            self.play_all()
         messagebox.showinfo("Done", "Stem separation complete!\nAll tracks are now ready to play.")
 
     def _on_separation_failed(self):
-        self.sep_btn.config(state="normal", text="⚡  SEPARATE STEMS")
+        self.sep_btn.config(state="normal", text="SEPARATE STEMS")
         self.status_badge.config(text="● ERROR", fg=C["orange"])
         messagebox.showerror("Error", "Separation failed. Check the system log for details.")
+
+    def _on_missing_torchcodec(self):
+        self.sep_btn.config(state="normal", text="SEPARATE STEMS")
+        self.status_badge.config(text="MISSING DEP", fg=C["orange"])
+        self._log("TorchCodec missing. Demucs cannot save output stems.")
+        install = messagebox.askyesno(
+            "Missing Dependency",
+            "Demucs needs torchcodec to save stems.\n\nInstall it now and retry automatically?"
+        )
+        if not install:
+            self._log(f"Manual fix: {sys.executable} -m pip install torchcodec")
+            return
+        self._log("Installing torchcodec...")
+        threading.Thread(target=self._install_torchcodec_and_retry, daemon=True).start()
+    def _on_libtorchcodec_failed(self):
+        self.sep_btn.config(state="normal", text="SEPARATE STEMS")
+        self.status_badge.config(text="TORCHCODEC/FFMPEG ERROR", fg=C["orange"])
+        messagebox.showerror(
+            "TorchCodec Runtime Error",
+            "TorchCodec is installed but failed to load native libraries.\n\n"
+            "App retried once with legacy torchaudio backend and it still failed.\n"
+            "Install FFmpeg full-shared build and ensure torch/torchaudio/torchcodec versions are compatible."
+        )
+    def _install_torchcodec_and_retry(self):
+        try:
+            cmd = [sys.executable, "-m", "pip", "install", "torchcodec"]
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1
+            )
+            for line in process.stdout:
+                line = line.strip()
+                if line:
+                    self._log(f"pip: {line}")
+            process.wait()
+            if process.returncode != 0:
+                self._log("TorchCodec install failed.")
+                self.root.after(
+                    0,
+                    lambda: messagebox.showerror(
+                        "Install Failed",
+                        "Failed to install torchcodec automatically.\n"
+                        f"Run manually:\n{sys.executable} -m pip install torchcodec"
+                    )
+                )
+                return
+
+            self._log("TorchCodec installed successfully.")
+            self.root.after(
+                0,
+                lambda: messagebox.showinfo("Installed", "torchcodec installed. Separation will restart.")
+            )
+            if hasattr(self, "_last_sep_request") and self._last_sep_request:
+                self.root.after(0, self.start_separation)
+        except Exception as e:
+            self._log(f"Install exception: {e}")
+            self.root.after(
+                0,
+                lambda: messagebox.showerror(
+                    "Install Error",
+                    f"Could not install torchcodec automatically.\n{e}"
+                )
+            )
 
     def _update_progress(self, val, msg=""):
         self.root.after(0, lambda: self.progress_var.set(val))
@@ -877,6 +1052,10 @@ class NeuralStemApp:
     def _poll_progress(self):
         if self._sep_thread and self._sep_thread.is_alive():
             self.root.after(200, self._poll_progress)
+
+    def _on_model_changed(self, *_args):
+        if self.stem_tracks:
+            self._build_stem_placeholders()
 
     # ── Global playback ──
 
@@ -896,10 +1075,16 @@ class NeuralStemApp:
     def _log(self, msg):
         def _do():
             ts = time.strftime("%H:%M:%S")
+            line = f"[{ts}] {msg}"
             self.log_text.config(state="normal")
-            self.log_text.insert("end", f"[{ts}] {msg}\n")
+            self.log_text.insert("end", line + "\n")
             self.log_text.see("end")
             self.log_text.config(state="disabled")
+            try:
+                with open(self._log_path, "a", encoding="utf-8") as f:
+                    f.write(line + "\n")
+            except Exception:
+                pass
         self.root.after(0, _do)
 
     # ── Header animation ──
@@ -915,6 +1100,138 @@ class NeuralStemApp:
         self.scan_lbl.config(text=bars[self._bar_idx % len(bars)])
         self._bar_idx += 1
         self.root.after(180, self._animate_header)
+
+    # Settings
+
+    def _load_settings(self):
+        try:
+            if self._settings_path.exists():
+                data = json.loads(self._settings_path.read_text(encoding="utf-8"))
+                self.ui_scale.set(float(data.get("ui_scale", self.ui_scale.get())))
+                self.auto_open_output.set(bool(data.get("auto_open_output", self.auto_open_output.get())))
+                self.auto_play_after_separation.set(
+                    bool(data.get("auto_play_after_separation", self.auto_play_after_separation.get()))
+                )
+                model = data.get("selected_model")
+                if model in MODELS:
+                    self.selected_model.set(model)
+        except Exception:
+            pass
+
+    def _save_settings(self):
+        try:
+            data = {
+                "ui_scale": round(float(self.ui_scale.get()), 2),
+                "auto_open_output": bool(self.auto_open_output.get()),
+                "auto_play_after_separation": bool(self.auto_play_after_separation.get()),
+                "selected_model": self.selected_model.get(),
+            }
+            self._settings_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        except Exception as e:
+            self._log(f"Settings save warning: {e}")
+
+    def apply_font_scale(self):
+        scale = float(self.ui_scale.get())
+        try:
+            self.root.tk.call("tk", "scaling", scale)
+        except Exception:
+            pass
+        self._apply_font_scale_recursive(self.root, scale)
+
+    def _apply_font_scale_recursive(self, widget, scale):
+        try:
+            current = widget.cget("font")
+        except Exception:
+            current = None
+        if current:
+            key = str(widget)
+            if key not in self._font_base:
+                try:
+                    f = tkfont.Font(font=current)
+                    self._font_base[key] = (
+                        f.actual("family"),
+                        int(f.actual("size")),
+                        f.actual("weight"),
+                        f.actual("slant")
+                    )
+                except Exception:
+                    self._font_base[key] = None
+            base = self._font_base.get(key)
+            if base:
+                family, size, weight, slant = base
+                if size == 0:
+                    size = 1
+                sign = -1 if size < 0 else 1
+                new_size = max(6, int(round(abs(size) * scale))) * sign
+                try:
+                    widget.configure(font=(family, new_size, weight, slant))
+                except Exception:
+                    pass
+
+        for child in widget.winfo_children():
+            self._apply_font_scale_recursive(child, scale)
+
+    def open_settings(self):
+        win = tk.Toplevel(self.root)
+        win.title("Settings")
+        win.configure(bg=C["bg2"])
+        win.geometry("460x340")
+        win.resizable(False, False)
+        win.transient(self.root)
+        win.grab_set()
+
+        box = tk.Frame(win, bg=C["bg2"])
+        box.pack(fill="both", expand=True, padx=14, pady=14)
+
+        tk.Label(box, text="DISPLAY", fg=C["cyan"], bg=C["bg2"],
+                 font=("Courier", 10, "bold")).pack(anchor="w", pady=(0, 8))
+
+        scale_row = tk.Frame(box, bg=C["bg2"])
+        scale_row.pack(fill="x", pady=(0, 8))
+        tk.Label(scale_row, text="Font Size", fg=C["text"], bg=C["bg2"],
+                 font=("Courier", 9)).pack(side="left")
+        pct_lbl = tk.Label(scale_row, text=f"{int(self.ui_scale.get() * 100)}%",
+                           fg=C["cyan"], bg=C["bg2"], font=("Courier", 9, "bold"))
+        pct_lbl.pack(side="right")
+
+        slider = ttk.Scale(box, from_=0.9, to=2.1, orient="horizontal",
+                           variable=self.ui_scale, length=360)
+        slider.pack(anchor="w")
+
+        def on_slider(_e=None):
+            pct_lbl.config(text=f"{int(self.ui_scale.get() * 100)}%")
+            self.apply_font_scale()
+
+        slider.bind("<B1-Motion>", on_slider)
+        slider.bind("<ButtonRelease-1>", on_slider)
+
+        tk.Frame(box, bg=C["border2"], height=1).pack(fill="x", pady=12)
+        tk.Label(box, text="BEHAVIOR", fg=C["cyan"], bg=C["bg2"],
+                 font=("Courier", 10, "bold")).pack(anchor="w", pady=(0, 8))
+
+        tk.Checkbutton(
+            box, text="Open output folder when separation is done",
+            variable=self.auto_open_output, fg=C["text"], bg=C["bg2"],
+            selectcolor=C["bg3"], activebackground=C["bg2"], activeforeground=C["cyan"],
+            font=("Courier", 8), anchor="w"
+        ).pack(fill="x", pady=2)
+
+        tk.Checkbutton(
+            box, text="Auto-play all stems after separation",
+            variable=self.auto_play_after_separation, fg=C["text"], bg=C["bg2"],
+            selectcolor=C["bg3"], activebackground=C["bg2"], activeforeground=C["cyan"],
+            font=("Courier", 8), anchor="w"
+        ).pack(fill="x", pady=2)
+
+        btn_row = tk.Frame(box, bg=C["bg2"])
+        btn_row.pack(side="bottom", fill="x", pady=(14, 0))
+
+        def save_and_close():
+            self._save_settings()
+            win.destroy()
+
+        self._cyber_btn(btn_row, "SAVE", save_and_close, C["green"]).pack(side="right")
+        self._cyber_btn(btn_row, "CANCEL", win.destroy, C["text_dim"]).pack(side="right", padx=(0, 8))
 
 
 def main():
@@ -932,3 +1249,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
