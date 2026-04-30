@@ -205,7 +205,6 @@ class StemTrack(tk.Frame):
         self.muted = tk.BooleanVar(value=False)
         self.channel = None  # pygame channel
         self.sound = None
-        self.memory_audio = None
         self._build()
 
     def _build(self):
@@ -310,7 +309,6 @@ class StemTrack(tk.Frame):
 
     def set_ready(self, wav_path):
         self.wav_path = wav_path
-        self.memory_audio = None
         color = self.meta["color"]
 
         # Update status
@@ -341,52 +339,6 @@ class StemTrack(tk.Frame):
             except Exception:
                 pass
 
-    def set_ready_memory(self, audio_np, sample_rate):
-        """Load stem directly from in-memory float audio [-1, 1], shape [samples, channels]."""
-        self.wav_path = None
-        self.memory_audio = (audio_np, int(sample_rate))
-        color = self.meta["color"]
-        self.status_dot.config(fg=color)
-
-        # Info
-        try:
-            n_samples = int(audio_np.shape[0])
-            dur = n_samples / float(sample_rate)
-            mb = (audio_np.nbytes / (1024 * 1024))
-            self.info_lbl.config(text=f"{dur:.1f}s  RAM {mb:.1f}MB")
-        except Exception:
-            pass
-
-        # Waveform from first channel
-        try:
-            mono = audio_np[:, 0] if audio_np.ndim > 1 else audio_np
-            mx = np.max(np.abs(mono)) or 1.0
-            disp = (mono / mx).astype(np.float32)
-            if len(disp) > 8000:
-                step = max(1, len(disp) // 8000)
-                disp = disp[::step][:8000]
-            self.waveform.set_samples(disp)
-        except Exception:
-            self.waveform.set_samples(np.zeros(100))
-
-        # Enable controls, but no locate for RAM-backed audio
-        for btn in [self.play_btn, self.stop_btn, self.mute_btn]:
-            btn.config(state="normal")
-        self.locate_btn.config(state="disabled")
-
-        if PYGAME_OK:
-            try:
-                arr = np.clip(audio_np, -1.0, 1.0)
-                if arr.ndim == 1:
-                    arr = np.column_stack([arr, arr])
-                elif arr.shape[1] == 1:
-                    arr = np.column_stack([arr[:, 0], arr[:, 0]])
-                int16 = (arr * 32767.0).astype(np.int16)
-                self.sound = pygame.sndarray.make_sound(int16)
-                self.sound.set_volume(self.volume.get())
-            except Exception:
-                self.sound = None
-
     def toggle_play(self):
         if self._is_playing:
             self.stop()
@@ -394,7 +346,7 @@ class StemTrack(tk.Frame):
             self.play()
 
     def play(self):
-        if not self.wav_path and self.memory_audio is None and not self.sound:
+        if not self.wav_path:
             return
         if PYGAME_OK and self.sound:
             if self.muted.get():
@@ -895,16 +847,6 @@ class NeuralStemApp:
 
             cmd = [
                 sys.executable, "-m", "demucs",
-                "--two-stems", "none",  # will be overridden by model default
-                "-n", model,
-                "-o", out_dir,
-                "--mp3",  # save as mp3 to save space
-                "--mp3-bitrate", "320",
-                self.mp3_path
-            ]
-            # Actually use default (all stems) by removing two-stems flag
-            cmd = [
-                sys.executable, "-m", "demucs",
                 "-n", model,
                 "-o", out_dir,
                 mp3_path
@@ -913,7 +855,13 @@ class NeuralStemApp:
             self._update_progress(10, "Loading model weights...")
             self._log("Running Demucs separation (this may take 1-5 minutes)...")
 
-            rc, output_lines = self._run_demucs_process(cmd, env=None)
+            # FIX: force torchaudio to use soundfile backend so it does not
+            # route audio saving through torchcodec (which requires FFmpeg DLLs).
+            fix_env = os.environ.copy()
+            fix_env["TORCHAUDIO_BACKEND"] = "soundfile"
+            fix_env["TORCHAUDIO_USE_BACKEND"] = "soundfile"
+
+            rc, output_lines = self._run_demucs_process(cmd, env=fix_env)
 
             if rc != 0:
                 self._log(f"ERROR: Demucs exited with code {rc}")
@@ -932,12 +880,6 @@ class NeuralStemApp:
                         return
                     out_text = "\n".join(output2).lower()
                     self._log(f"Fallback also failed (code {rc2}).")
-                    self._log("Trying in-memory separation (no stem files on disk)...")
-                    ok = self._separate_in_memory(model, mp3_path)
-                    if ok:
-                        self._update_progress(100, "Complete (in-memory stems)")
-                        self.root.after(0, self._on_separation_done)
-                        return
                     self.root.after(0, lambda: self._on_libtorchcodec_failed())
                     return
                 if "no module named 'torchcodec'" in out_text or "torchcodec is required" in out_text:
@@ -986,66 +928,6 @@ class NeuralStemApp:
                 self._update_progress(progress, "Processing audio chunks...")
         process.wait()
         return process.returncode, output_lines
-
-    def _separate_in_memory(self, model_name, mp3_path):
-        """Fallback: separate stems in RAM and avoid saving via torchaudio."""
-        try:
-            import torch
-            import torchaudio
-            from demucs.pretrained import get_model
-            from demucs.apply import apply_model
-        except Exception as e:
-            self._log(f"In-memory mode unavailable: {e}")
-            return False
-
-        try:
-            self._update_progress(12, "Loading audio in memory...")
-            wav, sr = torchaudio.load(mp3_path)
-            if wav.dim() == 1:
-                wav = wav.unsqueeze(0)
-            if wav.shape[0] == 1:
-                wav = wav.repeat(2, 1)
-            wav = wav[:2, :]
-
-            self._update_progress(18, f"Loading model in memory: {model_name}...")
-            model = get_model(model_name)
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            model.to(device)
-            model.eval()
-            wav = wav.to(device)
-
-            self._update_progress(25, "Separating in memory...")
-            with torch.no_grad():
-                sources = apply_model(model, wav.unsqueeze(0), split=True, overlap=0.25, progress=False)[0]
-            # sources: [stems, channels, samples]
-            sources = sources.detach().cpu()
-            stem_names = list(getattr(model, "sources", []))
-            if not stem_names:
-                stem_names = ["drums", "bass", "other", "vocals"][:sources.shape[0]]
-
-            loaded_count = 0
-            self.root.after(0, self._build_stem_placeholders)
-            for idx, stem_name in enumerate(stem_names):
-                if idx >= sources.shape[0]:
-                    break
-                if stem_name not in self.stem_tracks:
-                    continue
-                stem_tensor = sources[idx].transpose(0, 1).contiguous()  # [samples, channels]
-                audio_np = stem_tensor.numpy().astype(np.float32)
-                loaded_count += 1
-                self.root.after(
-                    0,
-                    lambda t=self.stem_tracks[stem_name], a=audio_np, rate=int(sr): t.set_ready_memory(a, rate)
-                )
-
-            if loaded_count == 0:
-                self._log("In-memory separation produced no matching stems for selected UI model.")
-                return False
-            self._log(f"In-memory separation complete. Loaded {loaded_count} stems.")
-            return True
-        except Exception as e:
-            self._log(f"In-memory separation failed: {e}")
-            return False
 
     def _find_and_load_stems(self, out_dir, model, mp3_path):
         """Find the output wav files and load them into track widgets."""
@@ -1106,6 +988,7 @@ class NeuralStemApp:
             return
         self._log("Installing torchcodec...")
         threading.Thread(target=self._install_torchcodec_and_retry, daemon=True).start()
+
     def _on_libtorchcodec_failed(self):
         self.sep_btn.config(state="normal", text="SEPARATE STEMS")
         self.status_badge.config(text="TORCHCODEC/FFMPEG ERROR", fg=C["orange"])
@@ -1115,6 +998,7 @@ class NeuralStemApp:
             "App retried once with legacy torchaudio backend and it still failed.\n"
             "Install FFmpeg full-shared build and ensure torch/torchaudio/torchcodec versions are compatible."
         )
+
     def _install_torchcodec_and_retry(self):
         try:
             cmd = [sys.executable, "-m", "pip", "install", "torchcodec"]
@@ -1363,7 +1247,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-

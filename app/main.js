@@ -172,7 +172,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.51',
+      version: 'v2026.04.22.52',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -5858,7 +5858,10 @@ Rules:
       updateAddPatternPreviewButtons();
       await playAddPatternPulse(patternText[0] || '.', true, true);
       if ((patternText[0] || '.') !== '.' && (patternText[0] || '.') !== 'X' && previewChord) {
-        playChordPreview(previewChord, patternText[0] || 'D', document.getElementById('add-capo')?.value || 'No capo');
+        playChordPreview(previewChord, patternText[0] || 'D', document.getElementById('add-capo')?.value || 'No capo', {
+          bpm,
+          subdivisionsPerBeat
+        });
       }
       addPatternPreviewStepIndex = 1;
       addPatternPreviewTimer = setInterval(() => {
@@ -5872,7 +5875,10 @@ Rules:
         const char = patternText[idx] || '.';
         playAddPatternPulse(char, isBarStart, isBeatStart);
         if (char !== '.' && char !== 'X' && previewChord) {
-          playChordPreview(previewChord, char, document.getElementById('add-capo')?.value || 'No capo');
+          playChordPreview(previewChord, char, document.getElementById('add-capo')?.value || 'No capo', {
+            bpm,
+            subdivisionsPerBeat
+          });
         }
         addPatternPreviewStepIndex += 1;
       }, slotMs);
@@ -6701,7 +6707,19 @@ Rules:
       activeChordVoices = [];
     }
 
-    async function playChordPreview(chordName, direction = 'D', capoLabel = null) {
+    function computeStrumTiming(options = {}) {
+      const bpm = Math.max(40, Math.min(300, Number(options?.bpm || currentBpm || 80)));
+      const subdivisions = Math.max(1, Number(options?.subdivisionsPerBeat || 2));
+      const slotDurationSec = 60 / bpm / subdivisions;
+      let totalSpreadSec = 9.0 / bpm; // lower bpm => wider sweep, higher bpm => tighter sweep
+      totalSpreadSec = Math.max(0.025, Math.min(0.11, totalSpreadSec));
+      const maxSpreadFromSlot = Math.max(0.018, slotDurationSec * 0.72);
+      totalSpreadSec = Math.min(totalSpreadSec, maxSpreadFromSlot);
+      const sustainSec = Math.max(0.22, Math.min(1.35, slotDurationSec * 6));
+      return { totalSpreadSec, sustainSec };
+    }
+
+    async function playChordPreview(chordName, direction = 'D', capoLabel = null, options = {}) {
       if (!practiceChordAudioEnabled || !chordName) return;
       const capoOffset = getCapoOffset(capoLabel || currentSong?.capo || 'No capo');
       const tonePlayed = await playChordFromSelectedGuitarTone(chordName, direction, capoOffset);
@@ -6712,22 +6730,31 @@ Rules:
       if (!freqs.length) return;
       const now = ctx.currentTime;
       const ordered = strumTypeToRaw(direction) === 'U' ? [...freqs].reverse() : freqs;
+      const { totalSpreadSec, sustainSec } = computeStrumTiming(options);
+      const stringDelaySec = ordered.length > 1 ? (totalSpreadSec / (ordered.length - 1)) : 0;
       activeChordVoices = [];
       ordered.forEach((freq, idx) => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.type = idx === 0 ? 'triangle' : 'sawtooth';
         osc.frequency.value = freq;
-        const offset = idx * 0.02;
+        const offset = idx * stringDelaySec;
+        const peak = 0.28 / (idx + 1);
+        const mid = 0.08 / (idx + 1);
+        const low = 0.008 / (idx + 1);
+        const a = Math.min(0.01, Math.max(0.003, sustainSec * 0.06));
+        const d1 = Math.max(a + 0.04, sustainSec * 0.33);
+        const d2 = Math.max(d1 + 0.05, sustainSec * 0.72);
+        const end = Math.max(d2 + 0.06, sustainSec);
         gain.gain.setValueAtTime(0.0001, now + offset);
-        gain.gain.linearRampToValueAtTime(0.28 / (idx + 1), now + offset + 0.01);
-        gain.gain.exponentialRampToValueAtTime(0.08 / (idx + 1), now + offset + 0.18);
-        gain.gain.exponentialRampToValueAtTime(0.008 / (idx + 1), now + offset + 1.2);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 2.2);
+        gain.gain.linearRampToValueAtTime(peak, now + offset + a);
+        gain.gain.exponentialRampToValueAtTime(mid, now + offset + d1);
+        gain.gain.exponentialRampToValueAtTime(low, now + offset + d2);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + end);
         osc.connect(gain);
         gain.connect(ctx.destination);
         osc.start(now + offset);
-        osc.stop(now + offset + 2.25);
+        osc.stop(now + offset + end + 0.03);
         activeChordVoices.push({ osc, gain });
       });
     }
@@ -8626,7 +8653,10 @@ Rules:
             stopActiveChordPreview(0.03);
           } else if (activeChord) {
             stopActiveChordPreview(0.03);
-            playChordPreview(activeChord.chord, activeStrum.raw);
+            playChordPreview(activeChord.chord, activeStrum.raw, null, {
+              bpm: currentBpm,
+              subdivisionsPerBeat
+            });
           }
         }
       }
