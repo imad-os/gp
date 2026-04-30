@@ -60,8 +60,15 @@
     .strum-char.active { color: var(--active); text-shadow: 0 0 10px rgba(3,218,198,0.5); transform: scale(1.2); }
     
     /* Removed margin-bottom and slightly increased size for better GuitarTuna style */
-    .metro-dot { width: 12px; height: 12px; border-radius: 50%; background: #333; transition: all 0.1s; }
-    .metro-dot.active { background: var(--active); transform: scale(1.4); box-shadow: 0 0 10px var(--active); }
+    .metro-dot { width: 12px; height: 12px; border-radius: 50%; background: #676767; transition: all 0.1s; }
+    .metro-dot.active { background: #f5ff4a; transform: scale(1.4); box-shadow: 0 0 14px rgba(245,255,74,0.9); }
+    .metro-swing-wrap { position: relative; width: min(100%, 520px); height: 54px; margin: 0 auto; }
+    .metro-swing-track { position: absolute; left: 0; right: 0; top: 26px; height: 2px; border-radius: 2px; background: linear-gradient(90deg, rgba(255,210,121,0.5), rgba(245,255,74,0.92), rgba(255,210,121,0.5)); box-shadow: 0 0 10px rgba(245,255,74,0.28); }
+    .metro-swing-markers { position: absolute; left: 0; right: 0; top: 19px; display: flex; justify-content: space-between; pointer-events: none; }
+    .metro-swing-marker { width: 10px; height: 10px; border-radius: 999px; background: #6f6f6f; box-shadow: 0 0 0 1px rgba(255,255,255,0.05) inset; transition: transform 0.12s ease, background-color 0.12s ease, box-shadow 0.12s ease; }
+    .metro-swing-marker.active { background: #f5ff4a; transform: scale(1.22); box-shadow: 0 0 14px rgba(245,255,74,0.92); }
+    .metro-swing-marker.next { background: #ffd279; box-shadow: 0 0 10px rgba(255,210,121,0.75); }
+    .metro-swing-ball { position: absolute; top: 11px; width: 28px; height: 28px; border-radius: 999px; background: radial-gradient(circle at 30% 30%, #fffbe8 0%, #f5ff4a 36%, #d6b13f 100%); box-shadow: 0 0 18px rgba(245,255,74,0.9), 0 4px 18px rgba(0,0,0,0.45); transform: translateX(-50%); transition: left 0.03s linear; }
     .rhythm-track { width: min(100%, 34rem); margin: 0 auto; }
 
     .btn-press:active { transform: scale(0.95); }
@@ -791,6 +798,13 @@
                 <option value="3">3/4</option>
                 <option value="4" selected>4/4</option>
                 <option value="6">6/8</option>
+              </select>
+            </label>
+            <label class="bg-black/30 rounded-xl border border-gray-800 p-4 text-left">
+              <span class="text-[10px] uppercase tracking-[0.25em] text-gray-500 block mb-2">Visual Mode</span>
+              <select id="metro-visual-mode" onchange="updateMetronomeSettings()" class="w-full bg-transparent text-white outline-none">
+                <option value="dots" selected>Beat Dots</option>
+                <option value="swing">Moving Dot (Side to Side)</option>
               </select>
             </label>
           </div>

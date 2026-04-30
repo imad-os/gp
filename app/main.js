@@ -50,6 +50,9 @@ import { FirestoreRepository } from './modules/repository.js';
     let activeTab = 'home';
     let metronomeTimer = null;
     let metronomeBeatIndex = 0;
+    let metronomeVisualTimer = null;
+    let metronomeLastBeatAtMs = 0;
+    let metronomeBeatDurationMs = 600;
     let toolRecordings = [];
     let toolAudioPlayers = new Map();
     let activeToolAudioId = null;
@@ -94,7 +97,7 @@ import { FirestoreRepository } from './modules/repository.js';
     let looperDuration = 0;
     let looperRepeatEnabled = false;
     let looperABEnabled = false;
-    let looperAppBackgroundEnabled = false;
+    let looperAppBackgroundEnabled = true;
     let looperPointA = 0;
     let looperPointB = 0;
     let looperHistory = [];
@@ -153,6 +156,7 @@ import { FirestoreRepository } from './modules/repository.js';
     let trainingTimer = null;
     let trainingBeatIndex = 0;
     const METRONOME_STORAGE_KEY = 'guitartrainer.metronome.settings';
+    const LOOPER_BG_STORAGE_KEY = 'guitartrainer.looper.background.enabled';
     const GEMINI_API_KEY_STORAGE_KEY = 'guitartrainer.gemini.apiKey';
     const TABS_PREVIEW_HISTORY_STORAGE_KEY = 'guitartrainer.tabs.history.v1';
     const TABS_PREVIEW_HISTORY_LIMIT = 80;
@@ -172,7 +176,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.53',
+      version: 'v2026.04.22.54',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -2818,8 +2822,24 @@ Drop back to 70 BPM for clean finish.`,
       checkbox.checked = !!looperAppBackgroundEnabled;
     }
 
+    function restoreLooperBackgroundPreference() {
+      try {
+        const raw = localStorage.getItem(LOOPER_BG_STORAGE_KEY);
+        if (raw === null) {
+          looperAppBackgroundEnabled = true;
+          return;
+        }
+        looperAppBackgroundEnabled = raw === '1';
+      } catch {
+        looperAppBackgroundEnabled = true;
+      }
+    }
+
     window.toggleLooperAppBackground = function(value) {
       looperAppBackgroundEnabled = !!value;
+      try {
+        localStorage.setItem(LOOPER_BG_STORAGE_KEY, looperAppBackgroundEnabled ? '1' : '0');
+      } catch {}
       renderLooperBackgroundOption();
       showToast(looperAppBackgroundEnabled ? 'Looper background in-app playback enabled.' : 'Looper will stop when leaving looper page.', true);
     };
@@ -4491,7 +4511,7 @@ Drop back to 70 BPM for clean finish.`,
     function initLooperUi() {
       looperRepeatEnabled = false;
       looperABEnabled = false;
-      looperAppBackgroundEnabled = false;
+      restoreLooperBackgroundPreference();
       looperPointA = 0;
       looperPointB = 0;
       activeLooperHistoryId = '';
@@ -8841,8 +8861,9 @@ Rules:
     function updateMetronomeSettings() {
       const bpm = parseInt(document.getElementById('metro-bpm')?.value || '100', 10);
       const beats = parseInt(document.getElementById('metro-beats')?.value || '4', 10);
+      const visualMode = String(document.getElementById('metro-visual-mode')?.value || 'dots');
       document.getElementById('metro-bpm-label').innerText = bpm;
-      localStorage.setItem(METRONOME_STORAGE_KEY, JSON.stringify({ bpm, beats }));
+      localStorage.setItem(METRONOME_STORAGE_KEY, JSON.stringify({ bpm, beats, visualMode }));
       renderStandaloneMetronomeVisual();
       if (metronomeTimer) {
         stopStandaloneMetronome();
@@ -8852,11 +8873,52 @@ Rules:
 
     function renderStandaloneMetronomeVisual(active = -1) {
       const beats = parseInt(document.getElementById('metro-beats')?.value || '4', 10);
-      document.getElementById('metro-visual').innerHTML = Array.from({ length: beats }, (_, i) => {
+      const visualMode = String(document.getElementById('metro-visual-mode')?.value || 'dots');
+      const visual = document.getElementById('metro-visual');
+      if (!visual) return;
+      if (visualMode === 'swing') {
+        visual.innerHTML = `
+          <div class="metro-swing-wrap">
+            <div class="metro-swing-track"></div>
+            <div class="metro-swing-markers">
+              ${Array.from({ length: beats }, () => `<span class="metro-swing-marker"></span>`).join('')}
+            </div>
+            <div id="metro-swing-ball" class="metro-swing-ball"></div>
+          </div>
+        `;
+        updateMetronomeSwingVisual(active, true);
+        return;
+      }
+      visual.innerHTML = Array.from({ length: beats }, (_, i) => {
         const accented = i === 0;
         const isActive = i === active;
-        return `<div class="w-4 h-4 rounded-full transition-all ${isActive ? 'bg-active scale-125 shadow-[0_0_12px_rgba(3,218,198,0.7)]' : accented ? 'bg-primary/80' : 'bg-gray-700'}"></div>`;
+        return `<div class="w-4 h-4 rounded-full transition-all ${isActive ? 'bg-[#f5ff4a] scale-125 shadow-[0_0_16px_rgba(245,255,74,0.92)]' : accented ? 'bg-[#ffd279] shadow-[0_0_10px_rgba(255,210,121,0.55)]' : 'bg-gray-500'}"></div>`;
       }).join('');
+    }
+
+    function updateMetronomeSwingVisual(activeBeat = 0, snapToBeat = false) {
+      const visualMode = String(document.getElementById('metro-visual-mode')?.value || 'dots');
+      if (visualMode !== 'swing') return;
+      const beats = parseInt(document.getElementById('metro-beats')?.value || '4', 10);
+      const ball = document.getElementById('metro-swing-ball');
+      if (!ball || beats <= 0) return;
+      const now = performance.now();
+      let progress = 0;
+      if (snapToBeat || !metronomeLastBeatAtMs || !metronomeBeatDurationMs) {
+        progress = 0;
+      } else {
+        progress = Math.max(0, Math.min(1, (now - metronomeLastBeatAtMs) / metronomeBeatDurationMs));
+      }
+      const nextBeat = (activeBeat + 1) % beats;
+      const t = activeBeat + progress;
+      const x = (t / beats) * 100;
+      ball.style.left = `${x}%`;
+
+      const markers = document.querySelectorAll('.metro-swing-marker');
+      markers.forEach((marker, idx) => {
+        marker.classList.toggle('active', idx === activeBeat);
+        marker.classList.toggle('next', idx === nextBeat);
+      });
     }
 
     function clickStandaloneMetronome(isAccent) {
@@ -8876,14 +8938,21 @@ Rules:
     function startStandaloneMetronome() {
       const bpm = parseInt(document.getElementById('metro-bpm').value, 10);
       const beats = parseInt(document.getElementById('metro-beats').value, 10);
+      metronomeBeatDurationMs = (60 / bpm) * 1000;
       metronomeBeatIndex = 0;
+      metronomeLastBeatAtMs = performance.now();
       renderStandaloneMetronomeVisual(metronomeBeatIndex);
       clickStandaloneMetronome(true);
       metronomeTimer = setInterval(() => {
         metronomeBeatIndex = (metronomeBeatIndex + 1) % beats;
+        metronomeLastBeatAtMs = performance.now();
         renderStandaloneMetronomeVisual(metronomeBeatIndex);
         clickStandaloneMetronome(metronomeBeatIndex === 0);
-      }, (60 / bpm) * 1000);
+      }, metronomeBeatDurationMs);
+      if (metronomeVisualTimer) clearInterval(metronomeVisualTimer);
+      metronomeVisualTimer = setInterval(() => {
+        updateMetronomeSwingVisual(metronomeBeatIndex, false);
+      }, 16);
       const btn = document.getElementById('btn-metro-toggle');
       btn.innerHTML = `<i class="fas fa-stop mr-2"></i> Stop Metronome`;
       btn.classList.replace('bg-primary', 'bg-danger');
@@ -8893,6 +8962,10 @@ Rules:
     function stopStandaloneMetronome() {
       clearInterval(metronomeTimer);
       metronomeTimer = null;
+      if (metronomeVisualTimer) {
+        clearInterval(metronomeVisualTimer);
+        metronomeVisualTimer = null;
+      }
       renderStandaloneMetronomeVisual();
       const btn = document.getElementById('btn-metro-toggle');
       btn.innerHTML = `<i class="fas fa-play mr-2"></i> Start Metronome`;
@@ -9197,6 +9270,10 @@ Rules:
         }
         if (saved.beats && [2, 3, 4, 6].includes(saved.beats)) {
           document.getElementById('metro-beats').value = String(saved.beats);
+        }
+        if (saved.visualMode && ['dots', 'swing'].includes(saved.visualMode)) {
+          const modeEl = document.getElementById('metro-visual-mode');
+          if (modeEl) modeEl.value = saved.visualMode;
         }
       } catch {}
     }
