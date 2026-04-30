@@ -789,7 +789,7 @@
           <p id="metro-bpm-label" class="text-5xl font-black text-primary">100</p>
           <p class="text-sm text-gray-400">beats per minute</p>
           <input id="metro-bpm" type="range" min="40" max="240" value="100" oninput="updateMetronomeSettings()" class="w-full mt-5 accent-[#9c6a3d]">
-          <div class="grid grid-cols-1 gap-4 mt-5">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-5">
             <label class="bg-black/30 rounded-xl border border-gray-800 p-4 text-left">
               <span class="text-[10px] uppercase tracking-[0.25em] text-gray-500 block mb-2">Beat Size</span>
               <select id="metro-beats" onchange="updateMetronomeSettings()" class="w-full bg-transparent text-white outline-none">

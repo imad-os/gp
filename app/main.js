@@ -179,7 +179,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.55',
+      version: 'v2026.04.22.56',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -1300,13 +1300,13 @@ Drop back to 70 BPM for clean finish.`,
         const lineStartBeat = Math.max(0, Number(lineBeat[i] || currentTime || 0));
         
         if (isTagLine(line)) {
-          parsedLines.push({ type: 'tag', chordHtml: "", lyricLine: stripLeadingWhitespace(line), chords: [] });
+          parsedLines.push({ type: 'tag', chordHtml: "", lyricLine: line, chords: [] });
           continue;
         }
 
         if (isChordLine(line)) {
           currentTime = lineStartBeat;
-          const normalizedChordLine = stripLeadingWhitespace(line).replace(/\s+$/, '');
+          const normalizedChordLine = line.replace(/\s+$/, '');
           let nextLine = (i + 1 < lines.length && !isChordLine(lines[i + 1]) && !isTagLine(lines[i + 1]) && lines[i+1].trim() !== "") ? lines[i + 1] : "";
           if (nextLine !== "") i++;
 
@@ -1340,9 +1340,9 @@ Drop back to 70 BPM for clean finish.`,
           }
           chordHtml += normalizedChordLine.substring(lastIdx);
 
-          parsedLines.push({ type: 'content', chordHtml: chordHtml, lyricLine: stripLeadingWhitespace(nextLine), chords: lineChords });
+          parsedLines.push({ type: 'content', chordHtml: chordHtml, lyricLine: nextLine, chords: lineChords });
         } else if (line.trim() !== "") {
-          parsedLines.push({ type: 'content', chordHtml: "", lyricLine: stripLeadingWhitespace(line), chords: [] });
+          parsedLines.push({ type: 'content', chordHtml: "", lyricLine: line, chords: [] });
         } else {
           if (parsedLines.length > 0 && parsedLines[parsedLines.length - 1].chordHtml === '' && parsedLines[parsedLines.length - 1].lyricLine === '') continue;
           parsedLines.push({ type: 'empty', chordHtml: "", lyricLine: "", chords: [] });
