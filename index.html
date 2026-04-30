@@ -64,10 +64,9 @@
     .metro-dot.active { background: #f5ff4a; transform: scale(1.4); box-shadow: 0 0 14px rgba(245,255,74,0.9); }
     .metro-swing-wrap { position: relative; width: min(100%, 520px); height: 54px; margin: 0 auto; }
     .metro-swing-track { position: absolute; left: 0; right: 0; top: 26px; height: 2px; border-radius: 2px; background: linear-gradient(90deg, rgba(255,210,121,0.5), rgba(245,255,74,0.92), rgba(255,210,121,0.5)); box-shadow: 0 0 10px rgba(245,255,74,0.28); }
-    .metro-swing-markers { position: absolute; left: 0; right: 0; top: 19px; display: flex; justify-content: space-between; pointer-events: none; }
-    .metro-swing-marker { width: 10px; height: 10px; border-radius: 999px; background: #6f6f6f; box-shadow: 0 0 0 1px rgba(255,255,255,0.05) inset; transition: transform 0.12s ease, background-color 0.12s ease, box-shadow 0.12s ease; }
-    .metro-swing-marker.active { background: #f5ff4a; transform: scale(1.22); box-shadow: 0 0 14px rgba(245,255,74,0.92); }
-    .metro-swing-marker.next { background: #ffd279; box-shadow: 0 0 10px rgba(255,210,121,0.75); }
+    .metro-swing-wrap::before, .metro-swing-wrap::after { content: ""; position: absolute; top: 14px; width: 3px; height: 26px; border-radius: 3px; background: #f5ff4a; box-shadow: 0 0 12px rgba(245,255,74,0.8); }
+    .metro-swing-wrap::before { left: 0; }
+    .metro-swing-wrap::after { right: 0; }
     .metro-swing-ball { position: absolute; top: 11px; width: 28px; height: 28px; border-radius: 999px; background: radial-gradient(circle at 30% 30%, #fffbe8 0%, #f5ff4a 36%, #d6b13f 100%); box-shadow: 0 0 18px rgba(245,255,74,0.9), 0 4px 18px rgba(0,0,0,0.45); transform: translateX(-50%); transition: left 0.03s linear; }
     .rhythm-track { width: min(100%, 34rem); margin: 0 auto; }
 

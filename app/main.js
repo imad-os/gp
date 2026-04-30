@@ -53,6 +53,9 @@ import { FirestoreRepository } from './modules/repository.js';
     let metronomeVisualTimer = null;
     let metronomeLastBeatAtMs = 0;
     let metronomeBeatDurationMs = 600;
+    let metronomeStartAtMs = 0;
+    let metronomeBeatCounter = 0;
+    let metronomeRafId = null;
     let toolRecordings = [];
     let toolAudioPlayers = new Map();
     let activeToolAudioId = null;
@@ -176,7 +179,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.54',
+      version: 'v2026.04.22.55',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -8880,9 +8883,6 @@ Rules:
         visual.innerHTML = `
           <div class="metro-swing-wrap">
             <div class="metro-swing-track"></div>
-            <div class="metro-swing-markers">
-              ${Array.from({ length: beats }, () => `<span class="metro-swing-marker"></span>`).join('')}
-            </div>
             <div id="metro-swing-ball" class="metro-swing-ball"></div>
           </div>
         `;
@@ -8899,31 +8899,24 @@ Rules:
     function updateMetronomeSwingVisual(activeBeat = 0, snapToBeat = false) {
       const visualMode = String(document.getElementById('metro-visual-mode')?.value || 'dots');
       if (visualMode !== 'swing') return;
-      const beats = parseInt(document.getElementById('metro-beats')?.value || '4', 10);
       const ball = document.getElementById('metro-swing-ball');
-      if (!ball || beats <= 0) return;
+      if (!ball) return;
       const now = performance.now();
-      let progress = 0;
-      if (snapToBeat || !metronomeLastBeatAtMs || !metronomeBeatDurationMs) {
-        progress = 0;
+      let x = 0;
+      if (snapToBeat || !metronomeStartAtMs || !metronomeBeatDurationMs) {
+        x = (activeBeat % 2 === 0) ? 0 : 100;
       } else {
-        progress = Math.max(0, Math.min(1, (now - metronomeLastBeatAtMs) / metronomeBeatDurationMs));
+        // One border hit per beat: L->R on beat n, R->L on beat n+1.
+        const phaseBeats = Math.max(0, (now - metronomeStartAtMs) / metronomeBeatDurationMs);
+        const leg = phaseBeats % 2;
+        x = leg <= 1 ? (leg * 100) : ((2 - leg) * 100);
       }
-      const nextBeat = (activeBeat + 1) % beats;
-      const t = activeBeat + progress;
-      const x = (t / beats) * 100;
       ball.style.left = `${x}%`;
-
-      const markers = document.querySelectorAll('.metro-swing-marker');
-      markers.forEach((marker, idx) => {
-        marker.classList.toggle('active', idx === activeBeat);
-        marker.classList.toggle('next', idx === nextBeat);
-      });
     }
 
-    function clickStandaloneMetronome(isAccent) {
+    function clickStandaloneMetronome(isAccent, when = null) {
       if (!audioCtx) audioCtx = new AudioContext();
-      const now = audioCtx.currentTime;
+      const now = when ?? audioCtx.currentTime;
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
       osc.frequency.value = isAccent ? 1200 : 760;
@@ -8935,24 +8928,45 @@ Rules:
       osc.stop(now + 0.05);
     }
 
+    function runMetronomeSwingAnimation() {
+      if (!metronomeTimer) return;
+      updateMetronomeSwingVisual(metronomeBeatIndex, false);
+      metronomeRafId = requestAnimationFrame(runMetronomeSwingAnimation);
+    }
+
+    function scheduleNextStandaloneMetronomeBeat(beats) {
+      if (!metronomeTimer) return;
+      const targetMs = metronomeStartAtMs + (metronomeBeatCounter * metronomeBeatDurationMs);
+      const delayMs = Math.max(0, targetMs - performance.now() - 8);
+      metronomeVisualTimer = setTimeout(() => {
+        if (!metronomeTimer) return;
+        const nowMs = performance.now();
+        const leadSec = Math.max(0, (targetMs - nowMs) / 1000);
+        const when = (audioCtx?.currentTime || 0) + leadSec;
+        metronomeBeatIndex = metronomeBeatCounter % beats;
+        renderStandaloneMetronomeVisual(metronomeBeatIndex);
+        clickStandaloneMetronome(metronomeBeatIndex === 0, when);
+        metronomeLastBeatAtMs = targetMs;
+        metronomeBeatCounter += 1;
+        scheduleNextStandaloneMetronomeBeat(beats);
+      }, delayMs);
+    }
+
     function startStandaloneMetronome() {
       const bpm = parseInt(document.getElementById('metro-bpm').value, 10);
       const beats = parseInt(document.getElementById('metro-beats').value, 10);
+      if (!audioCtx) audioCtx = new AudioContext();
       metronomeBeatDurationMs = (60 / bpm) * 1000;
+      metronomeStartAtMs = performance.now() + 80;
+      metronomeBeatCounter = 0;
       metronomeBeatIndex = 0;
-      metronomeLastBeatAtMs = performance.now();
+      metronomeLastBeatAtMs = metronomeStartAtMs;
+      metronomeTimer = 1; // running sentinel
       renderStandaloneMetronomeVisual(metronomeBeatIndex);
-      clickStandaloneMetronome(true);
-      metronomeTimer = setInterval(() => {
-        metronomeBeatIndex = (metronomeBeatIndex + 1) % beats;
-        metronomeLastBeatAtMs = performance.now();
-        renderStandaloneMetronomeVisual(metronomeBeatIndex);
-        clickStandaloneMetronome(metronomeBeatIndex === 0);
-      }, metronomeBeatDurationMs);
-      if (metronomeVisualTimer) clearInterval(metronomeVisualTimer);
-      metronomeVisualTimer = setInterval(() => {
-        updateMetronomeSwingVisual(metronomeBeatIndex, false);
-      }, 16);
+      if (metronomeRafId) cancelAnimationFrame(metronomeRafId);
+      metronomeRafId = requestAnimationFrame(runMetronomeSwingAnimation);
+      if (metronomeVisualTimer) clearTimeout(metronomeVisualTimer);
+      scheduleNextStandaloneMetronomeBeat(beats);
       const btn = document.getElementById('btn-metro-toggle');
       btn.innerHTML = `<i class="fas fa-stop mr-2"></i> Stop Metronome`;
       btn.classList.replace('bg-primary', 'bg-danger');
@@ -8960,11 +8974,14 @@ Rules:
     }
 
     function stopStandaloneMetronome() {
-      clearInterval(metronomeTimer);
       metronomeTimer = null;
       if (metronomeVisualTimer) {
-        clearInterval(metronomeVisualTimer);
+        clearTimeout(metronomeVisualTimer);
         metronomeVisualTimer = null;
+      }
+      if (metronomeRafId) {
+        cancelAnimationFrame(metronomeRafId);
+        metronomeRafId = null;
       }
       renderStandaloneMetronomeVisual();
       const btn = document.getElementById('btn-metro-toggle');
