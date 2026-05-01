@@ -179,7 +179,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.60',
+      version: 'v2026.04.22.61',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -1312,15 +1312,22 @@ Drop back to 70 BPM for clean finish.`,
 
           const chordRegex = /[^\s]+/g;
           let match;
-          let chordHtml = escapeHtml(normalizedChordLine);
+          let chordHtml = "";
+          let lastIdx = 0;
           let lineChords = [];
 
           while ((match = chordRegex.exec(normalizedChordLine)) !== null) {
             const chordStr = match[0];
+            chordHtml += escapeHtml(normalizedChordLine.substring(lastIdx, match.index));
+            lastIdx = match.index + chordStr.length;
             if (/^x\d+$/i.test(chordStr)) {
+              chordHtml += escapeHtml(chordStr);
               continue;
             }
             const normalizedChord = normalizeChordTokenToUs(chordStr);
+            const safeChord = escapeHtml(normalizedChord);
+            const safeRaw = escapeHtml(chordStr);
+            chordHtml += `<span id="chord-hl-${globalChordIdx}" data-chord="${safeChord}" onclick="openPreviewChordDiagram('${safeChord}', this)" class="clickable-chord font-mono inline-block" style="width:${Math.max(1, chordStr.length)}ch">${safeRaw}</span>`;
 
             const chordObj = { chord: normalizedChord, time: currentTime, lineIdx: parsedLines.length, globalIdx: globalChordIdx };
             flatChords.push(chordObj);
@@ -1328,6 +1335,7 @@ Drop back to 70 BPM for clean finish.`,
             currentTime += beatsPerBar; // Time Signature dependent
             globalChordIdx++;
           }
+          chordHtml += escapeHtml(normalizedChordLine.substring(lastIdx));
 
           parsedLines.push({ type: 'content', chordHtml: chordHtml, lyricLine: nextLine, chords: lineChords });
         } else if (line.trim() !== "") {
