@@ -179,7 +179,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.57',
+      version: 'v2026.04.22.58',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -1320,16 +1320,16 @@ Drop back to 70 BPM for clean finish.`,
             const chordStr = match[0];
             if (/^x\d+$/i.test(chordStr)) {
               chordHtml += normalizedChordLine.substring(lastIdx, match.index);
-              chordHtml += `<span class="text-gray-500 uppercase font-mono inline-block" style="min-width:${Math.max(1, chordStr.length)}ch">${chordStr}</span>`;
+              chordHtml += `<span class="text-gray-500 uppercase font-mono">${escapeHtml(chordStr)}</span>`;
               lastIdx = match.index + chordStr.length;
               continue;
             }
             const normalizedChord = normalizeChordTokenToUs(chordStr);
-            const displayChord = getDisplayChordName(normalizedChord);
+            const rawDisplayChord = chordStr;
             chordHtml += normalizedChordLine.substring(lastIdx, match.index);
             const safeChord = escapeHtml(normalizedChord);
-            const safeDisplayChord = escapeHtml(displayChord);
-            chordHtml += `<span id="chord-hl-${globalChordIdx}" data-chord="${safeChord}" onclick="openPreviewChordDiagram('${safeChord}', this)" class="transition-all duration-200 clickable-chord font-mono inline-block" style="min-width:${Math.max(1, chordStr.length)}ch">${safeDisplayChord}</span>`;
+            const safeDisplayChord = escapeHtml(rawDisplayChord);
+            chordHtml += `<span id="chord-hl-${globalChordIdx}" data-chord="${safeChord}" onclick="openPreviewChordDiagram('${safeChord}', this)" class="transition-all duration-200 clickable-chord font-mono">${safeDisplayChord}</span>`;
             lastIdx = match.index + chordStr.length;
 
             const chordObj = { chord: normalizedChord, time: currentTime, lineIdx: parsedLines.length, globalIdx: globalChordIdx };
@@ -6248,7 +6248,7 @@ Rules:
         }
         return `
           <div class="practice-line-preview ${state}">
-            ${chordHtml ? `<div class="text-primary font-bold font-mono whitespace-pre text-[11px] sm:text-[13px]">${chordHtml}</div>` : ''}
+            ${chordHtml ? `<div class="text-primary font-mono whitespace-pre text-[11px] sm:text-[13px]">${chordHtml}</div>` : ''}
             ${entry.lyricLine ? `<div class="practice-lyrics-line text-gray-200 whitespace-pre-wrap leading-snug mt-2 ${state === 'current' ? 'text-sm sm:text-base' : 'text-xs sm:text-sm'}">${entry.lyricLine}</div>` : ''}
           </div>
         `;
@@ -8475,7 +8475,7 @@ Rules:
               <div class="text-[10px] uppercase tracking-[0.2em] text-gray-500 mb-3">Lyrics And Chords</div>
               <div class="timeline-content flex flex-col">` + currentSong.parsedLines.map((lineData, i) => `
                 <div id="block-${i}" class="timeline-block ${lineData.chordHtml === '' && lineData.lyricLine === '' ? 'compact-gap' : 'tight-stack'} px-1 sm:px-3 py-0 border-l-4 border-transparent font-mono">
-                  ${lineData.chordHtml || lineData.lyricLine ? `<div class="timeline-pair">${lineData.chordHtml ? `<div class="timeline-line chords text-primary font-bold" style="font-size:var(--practice-chord-size, 11px)">${lineData.chordHtml}</div>` : ''}${lineData.lyricLine ? `<div class="timeline-line ${lineData.type === 'tag' ? 'text-primary/80 uppercase tracking-[0.25em] text-[10px] sm:text-xs' : 'lyrics text-gray-300'}" style="${lineData.type === 'tag' ? '' : 'font-size:var(--practice-text-size, 14px)'}">${lineData.lyricLine}</div>` : ''}</div>` : ''}
+                  ${lineData.chordHtml || lineData.lyricLine ? `<div class="timeline-pair">${lineData.chordHtml ? `<div class="timeline-line chords text-primary" style="font-size:var(--practice-chord-size, 11px)">${lineData.chordHtml}</div>` : ''}${lineData.lyricLine ? `<div class="timeline-line ${lineData.type === 'tag' ? 'text-primary/80 uppercase tracking-[0.25em] text-[10px] sm:text-xs' : 'lyrics text-gray-300'}" style="${lineData.type === 'tag' ? '' : 'font-size:var(--practice-text-size, 14px)'}">${lineData.lyricLine}</div>` : ''}</div>` : ''}
                 </div>
               `).join('') + `</div>
             </div>
@@ -8548,7 +8548,7 @@ Rules:
           const isEmpty = lineData.chordHtml === '' && lineData.lyricLine === '';
           return `
             <div id="block-${i}" class="timeline-block ${isEmpty ? 'compact-gap' : 'tight-stack'} px-1 sm:px-3 py-0 border-l-4 border-transparent font-mono">
-              ${lineData.chordHtml || lineData.lyricLine ? `<div class="timeline-pair">${lineData.chordHtml ? `<div class="timeline-line chords text-primary font-bold" style="font-size:var(--practice-chord-size, 11px)">${lineData.chordHtml}</div>` : ''}${lineData.lyricLine ? `<div class="timeline-line ${lineData.type === 'tag' ? 'text-primary/80 uppercase tracking-[0.25em] text-[10px] sm:text-xs' : 'lyrics text-gray-300'}" style="${lineData.type === 'tag' ? '' : 'font-size:var(--practice-text-size, 14px)'}">${lineData.lyricLine}</div>` : ''}</div>` : ''}
+              ${lineData.chordHtml || lineData.lyricLine ? `<div class="timeline-pair">${lineData.chordHtml ? `<div class="timeline-line chords text-primary" style="font-size:var(--practice-chord-size, 11px)">${lineData.chordHtml}</div>` : ''}${lineData.lyricLine ? `<div class="timeline-line ${lineData.type === 'tag' ? 'text-primary/80 uppercase tracking-[0.25em] text-[10px] sm:text-xs' : 'lyrics text-gray-300'}" style="${lineData.type === 'tag' ? '' : 'font-size:var(--practice-text-size, 14px)'}">${lineData.lyricLine}</div>` : ''}</div>` : ''}
             </div>
           `;
         }).join('') + `</div>`;
