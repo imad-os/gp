@@ -1,6 +1,13 @@
 {
-  "latestVersion": "v2026.04.22.56",
+  "latestVersion": "v2026.04.22.57",
   "updates": [
+    {
+      "version": "v2026.04.22.57",
+      "releasedAt": "2026-05-01T10:24:05Z",
+      "summary": "bug fixes ...",
+      "description": "",
+      "changes": []
+    },
     {
       "version": "v2026.04.22.56",
       "releasedAt": "2026-04-30T18:01:24Z",

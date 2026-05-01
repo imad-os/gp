@@ -179,7 +179,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.56',
+      version: 'v2026.04.22.57',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -1320,7 +1320,7 @@ Drop back to 70 BPM for clean finish.`,
             const chordStr = match[0];
             if (/^x\d+$/i.test(chordStr)) {
               chordHtml += normalizedChordLine.substring(lastIdx, match.index);
-              chordHtml += `<span class="text-gray-500 uppercase tracking-[0.2em]">${chordStr}</span>`;
+              chordHtml += `<span class="text-gray-500 uppercase font-mono inline-block" style="min-width:${Math.max(1, chordStr.length)}ch">${chordStr}</span>`;
               lastIdx = match.index + chordStr.length;
               continue;
             }
@@ -1329,7 +1329,7 @@ Drop back to 70 BPM for clean finish.`,
             chordHtml += normalizedChordLine.substring(lastIdx, match.index);
             const safeChord = escapeHtml(normalizedChord);
             const safeDisplayChord = escapeHtml(displayChord);
-            chordHtml += `<span id="chord-hl-${globalChordIdx}" data-chord="${safeChord}" onclick="openPreviewChordDiagram('${safeChord}', this)" class="transition-all duration-200 clickable-chord">${safeDisplayChord}</span>`;
+            chordHtml += `<span id="chord-hl-${globalChordIdx}" data-chord="${safeChord}" onclick="openPreviewChordDiagram('${safeChord}', this)" class="transition-all duration-200 clickable-chord font-mono inline-block" style="min-width:${Math.max(1, chordStr.length)}ch">${safeDisplayChord}</span>`;
             lastIdx = match.index + chordStr.length;
 
             const chordObj = { chord: normalizedChord, time: currentTime, lineIdx: parsedLines.length, globalIdx: globalChordIdx };
@@ -6248,7 +6248,7 @@ Rules:
         }
         return `
           <div class="practice-line-preview ${state}">
-            ${chordHtml ? `<div class="text-primary font-bold whitespace-pre text-[11px] sm:text-[13px]">${chordHtml}</div>` : ''}
+            ${chordHtml ? `<div class="text-primary font-bold font-mono whitespace-pre text-[11px] sm:text-[13px]">${chordHtml}</div>` : ''}
             ${entry.lyricLine ? `<div class="practice-lyrics-line text-gray-200 whitespace-pre-wrap leading-snug mt-2 ${state === 'current' ? 'text-sm sm:text-base' : 'text-xs sm:text-sm'}">${entry.lyricLine}</div>` : ''}
           </div>
         `;
