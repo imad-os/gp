@@ -179,7 +179,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.59',
+      version: 'v2026.04.22.60',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -6236,7 +6236,7 @@ Rules:
         }
         return `
           <div class="practice-line-preview ${state}">
-            ${chordHtml ? `<div class="text-primary font-mono whitespace-pre text-[11px] sm:text-[13px]">${chordHtml}</div>` : ''}
+            ${chordHtml ? `<div class="text-primary font-mono whitespace-pre" style="font-size:var(--practice-text-size, 14px)">${chordHtml}</div>` : ''}
             ${entry.lyricLine ? `<div class="practice-lyrics-line text-gray-200 whitespace-pre-wrap leading-snug mt-2 ${state === 'current' ? 'text-sm sm:text-base' : 'text-xs sm:text-sm'}">${entry.lyricLine}</div>` : ''}
           </div>
         `;
@@ -7278,7 +7278,7 @@ Rules:
       userSettings.chordNotation = normalizeChordNotationMode(userSettings.chordNotation);
       const size = userSettings.practiceTextSize || DEFAULT_SETTINGS.practiceTextSize;
       document.documentElement.style.setProperty('--practice-text-size', `${size}px`);
-      document.documentElement.style.setProperty('--practice-chord-size', `${Math.max(10, Math.round(size * 0.78))}px`);
+      document.documentElement.style.setProperty('--practice-chord-size', `${size}px`);
       const settingsSlider = document.getElementById('settings-text-size');
       const modalSlider = document.getElementById('modal-text-size');
       const settingsLabel = document.getElementById('settings-text-size-label');
@@ -7304,7 +7304,7 @@ Rules:
     window.previewTextSize = function(value, fromModal = false) {
       const size = parseInt(value, 10) || DEFAULT_SETTINGS.practiceTextSize;
       document.documentElement.style.setProperty('--practice-text-size', `${size}px`);
-      document.documentElement.style.setProperty('--practice-chord-size', `${Math.max(10, Math.round(size * 0.78))}px`);
+      document.documentElement.style.setProperty('--practice-chord-size', `${size}px`);
       document.getElementById('settings-text-size-label').innerText = `${size} px`;
       document.getElementById('modal-text-size-label').innerText = `${size} px`;
       document.getElementById('settings-text-size').value = size;
@@ -8463,7 +8463,7 @@ Rules:
               <div class="text-[10px] uppercase tracking-[0.2em] text-gray-500 mb-3">Lyrics And Chords</div>
               <div class="timeline-content flex flex-col">` + currentSong.parsedLines.map((lineData, i) => `
                 <div id="block-${i}" class="timeline-block ${lineData.chordHtml === '' && lineData.lyricLine === '' ? 'compact-gap' : 'tight-stack'} px-1 sm:px-3 py-0 border-l-4 border-transparent font-mono">
-                  ${lineData.chordHtml || lineData.lyricLine ? `<div class="timeline-pair">${lineData.chordHtml ? `<div class="timeline-line chords text-primary" style="font-size:var(--practice-chord-size, 11px)">${lineData.chordHtml}</div>` : ''}${lineData.lyricLine ? `<div class="timeline-line ${lineData.type === 'tag' ? 'text-primary/80 uppercase tracking-[0.25em] text-[10px] sm:text-xs' : 'lyrics text-gray-300'}" style="${lineData.type === 'tag' ? '' : 'font-size:var(--practice-text-size, 14px)'}">${lineData.lyricLine}</div>` : ''}</div>` : ''}
+                  ${lineData.chordHtml || lineData.lyricLine ? `<div class="timeline-pair">${lineData.chordHtml ? `<div class="timeline-line chords text-primary" style="font-size:var(--practice-text-size, 14px)">${lineData.chordHtml}</div>` : ''}${lineData.lyricLine ? `<div class="timeline-line ${lineData.type === 'tag' ? 'text-primary/80 uppercase tracking-[0.25em] text-[10px] sm:text-xs' : 'lyrics text-gray-300'}" style="${lineData.type === 'tag' ? '' : 'font-size:var(--practice-text-size, 14px)'}">${lineData.lyricLine}</div>` : ''}</div>` : ''}
                 </div>
               `).join('') + `</div>
             </div>
@@ -8536,7 +8536,7 @@ Rules:
           const isEmpty = lineData.chordHtml === '' && lineData.lyricLine === '';
           return `
             <div id="block-${i}" class="timeline-block ${isEmpty ? 'compact-gap' : 'tight-stack'} px-1 sm:px-3 py-0 border-l-4 border-transparent font-mono">
-              ${lineData.chordHtml || lineData.lyricLine ? `<div class="timeline-pair">${lineData.chordHtml ? `<div class="timeline-line chords text-primary" style="font-size:var(--practice-chord-size, 11px)">${lineData.chordHtml}</div>` : ''}${lineData.lyricLine ? `<div class="timeline-line ${lineData.type === 'tag' ? 'text-primary/80 uppercase tracking-[0.25em] text-[10px] sm:text-xs' : 'lyrics text-gray-300'}" style="${lineData.type === 'tag' ? '' : 'font-size:var(--practice-text-size, 14px)'}">${lineData.lyricLine}</div>` : ''}</div>` : ''}
+              ${lineData.chordHtml || lineData.lyricLine ? `<div class="timeline-pair">${lineData.chordHtml ? `<div class="timeline-line chords text-primary" style="font-size:var(--practice-text-size, 14px)">${lineData.chordHtml}</div>` : ''}${lineData.lyricLine ? `<div class="timeline-line ${lineData.type === 'tag' ? 'text-primary/80 uppercase tracking-[0.25em] text-[10px] sm:text-xs' : 'lyrics text-gray-300'}" style="${lineData.type === 'tag' ? '' : 'font-size:var(--practice-text-size, 14px)'}">${lineData.lyricLine}</div>` : ''}</div>` : ''}
             </div>
           `;
         }).join('') + `</div>`;
