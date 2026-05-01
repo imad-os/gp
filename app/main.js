@@ -179,7 +179,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.58',
+      version: 'v2026.04.22.59',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -1312,25 +1312,15 @@ Drop back to 70 BPM for clean finish.`,
 
           const chordRegex = /[^\s]+/g;
           let match;
-          let chordHtml = "";
-          let lastIdx = 0;
+          let chordHtml = escapeHtml(normalizedChordLine);
           let lineChords = [];
 
           while ((match = chordRegex.exec(normalizedChordLine)) !== null) {
             const chordStr = match[0];
             if (/^x\d+$/i.test(chordStr)) {
-              chordHtml += normalizedChordLine.substring(lastIdx, match.index);
-              chordHtml += `<span class="text-gray-500 uppercase font-mono">${escapeHtml(chordStr)}</span>`;
-              lastIdx = match.index + chordStr.length;
               continue;
             }
             const normalizedChord = normalizeChordTokenToUs(chordStr);
-            const rawDisplayChord = chordStr;
-            chordHtml += normalizedChordLine.substring(lastIdx, match.index);
-            const safeChord = escapeHtml(normalizedChord);
-            const safeDisplayChord = escapeHtml(rawDisplayChord);
-            chordHtml += `<span id="chord-hl-${globalChordIdx}" data-chord="${safeChord}" onclick="openPreviewChordDiagram('${safeChord}', this)" class="transition-all duration-200 clickable-chord font-mono">${safeDisplayChord}</span>`;
-            lastIdx = match.index + chordStr.length;
 
             const chordObj = { chord: normalizedChord, time: currentTime, lineIdx: parsedLines.length, globalIdx: globalChordIdx };
             flatChords.push(chordObj);
@@ -1338,7 +1328,6 @@ Drop back to 70 BPM for clean finish.`,
             currentTime += beatsPerBar; // Time Signature dependent
             globalChordIdx++;
           }
-          chordHtml += normalizedChordLine.substring(lastIdx);
 
           parsedLines.push({ type: 'content', chordHtml: chordHtml, lyricLine: nextLine, chords: lineChords });
         } else if (line.trim() !== "") {
@@ -1351,8 +1340,7 @@ Drop back to 70 BPM for clean finish.`,
 
       if (flatChords.length === 0) {
          flatChords = [{ chord: "C", time: 0, lineIdx: 0, globalIdx: 0 }];
-         const safeDisplayChord = escapeHtml(getDisplayChordName('C'));
-         parsedLines = [{ type: 'content', chordHtml: `<span id="chord-hl-0" data-chord="C" onclick="openPreviewChordDiagram('C', this)" class="clickable-chord">${safeDisplayChord}</span>`, lyricLine: "Empty", chords: flatChords }];
+         parsedLines = [{ type: 'content', chordHtml: "C", lyricLine: "Empty", chords: flatChords }];
          currentTime = beatsPerBar;
       }
 
