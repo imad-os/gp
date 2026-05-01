@@ -179,7 +179,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.61',
+      version: 'v2026.04.22.62',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -190,7 +190,12 @@ import { FirestoreRepository } from './modules/repository.js';
       recentCourses: [],
       activeGuitarToneId: '',
       tunerPresetId: 'default',
-      chordNotation: 'letter'
+      chordNotation: 'letter',
+      homeSections: {
+        favorites: true,
+        practice: true,
+        listening: true
+      }
     };
     let userSettings = { ...DEFAULT_SETTINGS };
     let practiceValidationStates = [];
@@ -7281,6 +7286,10 @@ Rules:
 
     function applyUserSettings(settings) {
       userSettings = { ...DEFAULT_SETTINGS, ...settings };
+      userSettings.homeSections = {
+        ...DEFAULT_SETTINGS.homeSections,
+        ...(settings?.homeSections || {})
+      };
       activeTunerPresetId = normalizeTunerPresetId(userSettings.tunerPresetId);
       userSettings.tunerPresetId = activeTunerPresetId;
       userSettings.chordNotation = normalizeChordNotationMode(userSettings.chordNotation);
@@ -7295,6 +7304,12 @@ Rules:
       if (modalSlider) modalSlider.value = size;
       if (settingsLabel) settingsLabel.innerText = `${size} px`;
       if (modalLabel) modalLabel.innerText = `${size} px`;
+      const showFav = document.getElementById('settings-show-favorites');
+      const showPractice = document.getElementById('settings-show-practice');
+      const showListening = document.getElementById('settings-show-listening');
+      if (showFav) showFav.checked = !!userSettings.homeSections?.favorites;
+      if (showPractice) showPractice.checked = !!userSettings.homeSections?.practice;
+      if (showListening) showListening.checked = !!userSettings.homeSections?.listening;
       populateTunerPresetOptions();
       renderTuningReference('');
       renderGuitarToneSettingsOptions();
@@ -7307,6 +7322,7 @@ Rules:
         if (updated) currentSong = updated;
       }
       refreshChordNotationInCurrentUi();
+      renderHomeDashboard();
     }
 
     window.previewTextSize = function(value, fromModal = false) {
@@ -7338,11 +7354,17 @@ Rules:
       const size = parseInt(document.getElementById(sliderId).value, 10) || DEFAULT_SETTINGS.practiceTextSize;
       const selectedTone = String(document.getElementById('settings-guitar-tone')?.value || '').trim();
       const chordNotation = normalizeChordNotationMode(document.getElementById('settings-chord-notation')?.value || userSettings.chordNotation);
+      const homeSections = {
+        favorites: !!document.getElementById('settings-show-favorites')?.checked,
+        practice: !!document.getElementById('settings-show-practice')?.checked,
+        listening: !!document.getElementById('settings-show-listening')?.checked
+      };
       const nextSettings = {
         ...userSettings,
         practiceTextSize: size,
         activeGuitarToneId: selectedTone,
-        chordNotation
+        chordNotation,
+        homeSections
       };
       applyUserSettings(nextSettings);
       if (!user || user.isAnonymous) {
@@ -7872,8 +7894,17 @@ Rules:
       const favoritesContainer = document.getElementById('home-favorites-list');
       const recentContainer = document.getElementById('home-recent-practice-list');
       const listeningContainer = document.getElementById('home-continue-listening-list');
+      const secFav = document.getElementById('home-section-favorites');
+      const secPractice = document.getElementById('home-section-practice');
+      const secListening = document.getElementById('home-section-listening');
       const favoritesShowAllBtn = document.getElementById('home-favorites-show-all');
       const practiceShowAllBtn = document.getElementById('home-practice-show-all');
+      const showFavorites = !!userSettings.homeSections?.favorites;
+      const showPractice = !!userSettings.homeSections?.practice;
+      const showListening = !!userSettings.homeSections?.listening;
+      if (secFav) secFav.classList.toggle('hidden', !showFavorites);
+      if (secPractice) secPractice.classList.toggle('hidden', !showPractice);
+      if (secListening) secListening.classList.toggle('hidden', !showListening);
 
       const favoritesVisible = homeSectionExpanded.favorites ? favorites : favorites.slice(0, 5);
       const practiceVisible = homeSectionExpanded.practice ? recentSongs : recentSongs.slice(0, 5);
