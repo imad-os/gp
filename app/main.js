@@ -203,7 +203,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.72',
+      version: 'v2026.04.22.70',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -5188,8 +5188,7 @@ Rules:
       return map[name] || 440;
     }
 
-    function buildEarQuestion(mode = 'pitch', context = {}) {
-      const stage = Math.max(0, Number(context?.introStage) || 0);
+    function buildEarQuestion(mode = 'pitch') {
       if (mode === 'interval') {
         const root = pickRandom(['C4', 'D4', 'E4', 'F4', 'G4', 'A4']);
         const intervals = [
@@ -5215,27 +5214,10 @@ Rules:
         return { mode, prompt: 'Which chord quality do you hear?', root: pickRandom(roots), answer: target.label, intervals: target.intervals, options };
       }
       const notes = ['C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4'];
-      const introSets = [
-        ['C4', 'G4'],
-        ['C4', 'E4', 'G4'],
-        ['C4', 'E4', 'G4', 'A4']
-      ];
-      const activePool = stage <= 2 ? introSets[stage] : notes;
-      const isIntro = stage <= 2;
-      const targetPool = activePool.length ? activePool : notes;
-      const target = pickRandom(targetPool);
-      const optionsSize = Math.min(4, targetPool.length);
-      const shuffled = [...targetPool].sort(() => Math.random() - 0.5).slice(0, optionsSize);
+      const target = pickRandom(notes);
+      const shuffled = [...notes].sort(() => Math.random() - 0.5).slice(0, 4);
       if (!shuffled.includes(target)) shuffled[Math.floor(Math.random() * shuffled.length)] = target;
-      return {
-        mode: 'pitch',
-        intro: isIntro,
-        prompt: isIntro ? `Listen first. Stage ${stage + 1}: learning ${targetPool.length} sounds.` : 'Which note do you hear?',
-        answer: target,
-        note: target,
-        options: shuffled.sort(() => Math.random() - 0.5),
-        introPool: targetPool
-      };
+      return { mode: 'pitch', prompt: 'Which note do you hear?', answer: target, note: target, options: shuffled.sort(() => Math.random() - 0.5) };
     }
 
     function normalizeRecentCourses(entries = []) {
@@ -7894,14 +7876,6 @@ Rules:
     async function playEarTrainingQuestion(question = null) {
       const q = question || earTrainingCurrentQuestion;
       if (!q) return;
-      if (q.mode === 'pitch' && q.intro && Array.isArray(q.introPool) && q.introPool.length) {
-        for (let i = 0; i < q.introPool.length; i += 1) {
-          const name = q.introPool[i];
-          await playEarTone(noteFreqFromName(name), 0.45, 0);
-          await new Promise(resolve => setTimeout(resolve, 250));
-        }
-        await new Promise(resolve => setTimeout(resolve, 250));
-      }
       if (q.mode === 'interval') {
         const root = noteFreqFromName(q.root);
         await playEarTone(root, 0.45, 0);
@@ -7932,9 +7906,7 @@ Rules:
       }
       promptEl.innerText = earTrainingCurrentQuestion.prompt;
       progressEl.innerText = `Round ${earTrainingRoundIndex + 1} / ${earTrainingQuestions.length}`;
-      feedbackEl.innerText = earTrainingCurrentQuestion.intro
-        ? 'Beginner mode: listen to the small sound set, then answer.'
-        : 'Listen and choose the best answer.';
+      feedbackEl.innerText = 'Listen and choose the best answer.';
       optionsEl.innerHTML = (earTrainingCurrentQuestion.options || []).map(option => `
         <button onclick="answerEarTraining('${encodeURIComponent(option)}')" class="btn-soft rounded-xl py-2.5 px-3 text-sm btn-press text-left">${escapeHtml(option)}</button>
       `).join('');
@@ -8011,10 +7983,7 @@ Rules:
     function startEarTrainingSession() {
       const rounds = Math.max(5, Math.min(40, Number(earTrainingSettings.rounds) || 12));
       const modes = getEarEnabledModesForLevel(Number(earTrainingProgress.currentLevel) || 0);
-      earTrainingQuestions = Array.from({ length: rounds }, (_, idx) => {
-        const introStage = idx < 2 ? 0 : (idx < 4 ? 1 : (idx < 6 ? 2 : 3));
-        return buildEarQuestion(pickRandom(modes), { introStage });
-      });
+      earTrainingQuestions = Array.from({ length: rounds }, () => buildEarQuestion(pickRandom(modes)));
       earTrainingRoundIndex = 0;
       earTrainingScore = 0;
       earTrainingReactionTimes = [];
