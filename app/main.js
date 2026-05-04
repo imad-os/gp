@@ -164,24 +164,6 @@ import { FirestoreRepository } from './modules/repository.js';
     let tunerRecentFreqs = [];
     let trainingTimer = null;
     let trainingBeatIndex = 0;
-    let earTrainingSessionActive = false;
-    let earTrainingRoundIndex = 0;
-    let earTrainingScore = 0;
-    let earTrainingQuestions = [];
-    let earTrainingCurrentQuestion = null;
-    let earTrainingRoundStartedAt = 0;
-    let earTrainingReactionTimes = [];
-    let earTrainingProgress = {
-      currentLevel: 0,
-      dailyStats: {}
-    };
-    let earTrainingSettings = {
-      rounds: 12,
-      speed: 1,
-      reference: 'A4',
-      skills: { pitch: true, interval: true, chord: true }
-    };
-    const EAR_TRAINING_STORAGE_KEY = 'guitartrainer.earTraining.v1';
     const METRONOME_STORAGE_KEY = 'guitartrainer.metronome.settings';
     const LOOPER_BG_STORAGE_KEY = 'guitartrainer.looper.background.enabled';
     const GEMINI_API_KEY_STORAGE_KEY = 'guitartrainer.gemini.apiKey';
@@ -203,7 +185,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.69',
+      version: 'v2026.04.22.67',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -5120,104 +5102,7 @@ Rules:
     function getTrainingCategoryLabel(category = '') {
       if (category === 'courses') return 'Courses';
       if (category === 'dailies') return 'Dailies';
-      if (category === 'ear-training') return 'Ear Training';
-      if (category === 'ear-settings') return 'Ear Settings';
       return 'Trainings';
-    }
-
-    function getEarTrainingLevelCatalog() {
-      return [
-        { id: 0, title: 'Calibration', modes: ['pitch'] },
-        { id: 1, title: 'Pitch Anchoring', modes: ['pitch'] },
-        { id: 2, title: 'Interval Language', modes: ['interval'] },
-        { id: 3, title: 'Chord Emotion', modes: ['chord'] },
-        { id: 4, title: 'Harmonic Context', modes: ['chord', 'interval'] },
-        { id: 5, title: 'Real Music Extraction', modes: ['pitch', 'chord', 'interval'] },
-        { id: 6, title: 'Fluency', modes: ['pitch', 'chord', 'interval'] }
-      ];
-    }
-
-    function saveEarTrainingState() {
-      try {
-        localStorage.setItem(EAR_TRAINING_STORAGE_KEY, JSON.stringify({
-          settings: earTrainingSettings,
-          progress: earTrainingProgress
-        }));
-      } catch {}
-    }
-
-    function loadEarTrainingState() {
-      try {
-        const raw = localStorage.getItem(EAR_TRAINING_STORAGE_KEY);
-        if (!raw) return;
-        const parsed = JSON.parse(raw);
-        earTrainingSettings = {
-          ...earTrainingSettings,
-          ...(parsed?.settings || {}),
-          skills: { ...earTrainingSettings.skills, ...(parsed?.settings?.skills || {}) }
-        };
-        earTrainingProgress = {
-          ...earTrainingProgress,
-          ...(parsed?.progress || {}),
-          dailyStats: parsed?.progress?.dailyStats || {}
-        };
-      } catch {}
-    }
-
-    function getEarEnabledModesForLevel(level = 0) {
-      const catalog = getEarTrainingLevelCatalog();
-      const slot = catalog.find(item => item.id === level) || catalog[0];
-      const enabled = [];
-      if (earTrainingSettings.skills.pitch && slot.modes.includes('pitch')) enabled.push('pitch');
-      if (earTrainingSettings.skills.interval && slot.modes.includes('interval')) enabled.push('interval');
-      if (earTrainingSettings.skills.chord && slot.modes.includes('chord')) enabled.push('chord');
-      if (!enabled.length) return ['pitch'];
-      return enabled;
-    }
-
-    function pickRandom(arr = []) {
-      if (!arr.length) return null;
-      return arr[Math.floor(Math.random() * arr.length)];
-    }
-
-    function noteFreqFromName(name = 'A4') {
-      const map = {
-        C4: 261.63, D4: 293.66, E4: 329.63, F4: 349.23, G4: 392.0, A4: 440.0, B4: 493.88,
-        C5: 523.25, D5: 587.33, E5: 659.25
-      };
-      return map[name] || 440;
-    }
-
-    function buildEarQuestion(mode = 'pitch') {
-      if (mode === 'interval') {
-        const root = pickRandom(['C4', 'D4', 'E4', 'F4', 'G4', 'A4']);
-        const intervals = [
-          { label: 'Minor 3rd', semitones: 3 },
-          { label: 'Major 3rd', semitones: 4 },
-          { label: 'Perfect 5th', semitones: 7 },
-          { label: 'Octave', semitones: 12 }
-        ];
-        const target = pickRandom(intervals);
-        const options = intervals.map(i => i.label).sort(() => Math.random() - 0.5);
-        return { mode, prompt: 'Which interval do you hear?', root, answer: target.label, semitones: target.semitones, options };
-      }
-      if (mode === 'chord') {
-        const roots = ['C4', 'D4', 'E4', 'F4', 'G4', 'A4'];
-        const chordTypes = [
-          { label: 'Major', intervals: [0, 4, 7] },
-          { label: 'Minor', intervals: [0, 3, 7] },
-          { label: 'Power Chord', intervals: [0, 7] },
-          { label: 'Suspended', intervals: [0, 5, 7] }
-        ];
-        const target = pickRandom(chordTypes);
-        const options = chordTypes.map(c => c.label).sort(() => Math.random() - 0.5);
-        return { mode, prompt: 'Which chord quality do you hear?', root: pickRandom(roots), answer: target.label, intervals: target.intervals, options };
-      }
-      const notes = ['C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4'];
-      const target = pickRandom(notes);
-      const shuffled = [...notes].sort(() => Math.random() - 0.5).slice(0, 4);
-      if (!shuffled.includes(target)) shuffled[Math.floor(Math.random() * shuffled.length)] = target;
-      return { mode: 'pitch', prompt: 'Which note do you hear?', answer: target, note: target, options: shuffled.sort(() => Math.random() - 0.5) };
     }
 
     function normalizeRecentCourses(entries = []) {
@@ -5484,7 +5369,7 @@ Rules:
       }
       activeTrainingArticleCategory = ['trainings', 'dailies', 'courses'].includes(page) ? page : activeTrainingArticleCategory;
       document.getElementById('training-home-panel')?.classList.add('hidden');
-      ['trainings', 'dailies', 'courses', 'article-detail', 'article-editor', 'strumming', 'ear-training', 'ear-settings'].forEach(id => {
+      ['trainings', 'dailies', 'courses', 'article-detail', 'article-editor', 'strumming'].forEach(id => {
         document.getElementById(`training-page-${id}`)?.classList.toggle('hidden', id !== page);
       });
       document.getElementById('training-back-btn')?.classList.remove('hidden');
@@ -5492,10 +5377,6 @@ Rules:
       if (subtitle) {
         subtitle.innerText = page === 'strumming'
           ? 'Pattern trainer.'
-          : page === 'ear-training'
-            ? 'Train your ears with guided levels.'
-            : page === 'ear-settings'
-              ? 'Ear training configuration.'
           : page === 'article-detail'
             ? 'Article details.'
             : page === 'article-editor'
@@ -5503,11 +5384,6 @@ Rules:
               : `${getTrainingCategoryLabel(page)} hub.`;
       }
       if (['trainings', 'dailies', 'courses'].includes(page)) renderTrainingArticlesList(page);
-      if (page === 'ear-training') {
-        renderEarTrainingStats();
-        renderEarTrainingQuestion();
-      }
-      if (page === 'ear-settings') renderEarTrainingSettingsUi();
       if (!skipUrl && !isHandlingRouteChange) {
         pushUrlPath(`/training/${encodeURIComponent(page)}`, { replace: replaceUrl });
       }
@@ -5518,7 +5394,7 @@ Rules:
       saveCurrentTrainingVideoProgress().catch(() => {});
       stopTrainingVideoPlayer();
       document.getElementById('training-home-panel')?.classList.remove('hidden');
-      ['trainings', 'dailies', 'courses', 'article-detail', 'article-editor', 'strumming', 'ear-training', 'ear-settings'].forEach(id => {
+      ['trainings', 'dailies', 'courses', 'article-detail', 'article-editor', 'strumming'].forEach(id => {
         document.getElementById(`training-page-${id}`)?.classList.add('hidden');
       });
       document.getElementById('training-back-btn')?.classList.add('hidden');
@@ -7321,7 +7197,7 @@ Rules:
         if (parts[0] === 'training') {
           navigate('training', { skipUrl: true });
           const page = decodeURIComponent(parts[1] || '');
-          const allowed = new Set(['trainings', 'dailies', 'courses', 'strumming', 'ear-training', 'ear-settings']);
+          const allowed = new Set(['trainings', 'dailies', 'courses', 'strumming']);
           if (page === 'editor') {
             openTrainingArticleEditor(activeTrainingArticleCategory || 'trainings', null, { skipUrl: true });
             return;
@@ -7855,187 +7731,6 @@ Rules:
     window.toggleTrainingPlayback = function() {
       if (trainingTimer) stopTrainingPlayback();
       else startTrainingPlayback();
-    };
-
-    async function playEarTone(freq = 440, durationSec = 0.55, whenOffset = 0) {
-      const ctx = await ensureAudioReady();
-      const when = ctx.currentTime + Math.max(0, whenOffset);
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = freq;
-      gain.gain.setValueAtTime(0.0001, when);
-      gain.gain.exponentialRampToValueAtTime(0.18, when + 0.03);
-      gain.gain.exponentialRampToValueAtTime(0.0001, when + Math.max(0.12, durationSec / Math.max(0.7, Number(earTrainingSettings.speed) || 1)));
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(when);
-      osc.stop(when + durationSec + 0.05);
-    }
-
-    async function playEarTrainingQuestion(question = null) {
-      const q = question || earTrainingCurrentQuestion;
-      if (!q) return;
-      if (q.mode === 'interval') {
-        const root = noteFreqFromName(q.root);
-        await playEarTone(root, 0.45, 0);
-        await playEarTone(root * Math.pow(2, q.semitones / 12), 0.45, 0.6);
-        return;
-      }
-      if (q.mode === 'chord') {
-        const root = noteFreqFromName(q.root);
-        const intervals = Array.isArray(q.intervals) ? q.intervals : [0, 4, 7];
-        await Promise.all(intervals.map(step => playEarTone(root * Math.pow(2, step / 12), 0.9, 0)));
-        return;
-      }
-      await playEarTone(noteFreqFromName(q.note || q.answer || 'A4'), 0.7, 0);
-    }
-
-    function renderEarTrainingQuestion() {
-      const promptEl = document.getElementById('ear-training-prompt');
-      const progressEl = document.getElementById('ear-training-progress');
-      const optionsEl = document.getElementById('ear-training-options');
-      const feedbackEl = document.getElementById('ear-training-feedback');
-      if (!promptEl || !progressEl || !optionsEl || !feedbackEl) return;
-      if (!earTrainingCurrentQuestion) {
-        promptEl.innerText = 'Press Start Session to begin.';
-        progressEl.innerText = 'Round 0 / 0';
-        optionsEl.innerHTML = '';
-        feedbackEl.innerText = '-';
-        return;
-      }
-      promptEl.innerText = earTrainingCurrentQuestion.prompt;
-      progressEl.innerText = `Round ${earTrainingRoundIndex + 1} / ${earTrainingQuestions.length}`;
-      feedbackEl.innerText = 'Listen and choose the best answer.';
-      optionsEl.innerHTML = (earTrainingCurrentQuestion.options || []).map(option => `
-        <button onclick="answerEarTraining('${encodeURIComponent(option)}')" class="btn-soft rounded-xl py-2.5 px-3 text-sm btn-press text-left">${escapeHtml(option)}</button>
-      `).join('');
-    }
-
-    function renderEarTrainingStats() {
-      const total = Math.max(1, earTrainingRoundIndex);
-      const accuracy = Math.round((earTrainingScore / total) * 100);
-      const avgReaction = earTrainingReactionTimes.length
-        ? (earTrainingReactionTimes.reduce((sum, value) => sum + value, 0) / earTrainingReactionTimes.length)
-        : 0;
-      const daily = Object.values(earTrainingProgress.dailyStats || {}).filter(item => Number(item?.accuracy || 0) >= 75);
-      document.getElementById('ear-training-accuracy').innerText = `${accuracy}%`;
-      document.getElementById('ear-training-reaction').innerText = `${avgReaction.toFixed(1)}s`;
-      document.getElementById('ear-training-stability').innerText = `${daily.length} days`;
-      const catalog = getEarTrainingLevelCatalog();
-      const level = catalog.find(item => item.id === earTrainingProgress.currentLevel) || catalog[0];
-      document.getElementById('ear-training-level-label').innerText = `Level ${level.id} - ${level.title}`;
-    }
-
-    function finishEarTrainingSession() {
-      earTrainingSessionActive = false;
-      const rounds = Math.max(1, earTrainingQuestions.length);
-      const accuracy = Math.round((earTrainingScore / rounds) * 100);
-      const avgReaction = earTrainingReactionTimes.length
-        ? (earTrainingReactionTimes.reduce((sum, value) => sum + value, 0) / earTrainingReactionTimes.length)
-        : 0;
-      const today = new Date().toISOString().slice(0, 10);
-      earTrainingProgress.dailyStats[today] = { accuracy, avgReaction, rounds, updatedAt: Date.now() };
-      const stableDays = Object.values(earTrainingProgress.dailyStats || {}).filter(item => Number(item?.accuracy || 0) >= 75).length;
-      if (accuracy >= 75 && stableDays >= 3) {
-        earTrainingProgress.currentLevel = Math.min(6, (Number(earTrainingProgress.currentLevel) || 0) + 1);
-      }
-      saveEarTrainingState();
-      document.getElementById('ear-training-feedback').innerText = `Session complete. Accuracy ${accuracy}% | Avg reaction ${avgReaction.toFixed(1)}s`;
-      document.getElementById('ear-training-session-status').innerText = 'Completed';
-      document.getElementById('btn-ear-training-toggle').innerHTML = `<i class="fas fa-play mr-2"></i> Start Session`;
-      renderEarTrainingStats();
-    }
-
-    window.nextEarTrainingRound = async function() {
-      if (!earTrainingSessionActive) return;
-      earTrainingRoundIndex += 1;
-      if (earTrainingRoundIndex >= earTrainingQuestions.length) {
-        earTrainingCurrentQuestion = null;
-        renderEarTrainingQuestion();
-        finishEarTrainingSession();
-        return;
-      }
-      earTrainingCurrentQuestion = earTrainingQuestions[earTrainingRoundIndex];
-      earTrainingRoundStartedAt = Date.now();
-      renderEarTrainingQuestion();
-      await playEarTrainingQuestion(earTrainingCurrentQuestion);
-    };
-
-    window.answerEarTraining = async function(encodedChoice = '') {
-      if (!earTrainingSessionActive || !earTrainingCurrentQuestion) return;
-      const choice = decodeURIComponent(String(encodedChoice || ''));
-      const correct = String(earTrainingCurrentQuestion.answer || '') === choice;
-      const reaction = Math.max(0.1, (Date.now() - earTrainingRoundStartedAt) / 1000);
-      earTrainingReactionTimes.push(reaction);
-      if (correct) earTrainingScore += 1;
-      document.getElementById('ear-training-feedback').innerText = correct
-        ? `Correct in ${reaction.toFixed(1)}s`
-        : `Wrong. Correct answer: ${earTrainingCurrentQuestion.answer}`;
-      renderEarTrainingStats();
-      setTimeout(() => { if (earTrainingSessionActive) nextEarTrainingRound(); }, 420);
-    };
-
-    window.playEarTrainingCurrent = function() {
-      playEarTrainingQuestion(earTrainingCurrentQuestion);
-    };
-
-    function startEarTrainingSession() {
-      const rounds = Math.max(5, Math.min(40, Number(earTrainingSettings.rounds) || 12));
-      const modes = getEarEnabledModesForLevel(Number(earTrainingProgress.currentLevel) || 0);
-      earTrainingQuestions = Array.from({ length: rounds }, () => buildEarQuestion(pickRandom(modes)));
-      earTrainingRoundIndex = 0;
-      earTrainingScore = 0;
-      earTrainingReactionTimes = [];
-      earTrainingCurrentQuestion = earTrainingQuestions[0] || null;
-      earTrainingSessionActive = true;
-      document.getElementById('btn-ear-training-toggle').innerHTML = `<i class="fas fa-stop mr-2"></i> Stop Session`;
-      document.getElementById('ear-training-session-status').innerText = 'Running';
-      renderEarTrainingStats();
-      renderEarTrainingQuestion();
-      earTrainingRoundStartedAt = Date.now();
-      playEarTrainingQuestion(earTrainingCurrentQuestion);
-    }
-
-    function stopEarTrainingSession() {
-      earTrainingSessionActive = false;
-      earTrainingCurrentQuestion = null;
-      document.getElementById('btn-ear-training-toggle').innerHTML = `<i class="fas fa-play mr-2"></i> Start Session`;
-      document.getElementById('ear-training-session-status').innerText = 'Idle';
-      renderEarTrainingQuestion();
-      renderEarTrainingStats();
-    }
-
-    window.toggleEarTrainingSession = function() {
-      if (earTrainingSessionActive) stopEarTrainingSession();
-      else startEarTrainingSession();
-    };
-
-    function renderEarTrainingSettingsUi() {
-      document.getElementById('ear-settings-rounds').value = String(earTrainingSettings.rounds || 12);
-      document.getElementById('ear-settings-speed').value = String(earTrainingSettings.speed || 1);
-      document.getElementById('ear-settings-reference').value = String(earTrainingSettings.reference || 'A4');
-      document.getElementById('ear-settings-skill-pitch').checked = !!earTrainingSettings.skills?.pitch;
-      document.getElementById('ear-settings-skill-interval').checked = !!earTrainingSettings.skills?.interval;
-      document.getElementById('ear-settings-skill-chord').checked = !!earTrainingSettings.skills?.chord;
-    }
-
-    window.saveEarTrainingSettings = function() {
-      const rounds = Math.max(5, Math.min(40, parseInt(document.getElementById('ear-settings-rounds')?.value || '12', 10)));
-      const speed = Math.max(0.7, Math.min(1.4, Number(document.getElementById('ear-settings-speed')?.value || 1)));
-      earTrainingSettings = {
-        rounds,
-        speed,
-        reference: String(document.getElementById('ear-settings-reference')?.value || 'A4'),
-        skills: {
-          pitch: !!document.getElementById('ear-settings-skill-pitch')?.checked,
-          interval: !!document.getElementById('ear-settings-skill-interval')?.checked,
-          chord: !!document.getElementById('ear-settings-skill-chord')?.checked
-        }
-      };
-      saveEarTrainingState();
-      showToast('Ear training settings saved.', true);
-      openTrainingPage('ear-training');
     };
 
     function renderHomeList() {
@@ -10128,7 +9823,6 @@ Rules:
       appBooted = true;
       registerServiceWorker();
       restoreRedirectedRouteFromQuery();
-      loadEarTrainingState();
       populateCapoOptions();
       renderBottomTabs();
       setupChordPopoverHandlers();
@@ -10157,9 +9851,6 @@ Rules:
       showLoading(false);
       syncAddPatternEditor();
       updateTrainingPatternEditor();
-      renderEarTrainingSettingsUi();
-      renderEarTrainingStats();
-      renderEarTrainingQuestion();
       restoreMetronomeSettings();
       renderStandaloneMetronomeVisual();
       window.addEventListener('online', () => {
@@ -10180,7 +9871,6 @@ Rules:
           else stopToolRecordingStream();
           updateToolRecordingUI(false);
           stopTrainingPlayback();
-          stopEarTrainingSession();
           stopPracticeDetection();
           if (isPlaying) {
             pausePracticePlayback(true);

@@ -1,28 +1,6 @@
 {
-  "latestVersion": "v2026.04.22.69",
+  "latestVersion": "v2026.04.22.67",
   "updates": [
-    {
-      "version": "v2026.04.22.69",
-      "releasedAt": "2026-05-04T14:18:43Z",
-      "summary": "Add Ear Training mode with dedicated settings",
-      "description": "New Training mode for ear-based recognition with progression and separate settings page",
-      "changes": [
-        "Add Ear Training page under Training with pitch/interval/chord listening rounds",
-        "Add Ear Training Settings page with rounds/speed/reference/skill toggles",
-        "Add local progression tracking with accuracy, reaction time, and stability gating"
-      ]
-    },
-    {
-      "version": "v2026.04.22.68",
-      "releasedAt": "2026-05-04T14:18:35Z",
-      "summary": "Add Ear Training mode with dedicated settings",
-      "description": "New Training mode for ear-based recognition with progression and separate settings page",
-      "changes": [
-        "Add Ear Training page under Training with pitch/interval/chord listening rounds",
-        "Add Ear Training Settings page with rounds/speed/reference/skill toggles",
-        "Add local progression tracking with accuracy, reaction time, and stability gating"
-      ]
-    },
     {
       "version": "v2026.04.22.67",
       "releasedAt": "2026-05-04T08:04:56Z",

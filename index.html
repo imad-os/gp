@@ -517,16 +517,6 @@
             <div class="font-bold text-lg mb-1">Strumming Pattern</div>
             <p class="text-sm text-gray-400">Mute strums, accents, and subdivision control.</p>
           </button>
-          <button onclick="openTrainingPage('ear-training')" class="tool-nav-card btn-press">
-            <span class="tool-nav-icon"><i class="fas fa-headphones text-lg"></i></span>
-            <div class="font-bold text-lg mb-1">Ear Training</div>
-            <p class="text-sm text-gray-400">Train pitch, intervals, and chord recognition by listening only.</p>
-          </button>
-          <button onclick="openTrainingPage('ear-settings')" class="tool-nav-card btn-press">
-            <span class="tool-nav-icon"><i class="fas fa-sliders text-lg"></i></span>
-            <div class="font-bold text-lg mb-1">Ear Settings</div>
-            <p class="text-sm text-gray-400">Configure rounds, speed, enabled skills, and progression behavior.</p>
-          </button>
         </div>
         <div id="training-page-trainings" class="hidden bg-surface rounded-2xl p-5 border border-gray-800">
           <div class="flex items-center justify-between gap-3 mb-3">
@@ -671,73 +661,6 @@
           <button id="btn-training-toggle" onclick="toggleTrainingPlayback()" class="bg-primary text-black font-bold py-3 px-8 rounded-full btn-press shadow-[0_0_20px_rgba(156,106,61,0.35)]">
             <i class="fas fa-play mr-2"></i> Start Training
           </button>
-        </div>
-        <div id="training-page-ear-training" class="hidden bg-surface rounded-2xl p-5 border border-gray-800">
-          <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-2">Ear Training</p>
-          <h2 class="text-lg font-bold mb-2">Recognize By Ear</h2>
-          <p id="ear-training-level-label" class="text-sm text-gray-400 mb-3">Level 0 - Calibration</p>
-          <div class="grid sm:grid-cols-3 gap-3 mb-4">
-            <div class="bg-black/30 border border-gray-800 rounded-xl p-3">
-              <p class="text-[10px] uppercase tracking-[0.2em] text-gray-500">Accuracy</p>
-              <p id="ear-training-accuracy" class="text-lg font-bold text-white mt-1">0%</p>
-            </div>
-            <div class="bg-black/30 border border-gray-800 rounded-xl p-3">
-              <p class="text-[10px] uppercase tracking-[0.2em] text-gray-500">Avg Reaction</p>
-              <p id="ear-training-reaction" class="text-lg font-bold text-white mt-1">0.0s</p>
-            </div>
-            <div class="bg-black/30 border border-gray-800 rounded-xl p-3">
-              <p class="text-[10px] uppercase tracking-[0.2em] text-gray-500">Stability</p>
-              <p id="ear-training-stability" class="text-lg font-bold text-white mt-1">0 days</p>
-            </div>
-          </div>
-          <div class="bg-black/30 border border-gray-800 rounded-xl p-4 mb-4">
-            <p id="ear-training-progress" class="text-xs text-gray-400 mb-2">Round 0 / 0</p>
-            <p id="ear-training-prompt" class="text-base font-semibold text-white mb-3">Press Start Session to begin.</p>
-            <div class="flex flex-wrap gap-2 mb-3">
-              <button onclick="playEarTrainingCurrent()" class="btn-soft rounded-xl px-4 py-2 text-sm btn-press"><i class="fas fa-volume-high mr-2"></i>Play Again</button>
-              <button onclick="nextEarTrainingRound()" class="btn-soft rounded-xl px-4 py-2 text-sm btn-press">Skip</button>
-              <button onclick="openTrainingPage('ear-settings')" class="btn-soft rounded-xl px-4 py-2 text-sm btn-press">Settings</button>
-            </div>
-            <div id="ear-training-options" class="grid sm:grid-cols-2 gap-2"></div>
-            <p id="ear-training-feedback" class="text-sm text-gray-400 mt-3">-</p>
-          </div>
-          <div class="flex items-center gap-3">
-            <button id="btn-ear-training-toggle" onclick="toggleEarTrainingSession()" class="bg-primary text-black font-bold py-3 px-6 rounded-full btn-press shadow-[0_0_20px_rgba(156,106,61,0.35)]">
-              <i class="fas fa-play mr-2"></i> Start Session
-            </button>
-            <span id="ear-training-session-status" class="text-xs uppercase tracking-[0.2em] text-gray-500">Idle</span>
-          </div>
-        </div>
-        <div id="training-page-ear-settings" class="hidden bg-surface rounded-2xl p-5 border border-gray-800">
-          <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-2">Ear Training Settings</p>
-          <h2 class="text-lg font-bold mb-3">Session & Difficulty</h2>
-          <div class="space-y-3">
-            <label class="block bg-black/30 border border-gray-800 rounded-xl p-3">
-              <span class="text-[10px] uppercase tracking-[0.2em] text-gray-500 block mb-1">Rounds Per Session</span>
-              <input id="ear-settings-rounds" type="number" min="5" max="40" value="12" class="w-full bg-transparent text-white outline-none">
-            </label>
-            <label class="block bg-black/30 border border-gray-800 rounded-xl p-3">
-              <span class="text-[10px] uppercase tracking-[0.2em] text-gray-500 block mb-1">Playback Speed</span>
-              <input id="ear-settings-speed" type="range" min="0.7" max="1.4" value="1" step="0.05" class="w-full accent-[#9c6a3d]">
-            </label>
-            <label class="block bg-black/30 border border-gray-800 rounded-xl p-3">
-              <span class="text-[10px] uppercase tracking-[0.2em] text-gray-500 block mb-1">Reference Note</span>
-              <select id="ear-settings-reference" class="w-full bg-transparent text-white outline-none">
-                <option value="A4">A4 (440Hz)</option>
-                <option value="C4">C4</option>
-              </select>
-            </label>
-            <div class="bg-black/30 border border-gray-800 rounded-xl p-3">
-              <span class="text-[10px] uppercase tracking-[0.2em] text-gray-500 block mb-2">Enabled Skills</span>
-              <label class="flex items-center gap-2 text-sm text-gray-300 mb-2"><input id="ear-settings-skill-pitch" type="checkbox" class="accent-[#9c6a3d]" checked> Pitch Recognition</label>
-              <label class="flex items-center gap-2 text-sm text-gray-300 mb-2"><input id="ear-settings-skill-interval" type="checkbox" class="accent-[#9c6a3d]" checked> Interval Recognition</label>
-              <label class="flex items-center gap-2 text-sm text-gray-300"><input id="ear-settings-skill-chord" type="checkbox" class="accent-[#9c6a3d]" checked> Chord Recognition</label>
-            </div>
-            <div class="grid grid-cols-2 gap-3">
-              <button onclick="openTrainingPage('ear-training')" class="btn-soft rounded-xl py-3 btn-press text-sm">Back</button>
-              <button onclick="saveEarTrainingSettings()" class="bg-active text-black font-bold rounded-xl py-3 btn-press text-sm">Save Settings</button>
-            </div>
-          </div>
         </div>
       </div>
     </main>
