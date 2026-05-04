@@ -61,6 +61,12 @@ import { FirestoreRepository } from './modules/repository.js';
     let activeToolAudioId = null;
     let toolSongsSearchResults = [];
     let lastToolSongsQuery = '';
+    const TOOL_SONGS_PAGE_SIZE = 20;
+    let toolSongsBrowsePage = 1;
+    let toolSongsBrowseCursors = [null];
+    let toolSongsBrowseNextCursor = null;
+    let toolSongsBrowseResults = [];
+    let toolSongsBrowseLoading = false;
     let toolRecorder = null;
     let toolRecordingStream = null;
     let toolRecordingChunks = [];
@@ -179,7 +185,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.65',
+      version: 'v2026.04.22.67',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -4847,7 +4853,14 @@ Drop back to 70 BPM for clean finish.`,
         renderGuitarToneEditorStatus();
         renderGuitarToneProfilesList();
       }
-      if (tool === 'songs') renderToolSongsSearch(document.getElementById('tool-song-search')?.value || '');
+      if (tool === 'songs') {
+        renderToolSongsSearch(document.getElementById('tool-song-search')?.value || '');
+        if (!toolSongsBrowseResults.length && !toolSongsBrowseLoading) {
+          resetToolSongsBrowse();
+        } else {
+          renderToolSongsBrowse();
+        }
+      }
       if (tool === 'looper') {
         refreshLooperUi();
         renderLooperHistory();
@@ -7965,6 +7978,79 @@ Rules:
     }
 
     window.renderToolSongsSearch = renderToolSongsSearch;
+
+    function renderToolSongsBrowse() {
+      const list = document.getElementById('tool-songs-browse-results');
+      const pageLabel = document.getElementById('tool-songs-page-label');
+      const prevBtn = document.getElementById('tool-songs-prev-btn');
+      const nextBtn = document.getElementById('tool-songs-next-btn');
+      if (!list || !pageLabel || !prevBtn || !nextBtn) return;
+
+      if (toolSongsBrowseLoading) {
+        list.innerHTML = `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-4 text-center"><i class="fas fa-spinner fa-spin text-primary text-lg" aria-label="Loading songs"></i></div>`;
+      } else if (!toolSongsBrowseResults.length) {
+        list.innerHTML = `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No songs available.</div>`;
+      } else {
+        list.innerHTML = toolSongsBrowseResults.map(song => renderArtistSongCard(song)).join('');
+      }
+
+      pageLabel.innerText = `Page ${toolSongsBrowsePage}`;
+      prevBtn.disabled = toolSongsBrowseLoading || toolSongsBrowsePage <= 1;
+      nextBtn.disabled = toolSongsBrowseLoading || !toolSongsBrowseNextCursor;
+      prevBtn.classList.toggle('opacity-50', prevBtn.disabled);
+      prevBtn.classList.toggle('pointer-events-none', prevBtn.disabled);
+      nextBtn.classList.toggle('opacity-50', nextBtn.disabled);
+      nextBtn.classList.toggle('pointer-events-none', nextBtn.disabled);
+    }
+
+    async function loadToolSongsBrowsePage(targetPage = 1) {
+      const page = Math.max(1, Number(targetPage) || 1);
+      const pageCursor = toolSongsBrowseCursors[page - 1];
+      if (page > 1 && typeof pageCursor === 'undefined') return;
+      toolSongsBrowseLoading = true;
+      renderToolSongsBrowse();
+      try {
+        const result = await repository.browseSongsPage({
+          ensureSongFormat,
+          pageSize: TOOL_SONGS_PAGE_SIZE,
+          cursor: pageCursor || null
+        });
+        toolSongsBrowsePage = page;
+        toolSongsBrowseResults = result.items || [];
+        toolSongsBrowseNextCursor = result.nextCursor || null;
+        if (toolSongsBrowseNextCursor) {
+          toolSongsBrowseCursors[page] = toolSongsBrowseNextCursor;
+        } else {
+          toolSongsBrowseCursors = toolSongsBrowseCursors.slice(0, page);
+        }
+      } catch (err) {
+        console.error('Tool songs browse failed', err);
+        toolSongsBrowseResults = [];
+        toolSongsBrowseNextCursor = null;
+        showToast('Could not load songs browse list.');
+      } finally {
+        toolSongsBrowseLoading = false;
+        renderToolSongsBrowse();
+      }
+    }
+
+    function resetToolSongsBrowse() {
+      toolSongsBrowsePage = 1;
+      toolSongsBrowseCursors = [null];
+      toolSongsBrowseNextCursor = null;
+      toolSongsBrowseResults = [];
+      loadToolSongsBrowsePage(1);
+    }
+
+    window.nextToolSongsBrowsePage = function() {
+      if (!toolSongsBrowseNextCursor || toolSongsBrowseLoading) return;
+      loadToolSongsBrowsePage(toolSongsBrowsePage + 1);
+    };
+
+    window.prevToolSongsBrowsePage = function() {
+      if (toolSongsBrowsePage <= 1 || toolSongsBrowseLoading) return;
+      loadToolSongsBrowsePage(toolSongsBrowsePage - 1);
+    };
 
     window.submitToolSongsSearch = async function(event) {
       if (event) event.preventDefault();

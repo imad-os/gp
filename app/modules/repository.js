@@ -1,4 +1,4 @@
-import { collection, getDocs, doc, setDoc, getDoc, addDoc, deleteDoc, query, where, limit } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { collection, getDocs, doc, setDoc, getDoc, addDoc, deleteDoc, query, where, limit, orderBy, startAfter, documentId } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
 export class FirestoreRepository {
   constructor(db) {
@@ -231,6 +231,49 @@ export class FirestoreRepository {
       return filtered.slice(0, max);
     });
     return ensureSongFormat ? result.map(ensureSongFormat) : result;
+  }
+
+  async browseSongsPage({ ensureSongFormat, pageSize = 20, cursor = null } = {}) {
+    const size = Math.max(1, Math.min(50, Number(pageSize) || 20));
+    const songsRef = collection(this.db, 'songs');
+    const buildCursorQuery = (baseCursor) => {
+      const clauses = [
+        orderBy('createdAt', 'desc'),
+        orderBy(documentId(), 'desc'),
+        limit(size + 1)
+      ];
+      if (baseCursor && typeof baseCursor.createdAt === 'number' && baseCursor.id) {
+        clauses.splice(2, 0, startAfter(baseCursor.createdAt, String(baseCursor.id)));
+      }
+      return query(songsRef, ...clauses);
+    };
+    const fallbackDocIdQuery = (baseCursor) => {
+      const clauses = [orderBy(documentId(), 'desc'), limit(size + 1)];
+      if (baseCursor && baseCursor.id) {
+        clauses.splice(1, 0, startAfter(String(baseCursor.id)));
+      }
+      return query(songsRef, ...clauses);
+    };
+
+    let snap = await getDocs(buildCursorQuery(cursor));
+    if (snap.empty && !cursor) {
+      snap = await getDocs(fallbackDocIdQuery(cursor));
+    }
+
+    const docs = snap.docs || [];
+    const hasMore = docs.length > size;
+    const pageDocs = hasMore ? docs.slice(0, size) : docs;
+    const items = pageDocs.map(d => ({ id: d.id, ...d.data() }));
+    const last = pageDocs[pageDocs.length - 1] || null;
+    const nextCursor = hasMore && last
+      ? { id: last.id, createdAt: Number(last.data()?.createdAt || 0) }
+      : null;
+
+    return {
+      items: ensureSongFormat ? items.map(ensureSongFormat) : items,
+      hasMore,
+      nextCursor
+    };
   }
 
   async loadUserSettings(userId, defaults) {

@@ -1,6 +1,28 @@
 {
-  "latestVersion": "v2026.04.22.65",
+  "latestVersion": "v2026.04.22.67",
   "updates": [
+    {
+      "version": "v2026.04.22.67",
+      "releasedAt": "2026-05-04T08:04:56Z",
+      "summary": "Add paginated Songs browsing in Tools",
+      "description": "Add server-side Songs pagination (20 per page) under search input",
+      "changes": [
+        "Add Firestore cursor pagination for songs (20/page)",
+        "Add browse list with Prev/Next controls under Tools Songs search",
+        "Keep existing search input and results while adding separate browse section"
+      ]
+    },
+    {
+      "version": "v2026.04.22.66",
+      "releasedAt": "2026-05-04T08:04:49Z",
+      "summary": "Add paginated Songs browsing in Tools",
+      "description": "Add server-side Songs pagination (20 per page) under search input",
+      "changes": [
+        "Add Firestore cursor pagination for songs (20/page)",
+        "Add browse list with Prev/Next controls under Tools Songs search",
+        "Keep existing search input and results while adding separate browse section"
+      ]
+    },
     {
       "version": "v2026.04.22.65",
       "releasedAt": "2026-05-04T07:53:52Z",
