@@ -1,6 +1,26 @@
 {
-  "latestVersion": "v2026.04.22.63",
+  "latestVersion": "v2026.04.22.65",
   "updates": [
+    {
+      "version": "v2026.04.22.65",
+      "releasedAt": "2026-05-04T07:53:52Z",
+      "summary": "Fix home section toggles mapping",
+      "description": "eesc",
+      "changes": [
+        "Fix settings toggle-to-section wiring for Favorites, Continue Practice, and Continue Listening",
+        "Prevent Continue Practice toggle from hiding Favorite Songs"
+      ]
+    },
+    {
+      "version": "v2026.04.22.64",
+      "releasedAt": "2026-05-01T18:04:41Z",
+      "summary": "Fix home section toggles mapping",
+      "description": "eesc",
+      "changes": [
+        "Fix settings toggle-to-section wiring for Favorites, Continue Practice, and Continue Listening",
+        "Prevent Continue Practice toggle from hiding Favorite Songs"
+      ]
+    },
     {
       "version": "v2026.04.22.63",
       "releasedAt": "2026-05-01T14:14:20Z",
