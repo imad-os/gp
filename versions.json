@@ -1,6 +1,28 @@
 {
-  "latestVersion": "v2026.04.22.70",
+  "latestVersion": "v2026.04.22.72",
   "updates": [
+    {
+      "version": "v2026.04.22.72",
+      "releasedAt": "2026-05-04T14:31:06Z",
+      "summary": "Make Ear Training beginner-friendly onboarding",
+      "description": "Ear Training now introduces sounds progressively before full quiz rounds",
+      "changes": [
+        "Add intro stages for pitch ear training (2 sounds then 3 then 4)",
+        "Play intro sound set before prompt in early rounds",
+        "Show beginner guidance feedback during intro rounds"
+      ]
+    },
+    {
+      "version": "v2026.04.22.71",
+      "releasedAt": "2026-05-04T14:26:14Z",
+      "summary": "Make Ear Training beginner-friendly onboarding",
+      "description": "Ear Training now introduces sounds progressively before full quiz rounds",
+      "changes": [
+        "Add intro stages for pitch ear training (2 sounds then 3 then 4)",
+        "Play intro sound set before prompt in early rounds",
+        "Show beginner guidance feedback during intro rounds"
+      ]
+    },
     {
       "version": "v2026.04.22.70",
       "releasedAt": "2026-05-04T14:19:57Z",
