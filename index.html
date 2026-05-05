@@ -726,15 +726,30 @@
             <div class="font-bold text-lg mb-1">Metronome</div>
             <p class="text-sm text-gray-400">Tempo, beat size, and a clear pulse view for practice.</p>
           </button>
-          <button onclick="openToolPage('recorder')" class="tool-nav-card btn-press">
-            <span class="tool-nav-icon"><i class="fas fa-record-vinyl text-lg"></i></span>
-            <div class="font-bold text-lg mb-1">Registered Sounds</div>
-            <p class="text-sm text-gray-400">Record short clips, save them to Firebase, and replay them later.</p>
+          <button onclick="openToolPage('looper')" class="tool-nav-card btn-press">
+            <span class="tool-nav-icon"><i class="fas fa-repeat text-lg"></i></span>
+            <div class="font-bold text-lg mb-1">Looper</div>
+            <p class="text-sm text-gray-400">Upload media or load YouTube, then loop full track or A-B sections.</p>
+          </button>
+          <button onclick="openToolPage('songs')" class="tool-nav-card btn-press">
+            <span class="tool-nav-icon"><i class="fas fa-magnifying-glass text-lg"></i></span>
+            <div class="font-bold text-lg mb-1">Songs</div>
+            <p class="text-sm text-gray-400">Search songs quickly and jump straight into the song page.</p>
           </button>
           <button onclick="openToolPage('chords')" class="tool-nav-card btn-press">
             <span class="tool-nav-icon"><img src="/assets/pwa/icon-192.png" alt="" class="w-8 h-8 rounded-full object-cover"></span>
             <div class="font-bold text-lg mb-1">Chord Explorer</div>
             <p class="text-sm text-gray-400">Browse the available chord library and hear each chord like practice playback.</p>
+          </button>
+          <button onclick="openToolPage('chord-translation')" class="tool-nav-card btn-press">
+            <span class="tool-nav-icon"><i class="fas fa-language text-lg"></i></span>
+            <div class="font-bold text-lg mb-1">Chords Translation</div>
+            <p class="text-sm text-gray-400">Translate Do Re Mi Fa Sol La Si chords into USA notation (C D E F G A B).</p>
+          </button>
+          <button onclick="openToolPage('recorder')" class="tool-nav-card btn-press">
+            <span class="tool-nav-icon"><i class="fas fa-record-vinyl text-lg"></i></span>
+            <div class="font-bold text-lg mb-1">Registered Sounds</div>
+            <p class="text-sm text-gray-400">Record short clips, save them to Firebase, and replay them later.</p>
           </button>
           <button onclick="openToolPage('chord-builder')" class="tool-nav-card btn-press">
             <span class="tool-nav-icon"><i class="fas fa-plus text-lg"></i></span>
@@ -746,16 +761,6 @@
             <div class="font-bold text-lg mb-1">Guitar Tones</div>
             <p class="text-sm text-gray-400">Upload open-string samples and build realistic dynamic chord playback.</p>
           </button>
-          <button onclick="openToolPage('songs')" class="tool-nav-card btn-press">
-            <span class="tool-nav-icon"><i class="fas fa-magnifying-glass text-lg"></i></span>
-            <div class="font-bold text-lg mb-1">Songs</div>
-            <p class="text-sm text-gray-400">Search songs quickly and jump straight into the song page.</p>
-          </button>
-          <button onclick="openToolPage('looper')" class="tool-nav-card btn-press">
-            <span class="tool-nav-icon"><i class="fas fa-repeat text-lg"></i></span>
-            <div class="font-bold text-lg mb-1">Looper</div>
-            <p class="text-sm text-gray-400">Upload media or load YouTube, then loop full track or A-B sections.</p>
-          </button>
           <button onclick="openToolPage('tabs-preview')" class="tool-nav-card btn-press">
             <span class="tool-nav-icon"><i class="fas fa-list-music text-lg"></i></span>
             <div class="font-bold text-lg mb-1">Tabs Preview</div>
@@ -765,11 +770,6 @@
             <span class="tool-nav-icon"><i class="fas fa-music text-lg"></i></span>
             <div class="font-bold text-lg mb-1">GuitarPro Viewer</div>
             <p class="text-sm text-gray-400">Upload a GP3 or GP4 file and render standard notation + tablature.</p>
-          </button>
-          <button onclick="openToolPage('chord-translation')" class="tool-nav-card btn-press">
-            <span class="tool-nav-icon"><i class="fas fa-language text-lg"></i></span>
-            <div class="font-bold text-lg mb-1">Chords Translation</div>
-            <p class="text-sm text-gray-400">Translate Do Re Mi Fa Sol La Si chords into USA notation (C D E F G A B).</p>
           </button>
           <button onclick="openToolPage('ai-song')" class="tool-nav-card btn-press sm:col-span-2">
             <span class="tool-nav-icon"><i class="fas fa-wand-magic-sparkles text-lg"></i></span>
