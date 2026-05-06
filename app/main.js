@@ -185,12 +185,13 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.04.22.69',
+      version: 'v2026.04.22.70',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
     const DEFAULT_SETTINGS = {
       practiceTextSize: 14,
+      practiceWrapLines: false,
       favoriteSongIds: [],
       recentPractice: [],
       recentCourses: [],
@@ -7306,6 +7307,7 @@ Rules:
       activeTunerPresetId = normalizeTunerPresetId(userSettings.tunerPresetId);
       userSettings.tunerPresetId = activeTunerPresetId;
       userSettings.chordNotation = normalizeChordNotationMode(userSettings.chordNotation);
+      userSettings.practiceWrapLines = !!userSettings.practiceWrapLines;
       const size = userSettings.practiceTextSize || DEFAULT_SETTINGS.practiceTextSize;
       document.documentElement.style.setProperty('--practice-text-size', `${size}px`);
       document.documentElement.style.setProperty('--practice-chord-size', `${size}px`);
@@ -7317,6 +7319,11 @@ Rules:
       if (modalSlider) modalSlider.value = size;
       if (settingsLabel) settingsLabel.innerText = `${size} px`;
       if (modalLabel) modalLabel.innerText = `${size} px`;
+      const settingsWrapLines = document.getElementById('settings-wrap-lines');
+      const modalWrapLines = document.getElementById('modal-wrap-lines');
+      if (settingsWrapLines) settingsWrapLines.checked = !!userSettings.practiceWrapLines;
+      if (modalWrapLines) modalWrapLines.checked = !!userSettings.practiceWrapLines;
+      document.body?.classList.toggle('practice-wrap-lines', !!userSettings.practiceWrapLines);
       const showFav = document.getElementById('settings-show-favorites');
       const showPractice = document.getElementById('settings-show-practice');
       const showListening = document.getElementById('settings-show-listening');
@@ -7348,11 +7355,21 @@ Rules:
       document.getElementById('modal-text-size').value = size;
     };
 
+    window.previewWrapLines = function(enabled, fromModal = false) {
+      const checked = !!enabled;
+      const settingsWrapLines = document.getElementById('settings-wrap-lines');
+      const modalWrapLines = document.getElementById('modal-wrap-lines');
+      if (settingsWrapLines) settingsWrapLines.checked = checked;
+      if (modalWrapLines) modalWrapLines.checked = checked;
+      document.body?.classList.toggle('practice-wrap-lines', checked);
+    };
+
     window.openTextSettingsModal = function() {
       const modal = document.getElementById('text-settings-modal');
       modal.classList.remove('hidden');
       modal.classList.add('flex');
       previewTextSize(userSettings.practiceTextSize || DEFAULT_SETTINGS.practiceTextSize, true);
+      previewWrapLines(!!userSettings.practiceWrapLines, true);
     };
 
     window.closeTextSettingsModal = function() {
@@ -7365,6 +7382,8 @@ Rules:
     window.saveSettings = async function(source = 'page') {
       const sliderId = source === 'modal' ? 'modal-text-size' : 'settings-text-size';
       const size = parseInt(document.getElementById(sliderId).value, 10) || DEFAULT_SETTINGS.practiceTextSize;
+      const wrapLinesId = source === 'modal' ? 'modal-wrap-lines' : 'settings-wrap-lines';
+      const practiceWrapLines = !!document.getElementById(wrapLinesId)?.checked;
       const selectedTone = String(document.getElementById('settings-guitar-tone')?.value || '').trim();
       const chordNotation = normalizeChordNotationMode(document.getElementById('settings-chord-notation')?.value || userSettings.chordNotation);
       const homeSections = {
@@ -7375,6 +7394,7 @@ Rules:
       const nextSettings = {
         ...userSettings,
         practiceTextSize: size,
+        practiceWrapLines,
         activeGuitarToneId: selectedTone,
         chordNotation,
         homeSections
