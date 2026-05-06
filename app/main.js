@@ -185,7 +185,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.05.06.1',
+      version: 'v2026.05.06.2',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -8156,15 +8156,16 @@ Rules:
     };
 
     function renderSongComments() {
-      const list = document.getElementById('detail-comments-list');
-      const count = document.getElementById('detail-comments-count');
-      if (count) count.innerText = String(currentSongComments.length);
-      if (!list) return;
-      if (!currentSongComments.length) {
-        list.innerHTML = `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No comments yet.</div>`;
-        return;
-      }
-      list.innerHTML = currentSongComments.map(comment => `
+      const renderInto = (listId, countId) => {
+        const list = document.getElementById(listId);
+        const count = document.getElementById(countId);
+        if (count) count.innerText = String(currentSongComments.length);
+        if (!list) return;
+        if (!currentSongComments.length) {
+          list.innerHTML = `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-400">No comments yet.</div>`;
+          return;
+        }
+        list.innerHTML = currentSongComments.map(comment => `
         <div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3">
           <div class="flex items-center justify-between gap-3">
             <p class="font-semibold text-white">${comment.authorName || 'Anonymous'}</p>
@@ -8172,18 +8173,36 @@ Rules:
           </div>
           <p class="text-sm text-gray-300 mt-2 whitespace-pre-wrap">${comment.text || ''}</p>
         </div>
-      `).join('');
+        `).join('');
+      };
+      renderInto('detail-comments-list', 'detail-comments-count');
+      renderInto('preview-comments-list', 'preview-comments-count');
     }
 
     function renderSongRatingSummary() {
-      const summary = document.getElementById('detail-rating-summary');
-      if (!summary) return;
-      if (!currentSongRatings.length) {
-        summary.innerText = 'No ratings';
-        return;
-      }
-      const avg = currentSongRatings.reduce((sum, item) => sum + (item.rating || 0), 0) / currentSongRatings.length;
-      summary.innerText = `${avg.toFixed(1)} / 5 (${currentSongRatings.length})`;
+      const applySummary = (elId) => {
+        const summary = document.getElementById(elId);
+        if (!summary) return;
+        if (!currentSongRatings.length) {
+          summary.innerText = 'No ratings';
+          return;
+        }
+        const avg = currentSongRatings.reduce((sum, item) => sum + (item.rating || 0), 0) / currentSongRatings.length;
+        summary.innerText = `${avg.toFixed(1)} / 5 (${currentSongRatings.length})`;
+      };
+      applySummary('detail-rating-summary');
+      applySummary('preview-rating-summary');
+    }
+
+    function renderPreviewSongRatingStars(selected = 0) {
+      const stars = document.getElementById('preview-rating-stars');
+      if (!stars) return;
+      const canRate = !!user && !user.isAnonymous;
+      stars.innerHTML = Array.from({ length: 5 }, (_, index) => {
+        const value = index + 1;
+        const active = value <= selected;
+        return `<button onclick="setSongRating(${value}, true)" ${canRate ? '' : 'disabled'} class="btn-press text-2xl ${active ? 'text-primary' : 'text-gray-600'} ${canRate ? '' : 'opacity-40 cursor-not-allowed'}"><i class="fas fa-star"></i></button>`;
+      }).join('');
     }
 
     function renderSongYouTube() {
@@ -8222,6 +8241,9 @@ Rules:
       }
       renderSongComments();
       renderSongRatingSummary();
+      const existing = user ? currentSongRatings.find(item => item.id === user.uid) : null;
+      pendingSongRating = existing?.rating || 0;
+      renderPreviewSongRatingStars(pendingSongRating);
     }
 
     async function bumpSongStat(field) {
@@ -8455,7 +8477,7 @@ Rules:
         showToast("Create an account to comment.");
         return;
       }
-      const input = document.getElementById('detail-comment-input');
+      const input = document.getElementById('preview-comment-input') || document.getElementById('detail-comment-input');
       const text = input?.value?.trim();
       if (!text) return;
       try {
@@ -8484,8 +8506,9 @@ Rules:
       }).join('');
     }
 
-    window.setSongRating = function(value) {
+    window.setSongRating = function(value, fromPreview = false) {
       pendingSongRating = value;
+      if (fromPreview) renderPreviewSongRatingStars(pendingSongRating);
       renderRatingStars(pendingSongRating);
     };
 
@@ -8519,6 +8542,7 @@ Rules:
         const songIndex = songs.findIndex(song => song.id === currentSong.id);
         if (songIndex >= 0) songs[songIndex].ratingSummary = currentSong.ratingSummary;
         await repository.updateSongMeta(currentSong.id, { ratingSummary: currentSong.ratingSummary });
+        renderPreviewSongRatingStars(pendingSongRating);
         renderHomeDashboard();
         renderToolSongsSearch(document.getElementById('tool-song-search')?.value || '');
         showToast("Rating saved.", true);
@@ -8612,6 +8636,26 @@ Rules:
                 </div>
               `).join('') + `</div>
             </div>
+            <div class="bg-surface rounded-2xl p-5 border border-gray-800 space-y-4">
+              <div class="flex items-center justify-between gap-3">
+                <div>
+                  <div class="text-[10px] uppercase tracking-[0.2em] text-gray-500 mb-1">Rate This Song</div>
+                  <div id="preview-rating-summary" class="text-sm text-primary font-semibold">No ratings</div>
+                </div>
+                <div id="preview-rating-stars" class="flex items-center gap-1"></div>
+              </div>
+              <button onclick="submitSongRating()" class="bg-primary text-black rounded-full px-4 py-2 text-sm font-bold btn-press">
+                <i class="fas fa-star mr-2"></i>Save Rating
+              </button>
+              <div>
+                <div class="text-[10px] uppercase tracking-[0.2em] text-gray-500 mb-2">Comments (<span id="preview-comments-count">0</span>)</div>
+                <div class="flex gap-2">
+                  <textarea id="preview-comment-input" rows="2" class="flex-1 bg-black/30 border border-gray-800 rounded-xl px-3 py-2 text-sm focus:border-primary focus:outline-none" placeholder="Write a comment..."></textarea>
+                  <button onclick="submitSongComment()" class="bg-primary text-black px-4 rounded-xl font-bold btn-press">Send</button>
+                </div>
+              </div>
+              <div id="preview-comments-list" class="space-y-3"></div>
+            </div>
           </div>`;
         const normalizedPreview = currentSong.strumming.map(s => ({ ...s, raw: s.raw || '.' }));
         activeStrumPattern = normalizedPreview;
@@ -8626,6 +8670,7 @@ Rules:
         updatePreviewPlayButton();
         UI.renderPatternVisualizer('practice-preview-pattern', normalizedPreview, beatsPerBar, -1, [], subdivisionsPerBeat);
         renderPreviewChordsFound(currentSong);
+        loadSongSocialData().catch(err => console.error("Could not load preview social data", err));
         const previewFab = document.getElementById('btn-start-step1-fab');
         if (previewFab) previewFab.onclick = () => startPractice(1);
         navigate('practice', {

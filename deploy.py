@@ -105,9 +105,8 @@ def bump_version(version):
     today_parts = [now.year, now.month, now.day]
     # If the date portion doesn't match today, reset date parts and start patch at 1.
     if parts[0:3] != today_parts:
-        parts[0], parts[1], parts[2] = today_parts
         parts[3] = 1
-    return f"v{parts[0]:04d}.{parts[1]:02d}.{parts[2]:02d}.{parts[3]}"
+    return f"v{today_parts[0]:04d}.{today_parts[1]:02d}.{today_parts[2]:02d}.{parts[3]}"
 
 
 def extract_app_version(main_js_text):
