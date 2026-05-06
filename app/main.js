@@ -176,7 +176,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const GUITAR_TONE_MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
     const GUITAR_TONE_STRING_KEYS = ['E2', 'A2', 'D3', 'G3', 'B3', 'E4'];
     const GUITAR_OPEN_STRING_MIDI = [40, 45, 50, 55, 59, 64];
-    const GUITARPRO_SUPPORTED_VERSIONS = new Set([3, 4]);
+    const GUITARPRO_SUPPORTED_VERSIONS = new Set([1, 2, 3, 4, 5, 6, 7, 8]);
     const ALPHATAB_CDN_JS_SOURCES = [
       '/assets/vendor/alphatab/package/dist/alphaTab.min.js',
       'https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.8.2/dist/alphaTab.min.js',
@@ -185,7 +185,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.05.06.2',
+      version: 'v2026.05.06.3',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -1602,7 +1602,7 @@ Drop back to 70 BPM for clean finish.`,
     function setGuitarProStatus(text = '', isError = false) {
       const el = document.getElementById('tool-gp-status');
       if (!el) return;
-      el.innerText = text || 'Choose a `.gp3` or `.gp4` file to render notation.';
+      el.innerText = text || 'Choose a Guitar Pro file (`.gp*`, `.gpx`) to render notation.';
       el.classList.toggle('text-danger', !!isError);
       el.classList.toggle('text-gray-500', !isError);
     }
@@ -1643,6 +1643,32 @@ Drop back to 70 BPM for clean finish.`,
       }
     }
 
+    function normalizeGuitarProViewerSettings(raw = {}) {
+      const modeRaw = String(raw?.displayMode || raw?.mode || '').trim().toLowerCase();
+      const displayMode = modeRaw === 'tab' ? 'tab' : modeRaw === 'score' ? 'score' : 'score-tab';
+      const bpm = Math.max(40, Math.min(240, parseInt(raw?.bpm, 10) || Math.round(guitarProCurrentBpm || 100)));
+      const showTablature = displayMode === 'tab' || displayMode === 'score-tab';
+      const showNotation = displayMode === 'score' || displayMode === 'score-tab';
+      return { displayMode, bpm, showTablature, showNotation };
+    }
+
+    async function arrayBufferToDataUrl(buffer, mimeType = 'application/octet-stream') {
+      if (!(buffer instanceof ArrayBuffer)) return '';
+      const blob = new Blob([buffer], { type: String(mimeType || 'application/octet-stream') });
+      return await blobToDataUrl(blob);
+    }
+
+    async function dataUrlToArrayBuffer(dataUrl = '') {
+      const source = String(dataUrl || '').trim();
+      if (!source) return null;
+      try {
+        const res = await fetch(source);
+        return await res.arrayBuffer();
+      } catch {
+        return null;
+      }
+    }
+
     function openGuitarProFilesDb() {
       if (guitarProFilesDbPromise) return guitarProFilesDbPromise;
       if (typeof indexedDB === 'undefined') {
@@ -1677,6 +1703,8 @@ Drop back to 70 BPM for clean finish.`,
             fileName: String(item?.fileName || ''),
             mimeType: String(item?.mimeType || 'application/octet-stream'),
             fileData: item?.fileData instanceof ArrayBuffer ? item.fileData : null,
+            viewerSettings: normalizeGuitarProViewerSettings(item?.viewerSettings || {}),
+            uploadedAt: Number(item?.uploadedAt || item?.createdAt || Date.now()),
             createdAt: Number(item?.createdAt || Date.now()),
             updatedAt: Number(item?.updatedAt || Date.now())
           })).filter(item => item.id && item.fileData && item.fileData.byteLength > 0)
@@ -1707,6 +1735,8 @@ Drop back to 70 BPM for clean finish.`,
             fileName: String(item.fileName || ''),
             mimeType: String(item.mimeType || 'application/octet-stream'),
             fileData: item.fileData,
+            viewerSettings: normalizeGuitarProViewerSettings(item?.viewerSettings || {}),
+            uploadedAt: Number(item?.uploadedAt || item?.createdAt || Date.now()),
             createdAt: Number(item.createdAt || Date.now()),
             updatedAt: Number(item.updatedAt || Date.now())
           });
@@ -1740,7 +1770,33 @@ Drop back to 70 BPM for clean finish.`,
 
     async function loadSavedGuitarProFiles() {
       try {
-        guitarProSavedFiles = await readAllSavedGuitarProFilesFromStorage();
+        const localFiles = await readAllSavedGuitarProFilesFromStorage();
+        if (user && !user.isAnonymous && repository?.loadGuitarProFiles) {
+          const cloudMeta = await repository.loadGuitarProFiles(user.uid);
+          const merged = new Map();
+          localFiles.forEach(item => merged.set(item.id, item));
+          cloudMeta.forEach(item => {
+            const existing = merged.get(item.id) || {};
+            merged.set(item.id, {
+              ...existing,
+              id: String(item?.id || existing.id || ''),
+              title: sanitizeGuitarProSavedTitle(item?.title || existing.title || ''),
+              fileName: String(item?.fileName || existing.fileName || ''),
+              mimeType: String(item?.mimeType || existing.mimeType || 'application/octet-stream'),
+              fileData: existing.fileData instanceof ArrayBuffer ? existing.fileData : null,
+              viewerSettings: normalizeGuitarProViewerSettings(item?.viewerSettings || existing.viewerSettings || {}),
+              uploadedAt: Number(item?.uploadedAt || existing.uploadedAt || item?.createdAt || Date.now()),
+              createdAt: Number(item?.createdAt || existing.createdAt || Date.now()),
+              updatedAt: Number(item?.updatedAt || existing.updatedAt || Date.now())
+            });
+          });
+          guitarProSavedFiles = Array.from(merged.values())
+            .filter(item => item.id)
+            .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+            .slice(0, GUITARPRO_FILES_LIMIT);
+        } else {
+          guitarProSavedFiles = localFiles;
+        }
       } catch (err) {
         console.error('Could not read GuitarPro saved files', err);
         guitarProSavedFiles = [];
@@ -1760,7 +1816,7 @@ Drop back to 70 BPM for clean finish.`,
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
               <p class="font-semibold text-sm text-white truncate">${escapeHtml(item.title)}</p>
-              <p class="text-[11px] text-gray-500 mt-1 truncate">${escapeHtml(item.fileName || 'Unknown file')} • ${item.updatedAt ? new Date(item.updatedAt).toLocaleString() : 'Saved'}</p>
+              <p class="text-[11px] text-gray-500 mt-1 truncate">${escapeHtml(item.fileName || 'Unknown file')} • Uploaded: ${item.uploadedAt ? new Date(item.uploadedAt).toLocaleString() : 'Unknown'} • Updated: ${item.updatedAt ? new Date(item.updatedAt).toLocaleString() : 'Saved'}</p>
             </div>
             <button onclick="event.stopPropagation(); deleteSavedGuitarProFileFromList('${encodeURIComponent(item.id)}')" class="w-8 h-8 rounded-full btn-soft btn-press shrink-0" title="Delete">
               <i class="fas fa-trash text-xs"></i>
@@ -1797,6 +1853,49 @@ Drop back to 70 BPM for clean finish.`,
         console.error('Could not refresh GuitarPro list', err);
         renderSavedGuitarProFiles();
       });
+    }
+
+    function applyGuitarProFileViewerSettings(item = null) {
+      const settings = normalizeGuitarProViewerSettings(item?.viewerSettings || {});
+      guitarProDisplayMode = settings.displayMode;
+      guitarProCurrentBpm = settings.bpm;
+      const bpmInput = document.getElementById('tool-gp-bpm');
+      if (bpmInput) bpmInput.value = String(settings.bpm);
+      updateGuitarProDisplayModeButtons();
+      updateGuitarProBpmLabel();
+    }
+
+    async function persistActiveGuitarProViewerSettings() {
+      if (!guitarProSavedActiveId) return;
+      const idx = guitarProSavedFiles.findIndex(entry => entry.id === guitarProSavedActiveId);
+      if (idx < 0) return;
+      const now = Date.now();
+      const viewerSettings = normalizeGuitarProViewerSettings({
+        displayMode: guitarProDisplayMode,
+        bpm: guitarProCurrentBpm
+      });
+      const next = {
+        ...guitarProSavedFiles[idx],
+        viewerSettings,
+        updatedAt: now
+      };
+      guitarProSavedFiles[idx] = next;
+      try {
+        await persistSavedGuitarProFile(next);
+      } catch (err) {
+        console.error('Could not persist GuitarPro viewer settings locally', err);
+      }
+      if (user && !user.isAnonymous && repository?.saveGuitarProFile) {
+        repository.saveGuitarProFile(user.uid, next.id, {
+          title: next.title,
+          fileName: next.fileName,
+          mimeType: next.mimeType,
+          viewerSettings: next.viewerSettings,
+          uploadedAt: Number(next.uploadedAt || next.createdAt || now),
+          createdAt: Number(next.createdAt || now),
+          updatedAt: now
+        }).catch(err => console.error('Could not save GuitarPro viewer settings to cloud', err));
+      }
     }
 
     function formatGuitarProTime(ms = 0) {
@@ -1951,7 +2050,7 @@ Drop back to 70 BPM for clean finish.`,
     async function renderGuitarProFile(file, options = {}) {
       const { preserveBpm = false } = options || {};
       if (!file) {
-        setGuitarProStatus('Select a `.gp3` or `.gp4` file first.', true);
+        setGuitarProStatus('Select a Guitar Pro file first.', true);
         return;
       }
       guitarProViewerPendingFile = file;
@@ -1964,11 +2063,11 @@ Drop back to 70 BPM for clean finish.`,
         return;
       }
       const version = detectGuitarProVersion(name, buffer);
-      if (!GUITARPRO_SUPPORTED_VERSIONS.has(version)) {
+      if (Number.isFinite(version) && !GUITARPRO_SUPPORTED_VERSIONS.has(version)) {
         destroyGuitarProViewerApi();
         clearGuitarProViewerUrl();
-        setGuitarProStatus(`Unsupported version. Detected: ${Number.isFinite(version) ? `GP${version}` : 'unknown'}. Only GP3 and GP4 are enabled for now.`, true);
-        resetGuitarProViewerSurface('Only GP3 and GP4 are supported right now.');
+        setGuitarProStatus(`Unsupported version. Detected: GP${version}.`, true);
+        resetGuitarProViewerSurface(`GP${version} is not supported by this build.`);
         return;
       }
       const host = document.getElementById('tool-gp-viewer');
@@ -2058,7 +2157,7 @@ Drop back to 70 BPM for clean finish.`,
       guitarProSavedActiveId = '';
       guitarProActiveScoreTitle = '';
       if (!file) {
-        setGuitarProStatus('Choose a `.gp3` or `.gp4` file to render notation.');
+        setGuitarProStatus('Choose a Guitar Pro file to render notation.');
         return;
       }
       setGuitarProEditorVisible(true);
@@ -2077,6 +2176,7 @@ Drop back to 70 BPM for clean finish.`,
       const nextMode = normalized === 'tab' ? 'tab' : normalized === 'score' ? 'score' : 'score-tab';
       guitarProDisplayMode = nextMode;
       updateGuitarProDisplayModeButtons();
+      persistActiveGuitarProViewerSettings().catch(err => console.error('Could not persist display mode', err));
       if (guitarProViewerPendingFile) {
         renderGuitarProFile(guitarProViewerPendingFile, { preserveBpm: true });
       }
@@ -2089,6 +2189,7 @@ Drop back to 70 BPM for clean finish.`,
       if (input) input.value = String(Math.round(bpm));
       updateGuitarProBpmLabel();
       syncGuitarProPlaybackSpeed();
+      persistActiveGuitarProViewerSettings().catch(err => console.error('Could not persist bpm', err));
     };
 
     window.toggleGuitarProMetronome = function() {
@@ -2146,7 +2247,7 @@ Drop back to 70 BPM for clean finish.`,
       updateGuitarProBpmLabel();
       updateGuitarProPositionLabel();
       updateGuitarProDisplayModeButtons();
-      setGuitarProStatus('Choose a `.gp3` or `.gp4` file to render notation.');
+      setGuitarProStatus('Choose a Guitar Pro file to render notation.');
       resetGuitarProViewerSurface('No file rendered yet.');
     };
 
@@ -2160,7 +2261,7 @@ Drop back to 70 BPM for clean finish.`,
       guitarProSavedActiveId = '';
       window.clearGuitarProViewer();
       setGuitarProEditorVisible(true);
-      setGuitarProStatus('Choose a `.gp3` or `.gp4` file, then Preview and Save.');
+      setGuitarProStatus('Choose a Guitar Pro file, then Preview and Save.');
     };
 
     window.openSavedGuitarProFileFromList = async function(itemId = '') {
@@ -2181,6 +2282,18 @@ Drop back to 70 BPM for clean finish.`,
         refreshSavedGuitarProFilesUi();
         return;
       }
+      if (!(item.fileData instanceof ArrayBuffer) && user && !user.isAnonymous && repository?.loadGuitarProFileData) {
+        try {
+          const fileDataUrl = await repository.loadGuitarProFileData(user.uid, item.id);
+          const restoredBuffer = await dataUrlToArrayBuffer(fileDataUrl);
+          if (restoredBuffer instanceof ArrayBuffer && restoredBuffer.byteLength > 0) {
+            item.fileData = restoredBuffer;
+            await persistSavedGuitarProFile(item);
+          }
+        } catch (err) {
+          console.error('Could not load GuitarPro file bytes from cloud', err);
+        }
+      }
       const file = buildGuitarProFileFromSavedRecord(item);
       if (!file) {
         setGuitarProFilesStatus('Could not decode saved file data.', true);
@@ -2188,6 +2301,7 @@ Drop back to 70 BPM for clean finish.`,
       }
       guitarProSavedActiveId = item.id;
       guitarProActiveScoreTitle = sanitizeGuitarProSavedTitle(item.title || '', '');
+      applyGuitarProFileViewerSettings(item);
       setGuitarProEditorVisible(true);
       setGuitarProStatus(`Loaded "${item.title}". Rendering...`);
       await renderGuitarProFile(file, { preserveBpm: true });
@@ -2200,6 +2314,9 @@ Drop back to 70 BPM for clean finish.`,
       if (!decodedId) return;
       try {
         await deleteSavedGuitarProFileById(decodedId);
+        if (user && !user.isAnonymous && repository?.deleteGuitarProFile) {
+          await repository.deleteGuitarProFile(user.uid, decodedId);
+        }
       } catch (err) {
         console.error('Could not delete saved GuitarPro file', err);
         setGuitarProFilesStatus('Could not delete this file right now.', true);
@@ -2220,7 +2337,7 @@ Drop back to 70 BPM for clean finish.`,
       const inputFile = document.getElementById('tool-gp-file')?.files?.[0] || null;
       const file = inputFile || guitarProViewerPendingFile || null;
       if (!file) {
-        setGuitarProStatus('Choose or open a `.gp3` or `.gp4` file before saving.', true);
+        setGuitarProStatus('Choose or open a Guitar Pro file before saving.', true);
         return;
       }
       const fileName = String(file.name || '').trim() || 'Untitled.gp4';
@@ -2248,11 +2365,30 @@ Drop back to 70 BPM for clean finish.`,
         fileName,
         mimeType: String(file.type || 'application/octet-stream'),
         fileData,
+        viewerSettings: normalizeGuitarProViewerSettings({
+          displayMode: guitarProDisplayMode,
+          bpm: guitarProCurrentBpm
+        }),
+        uploadedAt: Number(existing?.uploadedAt || existing?.createdAt || now),
         createdAt: Number(existing?.createdAt || now),
         updatedAt: now
       };
       try {
         await persistSavedGuitarProFile(payload);
+        if (user && !user.isAnonymous && repository?.saveGuitarProFile && repository?.saveGuitarProFileData) {
+          const fileDataUrl = await arrayBufferToDataUrl(fileData, payload.mimeType);
+          const chunkCount = await repository.saveGuitarProFileData(user.uid, saveId, fileDataUrl);
+          await repository.saveGuitarProFile(user.uid, saveId, {
+            title: payload.title,
+            fileName: payload.fileName,
+            mimeType: payload.mimeType,
+            viewerSettings: payload.viewerSettings,
+            uploadedAt: payload.uploadedAt,
+            createdAt: payload.createdAt,
+            updatedAt: payload.updatedAt,
+            chunkCount
+          });
+        }
       } catch (err) {
         console.error('Could not save GuitarPro file', err);
         setGuitarProStatus('Save failed. Please try again.', true);
@@ -4878,7 +5014,7 @@ Drop back to 70 BPM for clean finish.`,
         setGuitarProEditorVisible(false);
         refreshSavedGuitarProFilesUi();
         if (!guitarProViewerPendingFile && !guitarProViewerApi) {
-          setGuitarProStatus('Choose a `.gp3` or `.gp4` file to render notation.');
+          setGuitarProStatus('Choose a Guitar Pro file to render notation.');
         }
       }
       if (tool === 'chord-translation') {

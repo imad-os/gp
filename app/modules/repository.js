@@ -577,6 +577,87 @@ export class FirestoreRepository {
       });
   }
 
+  async loadGuitarProFiles(userId) {
+    const list = await this.readWithCache(this.makeCacheKey('guitarpro_files', userId), async () => {
+      const ref = collection(this.db, 'users', userId, 'guitarpro_files');
+      const snap = await getDocs(ref);
+      return snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+    });
+    return Array.isArray(list) ? list : [];
+  }
+
+  async saveGuitarProFile(userId, itemId, payload) {
+    const ref = doc(this.db, 'users', userId, 'guitarpro_files', itemId);
+    await setDoc(ref, payload, { merge: true });
+    const cacheKey = this.makeCacheKey('guitarpro_files', userId);
+    const current = this.getCacheJson(cacheKey);
+    if (Array.isArray(current)) {
+      const idx = current.findIndex(item => item?.id === itemId);
+      const nextItem = { id: itemId, ...(idx >= 0 ? current[idx] : {}), ...payload };
+      const next = idx >= 0
+        ? current.map(item => (item?.id === itemId ? nextItem : item))
+        : [nextItem, ...current];
+      next.sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+      this.setCacheJson(cacheKey, next);
+    }
+  }
+
+  async saveGuitarProFileData(userId, itemId, dataUrl) {
+    const chunksRef = collection(this.db, 'users', userId, 'guitarpro_files', itemId, 'file_chunks');
+    const existing = await getDocs(chunksRef);
+    for (const entry of existing.docs) {
+      await deleteDoc(entry.ref);
+    }
+    const CHUNK_SIZE = 350000;
+    const source = String(dataUrl || '');
+    const chunkCount = Math.max(1, Math.ceil(source.length / CHUNK_SIZE));
+    for (let i = 0; i < chunkCount; i += 1) {
+      const start = i * CHUNK_SIZE;
+      const part = source.slice(start, start + CHUNK_SIZE);
+      const chunkId = String(i).padStart(5, '0');
+      await setDoc(doc(chunksRef, chunkId), { index: i, data: part });
+    }
+    await this.idbSet(this.makeCacheKey('guitarpro_file_data', `${userId}:${itemId}`), source);
+    return chunkCount;
+  }
+
+  async loadGuitarProFileData(userId, itemId, onProgress = null) {
+    const cacheKey = this.makeCacheKey('guitarpro_file_data', `${userId}:${itemId}`);
+    return await this.readWithIdbCache(cacheKey, async () => {
+      const chunksRef = collection(this.db, 'users', userId, 'guitarpro_files', itemId, 'file_chunks');
+      const snap = await getDocs(chunksRef);
+      if (snap.empty) return '';
+      if (typeof onProgress === 'function') onProgress(15);
+      const ordered = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (a.index ?? Number(a.id)) - (b.index ?? Number(b.id)));
+      const total = Math.max(1, ordered.length);
+      const parts = [];
+      for (let i = 0; i < ordered.length; i += 1) {
+        parts.push(String(ordered[i].data || ''));
+        if (typeof onProgress === 'function') onProgress(Math.min(95, 15 + Math.round(((i + 1) / total) * 80)));
+        if (i % 25 === 0) await Promise.resolve();
+      }
+      return parts.join('');
+    }, { timeoutMs: 10000 });
+  }
+
+  async deleteGuitarProFile(userId, itemId) {
+    const chunksRef = collection(this.db, 'users', userId, 'guitarpro_files', itemId, 'file_chunks');
+    const snap = await getDocs(chunksRef);
+    for (const entry of snap.docs) {
+      await deleteDoc(entry.ref);
+    }
+    await deleteDoc(doc(this.db, 'users', userId, 'guitarpro_files', itemId));
+    const cacheKey = this.makeCacheKey('guitarpro_files', userId);
+    const current = this.getCacheJson(cacheKey);
+    if (Array.isArray(current)) {
+      this.setCacheJson(cacheKey, current.filter(item => item?.id !== itemId));
+    }
+  }
+
   async saveGuitarTone(toneData, editingToneId = null) {
     if (editingToneId) {
       await setDoc(doc(this.db, 'guitar_tones', editingToneId), toneData, { merge: true });
