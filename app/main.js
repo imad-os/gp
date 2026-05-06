@@ -139,6 +139,7 @@ import { FirestoreRepository } from './modules/repository.js';
     let currentTrainingArticleRatings = [];
     let pendingTrainingArticleRating = 0;
     let settingsUsageCheckBusy = false;
+    const lazyToolModuleCache = new Map();
     let editingTrainingArticleId = null;
     let activeTrainingArticleCategory = 'trainings';
     let trainingVideoPlayer = null;
@@ -186,7 +187,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.05.06.4',
+      version: 'v2026.05.06.5',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -2776,6 +2777,51 @@ Drop back to 70 BPM for clean finish.`,
       });
     }
 
+    async function getLooperMediaDataUrlByItemId(itemId = '') {
+      const item = looperHistory.find(entry => entry.id === itemId);
+      if (!item || !repository || item.sourceType !== 'upload') return '';
+      if (user && !user.isAnonymous) {
+        try {
+          const fromCloud = await repository.loadLooperMediaData(user.uid, item.id);
+          if (fromCloud) return fromCloud;
+        } catch {}
+      }
+      try {
+        const fromDevice = await repository.idbGet(repository.makeCacheKey('looper_media_device', item.id));
+        return String(fromDevice || '');
+      } catch {
+        return '';
+      }
+    }
+
+    async function ensureToolModuleLoaded(tool = '') {
+      const key = String(tool || '').trim();
+      if (!key) return null;
+      if (lazyToolModuleCache.has(key)) return lazyToolModuleCache.get(key);
+      let mod = null;
+      if (key === 'sound-effects') {
+        mod = await import('./tools/sound-effects.js');
+      }
+      lazyToolModuleCache.set(key, mod);
+      return mod;
+    }
+
+    async function initLazyToolIfNeeded(tool = '') {
+      const mod = await ensureToolModuleLoaded(tool);
+      if (!mod) return;
+      if (tool === 'sound-effects' && typeof mod.initSoundEffectsTool === 'function') {
+        await mod.initSoundEffectsTool({
+          repository,
+          userId: user && !user.isAnonymous ? user.uid : '',
+          getLooperItems: async () => Array.isArray(looperHistory) ? [...looperHistory] : [],
+          getLooperMediaDataUrl: getLooperMediaDataUrlByItemId,
+          readFileAsDataUrl,
+          escapeHtml,
+          showToast
+        });
+      }
+    }
+
     function blobToDataUrl(blob) {
       return new Promise((resolve, reject) => {
         if (!blob) {
@@ -4969,13 +5015,13 @@ Drop back to 70 BPM for clean finish.`,
       updateChordTranslationDetectedLabel('empty');
     };
 
-    window.openToolPage = function(tool, options = {}) {
+    window.openToolPage = async function(tool, options = {}) {
       const { skipUrl = false, replaceUrl = false } = options || {};
       if (tool !== 'looper' && !looperAppBackgroundEnabled && hasActiveLooperTrack()) {
         stopLooperPlayback();
       }
       activeToolPage = tool;
-      const pages = ['metronome', 'recorder', 'chords', 'chord-builder', 'guitar-tones', 'songs', 'looper', 'tabs-preview', 'guitarpro-viewer', 'chord-translation', 'ai-song'];
+      const pages = ['metronome', 'recorder', 'chords', 'chord-builder', 'guitar-tones', 'songs', 'looper', 'tabs-preview', 'guitarpro-viewer', 'chord-translation', 'ai-song', 'sound-effects'];
       if (tool !== 'tabs-preview') stopTabsPreviewPlayback();
       document.getElementById('tools-home-panel')?.classList.add('hidden');
       pages.forEach(page => {
@@ -5002,6 +5048,8 @@ Drop back to 70 BPM for clean finish.`,
                 ? 'Paste tabs and preview real notes.'
               : tool === 'guitarpro-viewer'
                 ? 'Upload GP3 or GP4 and render notation.'
+              : tool === 'sound-effects'
+                ? 'Shape audio with layered effects.'
               : tool === 'chord-translation'
                 ? 'Translate European Do/Re/Mi chords into USA notation.'
               : tool === 'ai-song'
@@ -5044,6 +5092,9 @@ Drop back to 70 BPM for clean finish.`,
       if (tool === 'chord-translation') {
         window.runChordTranslation(true);
       }
+      if (tool === 'sound-effects') {
+        await initLazyToolIfNeeded('sound-effects');
+      }
       updateLooperNowPlayingIndicator();
       if (tool === 'ai-song') {
         const keyInput = document.getElementById('ai-gemini-key');
@@ -5059,7 +5110,7 @@ Drop back to 70 BPM for clean finish.`,
       activeToolPage = 'home';
       document.getElementById('tools-home-panel')?.classList.remove('hidden');
       stopTabsPreviewPlayback();
-      ['metronome', 'recorder', 'chords', 'chord-builder', 'guitar-tones', 'songs', 'looper', 'tabs-preview', 'guitarpro-viewer', 'chord-translation', 'ai-song'].forEach(page => {
+      ['metronome', 'recorder', 'chords', 'chord-builder', 'guitar-tones', 'songs', 'looper', 'tabs-preview', 'guitarpro-viewer', 'chord-translation', 'ai-song', 'sound-effects'].forEach(page => {
         const el = document.getElementById(`tool-page-${page}`);
         if (el) el.classList.add('hidden');
       });
@@ -7349,7 +7400,7 @@ Rules:
         if (parts[0] === 'tools') {
           navigate('tools', { skipUrl: true });
           const tool = decodeURIComponent(parts[1] || '');
-          const allowed = new Set(['metronome', 'recorder', 'chords', 'chord-builder', 'guitar-tones', 'songs', 'looper', 'tabs-preview', 'guitarpro-viewer', 'chord-translation', 'ai-song']);
+          const allowed = new Set(['metronome', 'recorder', 'chords', 'chord-builder', 'guitar-tones', 'songs', 'looper', 'tabs-preview', 'guitarpro-viewer', 'chord-translation', 'ai-song', 'sound-effects']);
           if (tool && allowed.has(tool)) openToolPage(tool, { skipUrl: true });
           else showToolsHome({ skipUrl: true });
           return;

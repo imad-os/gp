@@ -225,6 +225,45 @@ export class FirestoreRepository {
     };
   }
 
+  async loadSoundEffectProfiles(userId) {
+    if (!userId) return [];
+    const cacheKey = this.makeCacheKey('sound_effect_profiles', userId);
+    const list = await this.readWithCache(cacheKey, async () => {
+      const ref = collection(this.db, 'users', userId, 'sound_effect_profiles');
+      const snap = await getDocs(ref);
+      return snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+    });
+    return Array.isArray(list) ? list : [];
+  }
+
+  async saveSoundEffectProfile(userId, profileId, payload) {
+    if (!userId) throw new Error('Missing user id');
+    const id = String(profileId || '').trim() || `sfx-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+    await setDoc(doc(this.db, 'users', userId, 'sound_effect_profiles', id), payload, { merge: true });
+    const cacheKey = this.makeCacheKey('sound_effect_profiles', userId);
+    const current = this.getCacheJson(cacheKey);
+    if (Array.isArray(current)) {
+      const idx = current.findIndex(item => item?.id === id);
+      const nextItem = { id, ...(idx >= 0 ? current[idx] : {}), ...payload };
+      const next = idx >= 0 ? current.map(item => (item?.id === id ? nextItem : item)) : [nextItem, ...current];
+      next.sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+      this.setCacheJson(cacheKey, next);
+    }
+    return id;
+  }
+
+  async deleteSoundEffectProfile(userId, profileId) {
+    if (!userId || !profileId) return;
+    await deleteDoc(doc(this.db, 'users', userId, 'sound_effect_profiles', profileId));
+    const cacheKey = this.makeCacheKey('sound_effect_profiles', userId);
+    const current = this.getCacheJson(cacheKey);
+    if (Array.isArray(current)) {
+      this.setCacheJson(cacheKey, current.filter(item => item?.id !== profileId));
+    }
+  }
+
   async loadSongs({ defaultSong, ensureSongFormat }) {
     const songs = await this.readWithCache(this.makeCacheKey('songs', 'all'), async () => {
       const songsRef = collection(this.db, 'songs');

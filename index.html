@@ -775,6 +775,11 @@
             <div class="font-bold text-lg mb-1">GuitarPro Viewer</div>
             <p class="text-sm text-gray-400">Upload a GP3 or GP4 file and render standard notation + tablature.</p>
           </button>
+          <button onclick="openToolPage('sound-effects')" class="tool-nav-card btn-press">
+            <span class="tool-nav-icon"><i class="fas fa-sliders text-lg"></i></span>
+            <div class="font-bold text-lg mb-1">Sound Effects</div>
+            <p class="text-sm text-gray-400">Load uploaded looper audio or upload a file, then stack compression, reverb, EQ, and delay.</p>
+          </button>
           <button onclick="openToolPage('ai-song')" class="tool-nav-card btn-press sm:col-span-2">
             <span class="tool-nav-icon"><i class="fas fa-wand-magic-sparkles text-lg"></i></span>
             <div class="font-bold text-lg mb-1">AI Song Generator</div>
@@ -1273,6 +1278,81 @@
                 <span id="tool-chord-translation-diagram-name" class="text-sm font-bold text-primary"></span>
               </div>
               <div id="tool-chord-translation-diagram" class="flex justify-center"></div>
+            </div>
+          </div>
+        </div>
+
+        <div id="tool-page-sound-effects" class="hidden bg-surface rounded-2xl p-5 border border-gray-800">
+          <div class="flex items-center justify-between gap-3 mb-3">
+            <div>
+              <p class="text-[10px] uppercase tracking-[0.25em] text-gray-500 mb-1">Tool</p>
+              <h2 class="font-bold text-lg">Sound Effects</h2>
+              <p class="text-sm text-gray-400">Select an uploaded looper item or upload audio, then enable effects one by one or together.</p>
+            </div>
+          </div>
+          <div class="grid sm:grid-cols-2 gap-3 mb-3">
+            <label class="block bg-black/30 border border-gray-800 rounded-xl px-3 py-2">
+              <span class="text-[10px] uppercase tracking-[0.2em] text-gray-500 block mb-1">From Looper</span>
+              <select id="tool-sfx-looper-select" class="w-full bg-transparent outline-none text-white text-sm">
+                <option value="">Choose uploaded looper item...</option>
+              </select>
+            </label>
+            <label class="block bg-black/30 border border-gray-800 rounded-xl px-3 py-2">
+              <span class="text-[10px] uppercase tracking-[0.2em] text-gray-500 block mb-1">Or Upload</span>
+              <input id="tool-sfx-upload" type="file" accept="audio/*,.mp3,.wav,.flac,.m4a,.aac,.ogg,.opus,.aiff,.alac,.wma" class="w-full text-sm bg-transparent text-white">
+            </label>
+          </div>
+          <div class="flex items-center gap-2 mb-3">
+            <button id="btn-sfx-play" class="bg-primary text-black font-bold py-2.5 px-4 rounded-xl btn-press shadow-[0_0_20px_rgba(156,106,61,0.25)]"><i class="fas fa-play mr-2"></i>Play</button>
+            <audio id="tool-sfx-audio" class="flex-1" controls playsinline></audio>
+          </div>
+          <p id="tool-sfx-status" class="text-xs text-gray-500 mb-3">Choose an uploaded looper track or upload a file.</p>
+
+          <div class="space-y-3">
+            <div class="bg-black/30 border border-gray-800 rounded-xl p-3">
+              <label class="flex items-center gap-2 text-sm text-white font-semibold mb-2"><input id="tool-sfx-comp-enabled" type="checkbox" class="accent-[#9c6a3d]">Compression</label>
+              <div class="grid sm:grid-cols-2 gap-2 text-xs">
+                <label>Threshold <span id="tool-sfx-comp-threshold-label" class="text-gray-400"></span><input id="tool-sfx-comp-threshold" type="range" min="-60" max="0" step="1" class="w-full accent-[#9c6a3d]"></label>
+                <label>Ratio <span id="tool-sfx-comp-ratio-label" class="text-gray-400"></span><input id="tool-sfx-comp-ratio" type="range" min="1" max="20" step="0.5" class="w-full accent-[#9c6a3d]"></label>
+                <label>Attack <span id="tool-sfx-comp-attack-label" class="text-gray-400"></span><input id="tool-sfx-comp-attack" type="range" min="0" max="1" step="0.01" class="w-full accent-[#9c6a3d]"></label>
+                <label>Release <span id="tool-sfx-comp-release-label" class="text-gray-400"></span><input id="tool-sfx-comp-release" type="range" min="0.05" max="1" step="0.01" class="w-full accent-[#9c6a3d]"></label>
+              </div>
+            </div>
+
+            <div class="bg-black/30 border border-gray-800 rounded-xl p-3">
+              <label class="flex items-center gap-2 text-sm text-white font-semibold mb-2"><input id="tool-sfx-reverb-enabled" type="checkbox" class="accent-[#9c6a3d]">Reverb</label>
+              <div class="grid sm:grid-cols-2 gap-2 text-xs">
+                <label>Decay <span id="tool-sfx-reverb-decay-label" class="text-gray-400"></span><input id="tool-sfx-reverb-decay" type="range" min="0.3" max="8" step="0.1" class="w-full accent-[#9c6a3d]"></label>
+                <label>Mix <span id="tool-sfx-reverb-mix-label" class="text-gray-400"></span><input id="tool-sfx-reverb-mix" type="range" min="0" max="1" step="0.01" class="w-full accent-[#9c6a3d]"></label>
+              </div>
+            </div>
+
+            <div class="bg-black/30 border border-gray-800 rounded-xl p-3">
+              <label class="flex items-center gap-2 text-sm text-white font-semibold mb-2"><input id="tool-sfx-eq-enabled" type="checkbox" class="accent-[#9c6a3d]">Visual EQ</label>
+              <div class="grid sm:grid-cols-3 gap-2 text-xs">
+                <label>Low <span id="tool-sfx-eq-low-label" class="text-gray-400"></span><input id="tool-sfx-eq-low" type="range" min="-18" max="18" step="0.5" class="w-full accent-[#9c6a3d]"></label>
+                <label>Mid <span id="tool-sfx-eq-mid-label" class="text-gray-400"></span><input id="tool-sfx-eq-mid" type="range" min="-18" max="18" step="0.5" class="w-full accent-[#9c6a3d]"></label>
+                <label>High <span id="tool-sfx-eq-high-label" class="text-gray-400"></span><input id="tool-sfx-eq-high" type="range" min="-18" max="18" step="0.5" class="w-full accent-[#9c6a3d]"></label>
+              </div>
+            </div>
+
+            <div class="bg-black/30 border border-gray-800 rounded-xl p-3">
+              <label class="flex items-center gap-2 text-sm text-white font-semibold mb-2"><input id="tool-sfx-delay-enabled" type="checkbox" class="accent-[#9c6a3d]">Delay</label>
+              <div class="grid sm:grid-cols-3 gap-2 text-xs">
+                <label>Time <span id="tool-sfx-delay-time-label" class="text-gray-400"></span><input id="tool-sfx-delay-time" type="range" min="0.01" max="1.8" step="0.01" class="w-full accent-[#9c6a3d]"></label>
+                <label>Feedback <span id="tool-sfx-delay-feedback-label" class="text-gray-400"></span><input id="tool-sfx-delay-feedback" type="range" min="0" max="0.95" step="0.01" class="w-full accent-[#9c6a3d]"></label>
+                <label>Mix <span id="tool-sfx-delay-mix-label" class="text-gray-400"></span><input id="tool-sfx-delay-mix" type="range" min="0" max="1" step="0.01" class="w-full accent-[#9c6a3d]"></label>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-4 bg-black/30 border border-gray-800 rounded-xl p-3">
+            <div class="grid sm:grid-cols-[1fr_auto] gap-2 mb-2">
+              <input id="tool-sfx-profile-name" type="text" placeholder="Profile name" class="w-full bg-black/20 border border-gray-800 rounded-xl px-3 py-2.5 text-sm outline-none text-white">
+              <button id="btn-sfx-save-profile" class="bg-primary text-black font-bold px-4 py-2.5 rounded-xl btn-press"><i class="fas fa-save mr-2"></i>Save Profile</button>
+            </div>
+            <div id="tool-sfx-profiles-list" class="space-y-2">
+              <div class="text-xs text-gray-500">No profiles yet.</div>
             </div>
           </div>
         </div>
