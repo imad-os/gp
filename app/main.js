@@ -138,6 +138,7 @@ import { FirestoreRepository } from './modules/repository.js';
     let currentTrainingArticleComments = [];
     let currentTrainingArticleRatings = [];
     let pendingTrainingArticleRating = 0;
+    let settingsUsageCheckBusy = false;
     let editingTrainingArticleId = null;
     let activeTrainingArticleCategory = 'trainings';
     let trainingVideoPlayer = null;
@@ -185,7 +186,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.05.06.3',
+      version: 'v2026.05.06.4',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -1532,6 +1533,29 @@ Drop back to 70 BPM for clean finish.`,
       if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(0)} MB`;
       if (value >= 1024) return `${(value / 1024).toFixed(0)} KB`;
       return `${value} B`;
+    }
+
+    function renderUsageStatsReport(stats = null) {
+      const output = document.getElementById('settings-usage-output');
+      if (!output) return;
+      if (!stats || !Array.isArray(stats.rows)) {
+        output.innerHTML = `<p class="text-xs text-gray-500">No usage report yet. Tap Check Usage.</p>`;
+        return;
+      }
+      const rows = stats.rows;
+      const lines = rows.map(row => `
+        <div class="flex items-center justify-between gap-3 text-xs py-1 border-b border-gray-800/70">
+          <span class="text-gray-300 truncate">${escapeHtml(row.label || row.key || '-')}</span>
+          <span class="text-gray-400 whitespace-nowrap">${Number(row.docs || 0)} docs • ${formatBytes(Number(row.bytes || 0))}</span>
+        </div>
+      `).join('');
+      output.innerHTML = `
+        <div class="space-y-2">
+          <div class="text-xs text-gray-500">Checked: ${new Date(Number(stats.checkedAt || Date.now())).toLocaleString()}</div>
+          <div class="rounded-xl bg-black/20 border border-gray-800 p-3 max-h-64 overflow-auto">${lines || '<p class="text-xs text-gray-500">No collections found.</p>'}</div>
+          <div class="text-sm text-primary font-semibold">Total: ${Number(stats.totals?.docs || 0)} docs • ${formatBytes(Number(stats.totals?.bytes || 0))}</div>
+        </div>
+      `;
     }
 
     function sanitizeLooperTitle(raw = '', fallback = 'Untitled media') {
@@ -7549,6 +7573,37 @@ Rules:
       } catch (e) {
         console.error("Settings save failed", e);
         showToast("Could not save settings.");
+      }
+    };
+
+    window.checkUsageStats = async function() {
+      const btn = document.getElementById('settings-check-usage-btn');
+      const status = document.getElementById('settings-usage-status');
+      if (settingsUsageCheckBusy) return;
+      settingsUsageCheckBusy = true;
+      if (btn) {
+        btn.disabled = true;
+        btn.classList.add('opacity-60', 'pointer-events-none');
+      }
+      if (status) status.innerText = 'Calculating usage...';
+      try {
+        if (!repository || typeof repository.getUsageStats !== 'function') {
+          throw new Error('Repository not ready.');
+        }
+        const uid = user && !user.isAnonymous ? user.uid : '';
+        const stats = await repository.getUsageStats(uid);
+        renderUsageStatsReport(stats);
+        if (status) status.innerText = 'Usage report ready.';
+      } catch (err) {
+        console.error('Usage stats check failed', err);
+        if (status) status.innerText = 'Could not calculate usage right now.';
+        renderUsageStatsReport(null);
+      } finally {
+        settingsUsageCheckBusy = false;
+        if (btn) {
+          btn.disabled = false;
+          btn.classList.remove('opacity-60', 'pointer-events-none');
+        }
       }
     };
 

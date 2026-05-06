@@ -140,6 +140,91 @@ export class FirestoreRepository {
     }
   }
 
+  estimatePayloadBytes(value) {
+    try {
+      return new Blob([JSON.stringify(value ?? null)]).size;
+    } catch {
+      try {
+        return String(value ?? '').length;
+      } catch {
+        return 0;
+      }
+    }
+  }
+
+  async measureCollectionUsage(path = []) {
+    try {
+      const ref = collection(this.db, ...path);
+      const snap = await getDocs(ref);
+      let bytes = 0;
+      snap.docs.forEach(d => {
+        bytes += this.estimatePayloadBytes(d.data()) + String(d.id || '').length;
+      });
+      return { docs: snap.docs.length, bytes };
+    } catch {
+      return { docs: 0, bytes: 0 };
+    }
+  }
+
+  async measureNestedUsage(parentPath = [], childName = '') {
+    try {
+      const parentRef = collection(this.db, ...parentPath);
+      const parentSnap = await getDocs(parentRef);
+      let docs = 0;
+      let bytes = 0;
+      for (const parent of parentSnap.docs) {
+        const childRef = collection(this.db, ...parentPath, parent.id, childName);
+        const childSnap = await getDocs(childRef);
+        docs += childSnap.docs.length;
+        childSnap.docs.forEach(d => {
+          bytes += this.estimatePayloadBytes(d.data()) + String(d.id || '').length;
+        });
+      }
+      return { docs, bytes };
+    } catch {
+      return { docs: 0, bytes: 0 };
+    }
+  }
+
+  async getUsageStats(userId = '') {
+    const rows = [];
+    const push = (key, label, result) => rows.push({ key, label, docs: Number(result?.docs || 0), bytes: Number(result?.bytes || 0) });
+
+    push('songs', 'songs', await this.measureCollectionUsage(['songs']));
+    push('song_comments', 'songs/*/comments', await this.measureNestedUsage(['songs'], 'comments'));
+    push('song_ratings', 'songs/*/ratings', await this.measureNestedUsage(['songs'], 'ratings'));
+    push('chords', 'chords', await this.measureCollectionUsage(['chords']));
+    push('guitar_tones', 'guitar_tones', await this.measureCollectionUsage(['guitar_tones']));
+    push('guitar_tone_chunks', 'guitar_tones/*/string_chunks', await this.measureNestedUsage(['guitar_tones'], 'string_chunks'));
+    push('training_articles', 'training_articles', await this.measureCollectionUsage(['training_articles']));
+    push('training_comments', 'training_articles/*/comments', await this.measureNestedUsage(['training_articles'], 'comments'));
+    push('training_ratings', 'training_articles/*/ratings', await this.measureNestedUsage(['training_articles'], 'ratings'));
+    push('public_loops', 'public_loops', await this.measureCollectionUsage(['public_loops']));
+    push('public_loop_chunks', 'public_loops/*/media_chunks', await this.measureNestedUsage(['public_loops'], 'media_chunks'));
+
+    if (userId) {
+      push('user_settings', `users/${userId}/settings`, await this.measureCollectionUsage(['users', userId, 'settings']));
+      push('user_progress', `users/${userId}/progress`, await this.measureCollectionUsage(['users', userId, 'progress']));
+      push('user_recordings', `users/${userId}/tool_recordings`, await this.measureCollectionUsage(['users', userId, 'tool_recordings']));
+      push('user_looper_history', `users/${userId}/looper_history`, await this.measureCollectionUsage(['users', userId, 'looper_history']));
+      push('user_looper_chunks', `users/${userId}/looper_history/*/media_chunks`, await this.measureNestedUsage(['users', userId, 'looper_history'], 'media_chunks'));
+      push('user_gp_files', `users/${userId}/guitarpro_files`, await this.measureCollectionUsage(['users', userId, 'guitarpro_files']));
+      push('user_gp_chunks', `users/${userId}/guitarpro_files/*/file_chunks`, await this.measureNestedUsage(['users', userId, 'guitarpro_files'], 'file_chunks'));
+    }
+
+    const totals = rows.reduce((acc, row) => {
+      acc.docs += row.docs;
+      acc.bytes += row.bytes;
+      return acc;
+    }, { docs: 0, bytes: 0 });
+
+    return {
+      checkedAt: Date.now(),
+      rows,
+      totals
+    };
+  }
+
   async loadSongs({ defaultSong, ensureSongFormat }) {
     const songs = await this.readWithCache(this.makeCacheKey('songs', 'all'), async () => {
       const songsRef = collection(this.db, 'songs');

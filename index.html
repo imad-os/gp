@@ -1400,6 +1400,18 @@
               </div>
             </div>
           </div>
+          <div class="mt-4 bg-black/30 rounded-xl border border-gray-800 p-3">
+            <p class="text-[10px] uppercase tracking-[0.2em] text-gray-500 mb-2">Check Usage</p>
+            <p id="settings-usage-status" class="text-sm text-gray-300">Tap the button to calculate collection usage.</p>
+            <div class="mt-3">
+              <button id="settings-check-usage-btn" onclick="checkUsageStats()" class="btn-soft font-bold py-2 px-4 rounded-full btn-press">
+                <i class="fas fa-database mr-2"></i> Check Usage
+              </button>
+            </div>
+            <div id="settings-usage-output" class="mt-3">
+              <p class="text-xs text-gray-500">No usage report yet. Tap Check Usage.</p>
+            </div>
+          </div>
         </div>
         <div class="text-center text-[11px] text-gray-500 py-2">
           <span id="settings-build-info">Version - • Updated -</span>
