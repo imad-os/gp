@@ -101,6 +101,12 @@ def bump_version(version):
     if len(parts) < 4:
         parts = parts + [0] * (4 - len(parts))
     parts[-1] += 1
+    now = dt.datetime.utcnow().date()
+    today_parts = [now.year, now.month, now.day]
+    # If the date portion doesn't match today, reset date parts and start patch at 1.
+    if parts[0:3] != today_parts:
+        parts[0], parts[1], parts[2] = today_parts
+        parts[3] = 1
     return f"v{parts[0]:04d}.{parts[1]:02d}.{parts[2]:02d}.{parts[3]}"
 
 
