@@ -146,12 +146,16 @@ function rebuildChain() {
     const mix = Math.max(0, Math.min(1, state.reverb.mix));
     nodes.reverbDry.gain.value = 1 - mix;
     nodes.reverbWet.gain.value = mix;
+
+    // Reverb stage: split to dry/wet and merge into a single downstream point.
     cursor.connect(nodes.reverbDry);
     cursor.connect(nodes.reverbConvolver);
     nodes.reverbConvolver.connect(nodes.reverbWet);
-    nodes.reverbDry.connect(nodes.eqLow);
-    nodes.reverbWet.connect(nodes.eqLow);
-    cursor = nodes.eqLow;
+
+    const reverbMerge = audioCtx.createGain();
+    nodes.reverbDry.connect(reverbMerge);
+    nodes.reverbWet.connect(reverbMerge);
+    cursor = reverbMerge;
   }
   if (state.eq.enabled) {
     nodes.eqLow.gain.value = state.eq.low;
