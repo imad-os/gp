@@ -5,6 +5,19 @@ let sourceEl = null;
 let loadedDataUrl = '';
 let currentProfileId = '';
 let profiles = [];
+let looperUploads = [];
+const BUILTIN_PROFILES = [
+  { id: 'builtin:clean-pop', name: 'Clean Pop Vocal', effectState: { compression: { enabled: true, threshold: -22, ratio: 3.5, attack: 0.01, release: 0.2 }, reverb: { enabled: true, decay: 1.8, mix: 0.16 }, eq: { enabled: true, low: -1, mid: 1.5, high: 2 }, delay: { enabled: false, time: 0.22, feedback: 0.2, mix: 0.12 } } },
+  { id: 'builtin:warm-acoustic', name: 'Warm Acoustic', effectState: { compression: { enabled: true, threshold: -24, ratio: 2.8, attack: 0.02, release: 0.28 }, reverb: { enabled: true, decay: 2.4, mix: 0.22 }, eq: { enabled: true, low: 1.5, mid: -0.5, high: 1 }, delay: { enabled: false, time: 0.25, feedback: 0.25, mix: 0.1 } } },
+  { id: 'builtin:room-natural', name: 'Natural Room', effectState: { compression: { enabled: true, threshold: -26, ratio: 2.2, attack: 0.03, release: 0.35 }, reverb: { enabled: true, decay: 1.2, mix: 0.12 }, eq: { enabled: false, low: 0, mid: 0, high: 0 }, delay: { enabled: false, time: 0.2, feedback: 0.2, mix: 0.08 } } },
+  { id: 'builtin:bright-lead', name: 'Bright Lead', effectState: { compression: { enabled: true, threshold: -20, ratio: 4.5, attack: 0.005, release: 0.18 }, reverb: { enabled: true, decay: 2.1, mix: 0.2 }, eq: { enabled: true, low: -2, mid: 1, high: 4 }, delay: { enabled: true, time: 0.28, feedback: 0.32, mix: 0.18 } } },
+  { id: 'builtin:ambient-wash', name: 'Ambient Wash', effectState: { compression: { enabled: true, threshold: -28, ratio: 2.5, attack: 0.04, release: 0.4 }, reverb: { enabled: true, decay: 5.5, mix: 0.45 }, eq: { enabled: true, low: -1, mid: -1, high: 2.5 }, delay: { enabled: true, time: 0.42, feedback: 0.45, mix: 0.32 } } },
+  { id: 'builtin:slapback', name: 'Slapback Echo', effectState: { compression: { enabled: true, threshold: -23, ratio: 3, attack: 0.015, release: 0.22 }, reverb: { enabled: false, decay: 1.4, mix: 0.1 }, eq: { enabled: true, low: -1, mid: 1, high: 1.5 }, delay: { enabled: true, time: 0.11, feedback: 0.2, mix: 0.22 } } },
+  { id: 'builtin:radio', name: 'Radio / Mid Focus', effectState: { compression: { enabled: true, threshold: -18, ratio: 6, attack: 0.003, release: 0.14 }, reverb: { enabled: false, decay: 1, mix: 0.08 }, eq: { enabled: true, low: -6, mid: 4, high: -2 }, delay: { enabled: false, time: 0.2, feedback: 0.2, mix: 0.08 } } },
+  { id: 'builtin:lofi', name: 'Lo-Fi Tape', effectState: { compression: { enabled: true, threshold: -30, ratio: 5, attack: 0.02, release: 0.4 }, reverb: { enabled: true, decay: 1.6, mix: 0.14 }, eq: { enabled: true, low: -3, mid: 1, high: -5 }, delay: { enabled: false, time: 0.25, feedback: 0.25, mix: 0.1 } } },
+  { id: 'builtin:large-hall', name: 'Large Hall', effectState: { compression: { enabled: false, threshold: -24, ratio: 3, attack: 0.01, release: 0.25 }, reverb: { enabled: true, decay: 6.5, mix: 0.5 }, eq: { enabled: true, low: 0, mid: -1, high: 2 }, delay: { enabled: true, time: 0.35, feedback: 0.38, mix: 0.2 } } },
+  { id: 'builtin:parallel-punch', name: 'Parallel Punch', effectState: { compression: { enabled: true, threshold: -16, ratio: 8, attack: 0.002, release: 0.12 }, reverb: { enabled: false, decay: 1.4, mix: 0.1 }, eq: { enabled: true, low: 2, mid: 0.5, high: 1 }, delay: { enabled: false, time: 0.2, feedback: 0.2, mix: 0.08 } } }
+];
 
 const state = {
   compression: { enabled: false, threshold: -24, ratio: 4, attack: 0.01, release: 0.25 },
@@ -201,12 +214,36 @@ function bindControls() {
   });
 }
 
-async function fillLooperSelect() {
-  const select = el('tool-sfx-looper-select');
-  if (!select || !bridge) return;
+function renderLooperSearchResults(query = '') {
+  const results = el('tool-sfx-looper-results');
+  if (!results) return;
+  const normalized = String(query || '').trim().toLowerCase();
+  const filtered = looperUploads
+    .filter(item => {
+      if (!normalized) return true;
+      const title = String(item?.title || '').toLowerCase();
+      return title.includes(normalized);
+    })
+    .slice(0, 25);
+  if (!filtered.length) {
+    results.innerHTML = `<div class="text-xs text-gray-500 px-2 py-1">No matches.</div>`;
+    return;
+  }
+  results.innerHTML = filtered.map(item => `
+    <button type="button" data-looper-id="${bridge.escapeHtml(item.id)}" class="w-full text-left bg-black/20 border border-gray-800 hover:border-primary/50 rounded-lg px-2 py-1.5 btn-press">
+      <div class="text-sm text-white truncate">${bridge.escapeHtml(item.title || 'Untitled')}</div>
+      <div class="text-[10px] text-gray-500">${item.updatedAt ? new Date(item.updatedAt).toLocaleString() : ''}</div>
+    </button>
+  `).join('');
+}
+
+async function loadLooperCandidates() {
+  if (!bridge) return;
   const items = await bridge.getLooperItems();
-  const uploads = items.filter(item => String(item?.sourceType || '') === 'upload');
-  select.innerHTML = '<option value="">Choose uploaded looper item...</option>' + uploads.map(item => `<option value="${bridge.escapeHtml(item.id)}">${bridge.escapeHtml(item.title || 'Untitled')}</option>`).join('');
+  looperUploads = items
+    .filter(item => String(item?.sourceType || '') === 'upload')
+    .sort((a, b) => Number(b?.updatedAt || b?.createdAt || 0) - Number(a?.updatedAt || a?.createdAt || 0));
+  renderLooperSearchResults('');
 }
 
 async function loadMediaFromLooper(itemId = '') {
@@ -242,13 +279,17 @@ function renderProfiles() {
   if (!profiles.length) { list.innerHTML = '<div class="text-xs text-gray-500">No profiles yet.</div>'; return; }
   list.innerHTML = profiles.map(profile => {
     const active = profile.id === currentProfileId;
+    const isBuiltin = String(profile.id || '').startsWith('builtin:');
     return `<div class="flex items-center justify-between gap-2 bg-black/20 border ${active ? 'border-primary/60' : 'border-gray-800'} rounded-xl px-3 py-2"><button class="text-left min-w-0 flex-1 btn-press" onclick="window.applySoundEffectProfile('${bridge.escapeHtml(profile.id)}')"><div class="text-sm text-white truncate">${bridge.escapeHtml(profile.name || 'Untitled')}</div><div class="text-[10px] text-gray-500">${profile.updatedAt ? new Date(profile.updatedAt).toLocaleString() : ''}</div></button><button class="w-8 h-8 rounded-full btn-soft btn-press" onclick="window.deleteSoundEffectProfile('${bridge.escapeHtml(profile.id)}')" title="Delete"><i class="fas fa-trash text-xs"></i></button></div>`;
+    return `<div class="flex items-center justify-between gap-2 bg-black/20 border ${active ? 'border-primary/60' : 'border-gray-800'} rounded-xl px-3 py-2"><button class="text-left min-w-0 flex-1 btn-press" onclick="window.applySoundEffectProfile('${bridge.escapeHtml(profile.id)}')"><div class="text-sm text-white truncate">${bridge.escapeHtml(profile.name || 'Untitled')}</div><div class="text-[10px] text-gray-500">${isBuiltin ? 'Built-in preset' : (profile.updatedAt ? new Date(profile.updatedAt).toLocaleString() : '')}</div></button>${isBuiltin ? '<span class="text-[10px] text-gray-500 px-2">preset</span>' : `<button class="w-8 h-8 rounded-full btn-soft btn-press" onclick="window.deleteSoundEffectProfile('${bridge.escapeHtml(profile.id)}')" title="Delete"><i class="fas fa-trash text-xs"></i></button>`}</div>`;
   }).join('');
 }
 
 async function refreshProfiles() {
-  if (!bridge?.repository || !bridge?.userId) { profiles = []; renderProfiles(); return; }
-  profiles = await bridge.repository.loadSoundEffectProfiles(bridge.userId);
+  const userProfiles = (bridge?.repository && bridge?.userId)
+    ? await bridge.repository.loadSoundEffectProfiles(bridge.userId)
+    : [];
+  profiles = [...BUILTIN_PROFILES, ...userProfiles];
   renderProfiles();
 }
 
@@ -269,6 +310,7 @@ window.applySoundEffectProfile = async function(profileId = '') {
 };
 
 window.deleteSoundEffectProfile = async function(profileId = '') {
+  if (String(profileId || '').startsWith('builtin:')) return;
   if (!bridge?.repository || !bridge?.userId || !profileId) return;
   await bridge.repository.deleteSoundEffectProfile(bridge.userId, profileId);
   if (currentProfileId === profileId) currentProfileId = '';
@@ -290,10 +332,24 @@ async function saveProfile() {
 }
 
 function bindActions() {
-  const looperSelect = el('tool-sfx-looper-select');
-  if (looperSelect && looperSelect.dataset.boundSfx !== '1') {
-    looperSelect.dataset.boundSfx = '1';
-    looperSelect.addEventListener('change', async () => { const id = String(looperSelect.value || ''); if (!id) return; await loadMediaFromLooper(id); });
+  const looperSearch = el('tool-sfx-looper-search');
+  if (looperSearch && looperSearch.dataset.boundSfx !== '1') {
+    looperSearch.dataset.boundSfx = '1';
+    looperSearch.addEventListener('input', () => {
+      renderLooperSearchResults(looperSearch.value || '');
+    });
+  }
+  const looperResults = el('tool-sfx-looper-results');
+  if (looperResults && looperResults.dataset.boundSfx !== '1') {
+    looperResults.dataset.boundSfx = '1';
+    looperResults.addEventListener('click', async (event) => {
+      const btn = event.target?.closest?.('button[data-looper-id]');
+      if (!btn) return;
+      const id = String(btn.getAttribute('data-looper-id') || '').trim();
+      if (!id) return;
+      if (looperSearch) looperSearch.value = String(btn.querySelector('.text-sm')?.textContent || '');
+      await loadMediaFromLooper(id);
+    });
   }
   const upload = el('tool-sfx-upload');
   if (upload && upload.dataset.boundSfx !== '1') {
@@ -322,7 +378,7 @@ export async function initSoundEffectsTool(context = {}) {
   bindControls();
   bindActions();
   updateUiFromState();
-  await fillLooperSelect();
+  await loadLooperCandidates();
   await refreshProfiles();
   setStatus('Choose an uploaded looper track or upload a file.');
 }
