@@ -1,6 +1,48 @@
 {
-  "latestVersion": "v2026.05.06.6",
+  "latestVersion": "v2026.05.07.1",
   "updates": [
+    {
+      "version": "v2026.05.07.1",
+      "releasedAt": "2026-05-07T07:47:28Z",
+      "summary": "Modular tools + new Sound Effects tool",
+      "description": "Start splitting tools into lazy-loaded modules and add a new Sound Effects tool with stackable processing and profile save/apply.",
+      "changes": [
+        "Add lazy tool-module loader for on-demand imports",
+        "Add Sound Effects tool with Compression/Reverb/Visual EQ/Delay and per-effect toggles",
+        "Support combined multi-effect processing in one chain",
+        "Add Sound Effect profiles saved per user in Firebase",
+        "Add manual Settings usage checker with collection counts and size estimates",
+        "Expand GuitarPro accepted file formats and keep cloud-synced viewer settings"
+      ]
+    },
+    {
+      "version": "v2026.05.06.8",
+      "releasedAt": "2026-05-06T18:02:05Z",
+      "summary": "Modular tools + new Sound Effects tool",
+      "description": "Start splitting tools into lazy-loaded modules and add a new Sound Effects tool with stackable processing and profile save/apply.",
+      "changes": [
+        "Add lazy tool-module loader for on-demand imports",
+        "Add Sound Effects tool with Compression/Reverb/Visual EQ/Delay and per-effect toggles",
+        "Support combined multi-effect processing in one chain",
+        "Add Sound Effect profiles saved per user in Firebase",
+        "Add manual Settings usage checker with collection counts and size estimates",
+        "Expand GuitarPro accepted file formats and keep cloud-synced viewer settings"
+      ]
+    },
+    {
+      "version": "v2026.05.06.7",
+      "releasedAt": "2026-05-06T18:01:53Z",
+      "summary": "Modular tools + new Sound Effects tool",
+      "description": "Start splitting tools into lazy-loaded modules and add a new Sound Effects tool with stackable processing and profile save/apply.",
+      "changes": [
+        "Add lazy tool-module loader for on-demand imports",
+        "Add Sound Effects tool with Compression/Reverb/Visual EQ/Delay and per-effect toggles",
+        "Support combined multi-effect processing in one chain",
+        "Add Sound Effect profiles saved per user in Firebase",
+        "Add manual Settings usage checker with collection counts and size estimates",
+        "Expand GuitarPro accepted file formats and keep cloud-synced viewer settings"
+      ]
+    },
     {
       "version": "v2026.05.06.6",
       "releasedAt": "2026-05-06T18:01:18Z",
