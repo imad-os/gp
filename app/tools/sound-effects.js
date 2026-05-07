@@ -103,6 +103,7 @@ async function ensureAudioGraph() {
     nodes.delayFeedback = audioCtx.createGain();
     nodes.delayWet = audioCtx.createGain();
     nodes.delayDry = audioCtx.createGain();
+    nodes.delayFeedback.gain.value = 0;
     nodes.delayNode.connect(nodes.delayFeedback);
     nodes.delayFeedback.connect(nodes.delayNode);
     nodes.delayNode.connect(nodes.delayWet);
@@ -133,6 +134,9 @@ function rebuildChain() {
   [sourceNode, nodes.inputGain, nodes.comp, nodes.reverbDry, nodes.reverbWet, nodes.reverbConvolver, nodes.eqLow, nodes.eqMid, nodes.eqHigh, nodes.delayNode, nodes.delayFeedback, nodes.delayWet, nodes.delayDry, nodes.outputGain].forEach(disconnectSafe);
   sourceNode.connect(nodes.inputGain);
   let cursor = nodes.inputGain;
+
+  // Safety: always kill any previous delay feedback before rebuilding.
+  try { nodes.delayFeedback.gain.value = 0; } catch {}
   if (state.compression.enabled) {
     nodes.comp.threshold.value = state.compression.threshold;
     nodes.comp.ratio.value = state.compression.ratio;
@@ -177,6 +181,8 @@ function rebuildChain() {
     nodes.delayDry.connect(nodes.outputGain);
     nodes.delayWet.connect(nodes.outputGain);
   } else {
+    // Keep delay loop muted when delay is disabled.
+    nodes.delayFeedback.gain.value = 0;
     cursor.connect(nodes.outputGain);
   }
   nodes.outputGain.connect(audioCtx.destination);
