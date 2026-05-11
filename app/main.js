@@ -174,7 +174,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const GUITARPRO_FILES_DB_NAME = 'guitartrainer.guitarpro.files.v1';
     const GUITARPRO_FILES_STORE_NAME = 'files';
     const GUITARPRO_FILES_LIMIT = 120;
-    const LOOPER_MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+    const LOOPER_MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
     const GUITAR_TONE_MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
     const GUITAR_TONE_STRING_KEYS = ['E2', 'A2', 'D3', 'G3', 'B3', 'E4'];
     const GUITAR_OPEN_STRING_MIDI = [40, 45, 50, 55, 59, 64];
@@ -187,7 +187,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.05.07.4',
+      version: 'v2026.05.11.1',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
