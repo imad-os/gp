@@ -447,6 +447,10 @@ export class FirestoreRepository {
     await deleteDoc(doc(this.db, 'users', userId, 'tool_recordings', recordingId));
   }
 
+  async updateToolRecording(userId, recordingId, patch) {
+    await setDoc(doc(this.db, 'users', userId, 'tool_recordings', recordingId), patch, { merge: true });
+  }
+
   async loadLooperHistory(userId) {
     const history = await this.readWithCache(this.makeCacheKey('looper_history', userId), async () => {
       const ref = collection(this.db, 'users', userId, 'looper_history');

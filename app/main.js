@@ -56,6 +56,9 @@ import { FirestoreRepository } from './modules/repository.js';
     let metronomeStartAtMs = 0;
     let metronomeBeatCounter = 0;
     let metronomeRafId = null;
+    let metronomeCustomFileDataUrl = '';
+    let metronomeCustomAudioElement = null;
+    let activeToolRecordingEditorId = '';
     let toolRecordings = [];
     let toolAudioPlayers = new Map();
     let activeToolAudioId = null;
@@ -187,7 +190,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.05.11.1',
+      version: 'v2026.05.12.1',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -3686,6 +3689,7 @@ Drop back to 70 BPM for clean finish.`,
     function renderToolRecordings() {
       const list = document.getElementById('tool-recordings-list');
       if (!list) return;
+      syncMetronomeRecordingOptions();
       if (!toolRecordings.length) {
         list.innerHTML = `<div class="bg-black/30 border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-500">No registered sounds yet.</div>`;
         return;
@@ -3704,6 +3708,9 @@ Drop back to 70 BPM for clean finish.`,
               </button>
               <button onclick="downloadToolRecording('${recording.id}')" class="w-8 h-8 rounded-full btn-soft btn-press">
                 <i class="fas fa-download text-xs"></i>
+              </button>
+              <button onclick="toggleToolRecordingEditor('${recording.id}')" class="w-8 h-8 rounded-full btn-soft btn-press" title="Edit">
+                <i class="fas fa-pen text-xs"></i>
               </button>
               <button onclick="deleteToolRecording('${recording.id}')" class="w-8 h-8 rounded-full btn-soft btn-press">
                 <i class="fas fa-trash text-xs"></i>
@@ -3727,8 +3734,48 @@ Drop back to 70 BPM for clean finish.`,
               </div>
             </div>
           </div>
+          <div id="record-editor-${recording.id}" class="${activeToolRecordingEditorId === recording.id ? '' : 'hidden'} mt-3 bg-black/25 border border-gray-800 rounded-xl p-3">
+            <p class="text-[10px] uppercase tracking-[0.22em] text-gray-500 mb-2">Edit Sound</p>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <label class="text-xs text-gray-400">Trim start (sec)
+                <input id="record-edit-start-${recording.id}" type="number" min="0" step="0.01" value="0" class="mt-1 w-full bg-black/30 border border-gray-800 rounded-lg px-3 py-2 text-white outline-none">
+              </label>
+              <label class="text-xs text-gray-400">Trim end (sec, blank = full)
+                <input id="record-edit-end-${recording.id}" type="number" min="0" step="0.01" value="" class="mt-1 w-full bg-black/30 border border-gray-800 rounded-lg px-3 py-2 text-white outline-none">
+              </label>
+              <label class="text-xs text-gray-400">Noise reduction
+                <select id="record-edit-noise-${recording.id}" class="mt-1 w-full bg-black/30 border border-gray-800 rounded-lg px-3 py-2 text-white outline-none">
+                  <option value="none" selected>Off</option>
+                  <option value="light">Light</option>
+                  <option value="medium">Medium</option>
+                  <option value="strong">Strong</option>
+                </select>
+              </label>
+            </div>
+            <div class="mt-3 flex justify-end">
+              <button onclick="saveToolRecordingEdit('${recording.id}')" class="bg-primary text-black font-bold py-2 px-4 rounded-full btn-press">
+                Save Edit
+              </button>
+            </div>
+          </div>
         </div>
       `).join('');
+    }
+
+    function syncMetronomeRecordingOptions() {
+      const select = document.getElementById('metro-custom-audio-recording');
+      if (!select) return;
+      const saved = (() => {
+        try { return JSON.parse(localStorage.getItem(METRONOME_STORAGE_KEY) || '{}')?.selectedRecordingId || ''; }
+        catch { return ''; }
+      })();
+      const current = select.value || saved;
+      const options = ['<option value="">None</option>'].concat(
+        toolRecordings.map(item => `<option value="${item.id}">${escapeHtml(item.name || 'Untitled sound')}</option>`)
+      );
+      select.innerHTML = options.join('');
+      if (toolRecordings.some(item => item.id === current)) select.value = current;
+      else select.value = '';
     }
 
     function getToolAudio(recordingId) {
@@ -3814,6 +3861,95 @@ Drop back to 70 BPM for clean finish.`,
       // Fallback if file-sharing is unsupported.
       window.downloadToolRecording(recordingId);
       showToast('Sharing is not supported here. Download started instead.', true);
+    };
+
+    window.toggleToolRecordingEditor = function(recordingId) {
+      activeToolRecordingEditorId = activeToolRecordingEditorId === recordingId ? '' : recordingId;
+      renderToolRecordings();
+    };
+
+    async function decodeAudioDataFromUrl(dataUrl) {
+      if (!audioCtx) audioCtx = new AudioContext();
+      const blob = dataUrlToBlob(dataUrl);
+      if (!blob) throw new Error('Invalid audio data');
+      const buffer = await blob.arrayBuffer();
+      return await audioCtx.decodeAudioData(buffer.slice(0));
+    }
+
+    function audioBufferToWavBlob(buffer) {
+      const channels = buffer.numberOfChannels;
+      const sampleRate = buffer.sampleRate;
+      const length = buffer.length;
+      const bytesPerSample = 2;
+      const blockAlign = channels * bytesPerSample;
+      const dataSize = length * blockAlign;
+      const wav = new ArrayBuffer(44 + dataSize);
+      const view = new DataView(wav);
+      const write = (offset, text) => { for (let i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i)); };
+      write(0, 'RIFF'); view.setUint32(4, 36 + dataSize, true); write(8, 'WAVE'); write(12, 'fmt ');
+      view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, channels, true);
+      view.setUint32(24, sampleRate, true); view.setUint32(28, sampleRate * blockAlign, true); view.setUint16(32, blockAlign, true);
+      view.setUint16(34, 16, true); write(36, 'data'); view.setUint32(40, dataSize, true);
+      let offset = 44;
+      for (let i = 0; i < length; i++) {
+        for (let ch = 0; ch < channels; ch++) {
+          const sample = Math.max(-1, Math.min(1, buffer.getChannelData(ch)[i] || 0));
+          view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+          offset += 2;
+        }
+      }
+      return new Blob([wav], { type: 'audio/wav' });
+    }
+
+    async function bufferToDataUrl(buffer) {
+      const wavBlob = audioBufferToWavBlob(buffer);
+      return await new Promise(resolve => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.readAsDataURL(wavBlob);
+      });
+    }
+
+    window.saveToolRecordingEdit = async function(recordingId) {
+      const recording = toolRecordings.find(item => item.id === recordingId);
+      if (!recording || !user || user.isAnonymous) return;
+      try {
+        const start = Number(document.getElementById(`record-edit-start-${recordingId}`)?.value || 0);
+        const endInput = document.getElementById(`record-edit-end-${recordingId}`)?.value;
+        const noiseLevel = String(document.getElementById(`record-edit-noise-${recordingId}`)?.value || 'none');
+        const audioBuffer = await decodeAudioDataFromUrl(recording.dataUrl);
+        const duration = audioBuffer.duration || 0;
+        const startSec = Math.max(0, Math.min(start, duration));
+        const endSec = endInput ? Math.max(startSec + 0.01, Math.min(Number(endInput), duration)) : duration;
+        const startFrame = Math.floor(startSec * audioBuffer.sampleRate);
+        const endFrame = Math.floor(endSec * audioBuffer.sampleRate);
+        const outLength = Math.max(1, endFrame - startFrame);
+        if (!audioCtx) audioCtx = new AudioContext();
+        const trimmed = audioCtx.createBuffer(audioBuffer.numberOfChannels, outLength, audioBuffer.sampleRate);
+        const noiseThreshold = noiseLevel === 'strong' ? 0.04 : noiseLevel === 'medium' ? 0.025 : noiseLevel === 'light' ? 0.012 : 0;
+        for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
+          const src = audioBuffer.getChannelData(ch);
+          const dst = trimmed.getChannelData(ch);
+          for (let i = 0; i < outLength; i++) {
+            let v = src[startFrame + i] || 0;
+            if (noiseThreshold > 0 && Math.abs(v) < noiseThreshold) v = 0;
+            dst[i] = v;
+          }
+        }
+        const editedDataUrl = await bufferToDataUrl(trimmed);
+        await repository.updateToolRecording(user.uid, recordingId, {
+          dataUrl: editedDataUrl,
+          mimeType: 'audio/wav',
+          durationMs: Math.round(trimmed.duration * 1000),
+          updatedAt: Date.now()
+        });
+        await loadToolRecordings();
+        renderToolRecordings();
+        showToast('Recording updated.', true);
+      } catch (e) {
+        console.error('Save recording edit failed', e);
+        showToast('Could not apply audio edit.');
+      }
     };
 
     function renderChordExplorer() {
@@ -5911,9 +6047,19 @@ Rules:
         return;
       }
       try {
+        const quality = String(document.getElementById('tool-recording-quality')?.value || 'high');
+        const format = String(document.getElementById('tool-recording-format')?.value || 'audio/webm;codecs=opus');
+        const audioBitsPerSecond = quality === 'low' ? 64000 : (quality === 'medium' ? 96000 : 128000);
+        const mediaTrackConstraints = {
+          noiseSuppression: true,
+          echoCancellation: true,
+          autoGainControl: quality !== 'high',
+          sampleRate: quality === 'low' ? 22050 : (quality === 'medium' ? 32000 : 48000)
+        };
         toolRecordingChunks = [];
-        toolRecordingStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        toolRecorder = new MediaRecorder(toolRecordingStream);
+        toolRecordingStream = await navigator.mediaDevices.getUserMedia({ audio: mediaTrackConstraints });
+        const mimeType = MediaRecorder.isTypeSupported(format) ? format : 'audio/webm;codecs=opus';
+        toolRecorder = new MediaRecorder(toolRecordingStream, { mimeType, audioBitsPerSecond });
         const startedAt = Date.now();
         toolRecorder.ondataavailable = (event) => {
           if (event.data && event.data.size > 0) toolRecordingChunks.push(event.data);
@@ -5940,7 +6086,9 @@ Rules:
             dataUrl,
             mimeType: blob.type || 'audio/webm',
             durationMs: Date.now() - startedAt,
-            createdAt: Date.now()
+            createdAt: Date.now(),
+            quality,
+            bitrate: audioBitsPerSecond
           });
           if (nameInput) nameInput.value = '';
           await loadToolRecordings();
@@ -9285,13 +9433,53 @@ Rules:
       const bpm = parseInt(document.getElementById('metro-bpm')?.value || '100', 10);
       const beats = parseInt(document.getElementById('metro-beats')?.value || '4', 10);
       const visualMode = String(document.getElementById('metro-visual-mode')?.value || 'dots');
+      const selectedRecordingId = String(document.getElementById('metro-custom-audio-recording')?.value || '');
+      const lengthMode = String(document.getElementById('metro-custom-length-mode')?.value || 'bar');
+      const keepTicks = !!document.getElementById('metro-keep-ticks')?.checked;
       document.getElementById('metro-bpm-label').innerText = bpm;
-      localStorage.setItem(METRONOME_STORAGE_KEY, JSON.stringify({ bpm, beats, visualMode }));
+      localStorage.setItem(METRONOME_STORAGE_KEY, JSON.stringify({ bpm, beats, visualMode, selectedRecordingId, lengthMode, keepTicks }));
       renderStandaloneMetronomeVisual();
       if (metronomeTimer) {
         stopStandaloneMetronome();
         startStandaloneMetronome();
       }
+    }
+
+    window.onMetronomeCustomFileSelected = async function(event) {
+      const file = event?.target?.files?.[0];
+      if (!file) return;
+      if (!file.type.startsWith('audio/')) {
+        showToast('Please upload an audio file.');
+        return;
+      }
+      metronomeCustomFileDataUrl = await new Promise(resolve => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(String(reader.result || ''));
+        reader.readAsDataURL(file);
+      });
+      const select = document.getElementById('metro-custom-audio-recording');
+      if (select) select.value = '';
+      updateMetronomeSettings();
+      showToast('Custom metronome sound loaded.', true);
+    };
+
+    function getSelectedMetronomeCustomAudioUrl() {
+      const selectedRecordingId = String(document.getElementById('metro-custom-audio-recording')?.value || '');
+      if (selectedRecordingId) {
+        const recording = toolRecordings.find(item => item.id === selectedRecordingId);
+        return recording?.dataUrl || '';
+      }
+      return metronomeCustomFileDataUrl || '';
+    }
+
+    function getSelectedMetronomeCustomDurationSec() {
+      const selectedRecordingId = String(document.getElementById('metro-custom-audio-recording')?.value || '');
+      if (selectedRecordingId) {
+        const recording = toolRecordings.find(item => item.id === selectedRecordingId);
+        if (recording?.durationMs) return Math.max(0.01, Number(recording.durationMs) / 1000);
+      }
+      const cached = Number(metronomeCustomAudioElement?.duration || 0);
+      return cached > 0 ? cached : 0;
     }
 
     function renderStandaloneMetronomeVisual(active = -1) {
@@ -9334,18 +9522,35 @@ Rules:
       ball.style.left = `${x}%`;
     }
 
-    function clickStandaloneMetronome(isAccent, when = null) {
+    function clickStandaloneMetronome(isAccent, when = null, beatDurationSec = 0.5, beatsPerBar = 4) {
       if (!audioCtx) audioCtx = new AudioContext();
       const now = when ?? audioCtx.currentTime;
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.frequency.value = isAccent ? 1200 : 760;
-      gain.gain.setValueAtTime(0.28, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      osc.start(now);
-      osc.stop(now + 0.05);
+      const customAudioUrl = getSelectedMetronomeCustomAudioUrl();
+      const keepTicks = !!document.getElementById('metro-keep-ticks')?.checked;
+      if (customAudioUrl) {
+        if (!metronomeCustomAudioElement || metronomeCustomAudioElement.src !== customAudioUrl) {
+          metronomeCustomAudioElement = new Audio(customAudioUrl);
+          metronomeCustomAudioElement.preload = 'auto';
+        }
+        const playback = metronomeCustomAudioElement.cloneNode();
+        const lengthMode = String(document.getElementById('metro-custom-length-mode')?.value || 'bar');
+        const targetSec = lengthMode === 'beat' ? beatDurationSec : (lengthMode === 'bar' ? (beatDurationSec * beatsPerBar) : null);
+        const naturalSec = getSelectedMetronomeCustomDurationSec() || Number(playback.duration || 0);
+        playback.playbackRate = (targetSec && naturalSec > 0) ? Math.max(0.25, Math.min(4, naturalSec / targetSec)) : 1;
+        playback.currentTime = 0;
+        playback.play().catch(() => {});
+      }
+      if (keepTicks || !customAudioUrl) {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.frequency.value = isAccent ? 1200 : 760;
+        gain.gain.setValueAtTime(0.28, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + 0.05);
+      }
     }
 
     function runMetronomeSwingAnimation() {
@@ -9365,7 +9570,7 @@ Rules:
         const when = (audioCtx?.currentTime || 0) + leadSec;
         metronomeBeatIndex = metronomeBeatCounter % beats;
         renderStandaloneMetronomeVisual(metronomeBeatIndex);
-        clickStandaloneMetronome(metronomeBeatIndex === 0, when);
+        clickStandaloneMetronome(metronomeBeatIndex === 0, when, metronomeBeatDurationMs / 1000, beats);
         metronomeLastBeatAtMs = targetMs;
         metronomeBeatCounter += 1;
         scheduleNextStandaloneMetronomeBeat(beats);
@@ -9711,6 +9916,18 @@ Rules:
         if (saved.visualMode && ['dots', 'swing'].includes(saved.visualMode)) {
           const modeEl = document.getElementById('metro-visual-mode');
           if (modeEl) modeEl.value = saved.visualMode;
+        }
+        if (saved.lengthMode && ['beat', 'bar', 'audio'].includes(saved.lengthMode)) {
+          const lengthEl = document.getElementById('metro-custom-length-mode');
+          if (lengthEl) lengthEl.value = saved.lengthMode;
+        }
+        if (typeof saved.keepTicks === 'boolean') {
+          const keepTicksEl = document.getElementById('metro-keep-ticks');
+          if (keepTicksEl) keepTicksEl.checked = saved.keepTicks;
+        }
+        if (saved.selectedRecordingId) {
+          const recEl = document.getElementById('metro-custom-audio-recording');
+          if (recEl) recEl.value = saved.selectedRecordingId;
         }
       } catch {}
     }
