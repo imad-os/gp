@@ -822,9 +822,11 @@
               <label class="block text-xs text-gray-400">Upload audio file</label>
               <input id="metro-custom-audio-file" type="file" accept="audio/*" onchange="onMetronomeCustomFileSelected(event)" class="w-full text-xs text-gray-300 file:mr-3 file:rounded-lg file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-black file:font-bold">
               <label class="block text-xs text-gray-400">Or use registered sound</label>
-              <select id="metro-custom-audio-recording" onchange="updateMetronomeSettings()" class="w-full bg-black/30 border border-gray-800 rounded-lg px-3 py-2 text-white outline-none">
-                <option value="">None</option>
-              </select>
+              <div class="relative">
+                <input id="metro-custom-audio-recording-search" type="search" autocomplete="off" placeholder="Type sound name..." oninput="onMetronomeRecordingSearchInput(this.value)" onfocus="openMetronomeRecordingDropdown()" class="w-full bg-black/30 border border-gray-800 rounded-lg px-3 py-2 text-white outline-none text-sm">
+                <input id="metro-custom-audio-recording" type="hidden" value="">
+                <div id="metro-custom-audio-recording-results" class="hidden absolute z-20 mt-1 w-full max-h-56 overflow-y-auto bg-[#141414] border border-gray-800 rounded-lg p-1 space-y-1 shadow-[0_10px_30px_rgba(0,0,0,0.45)]"></div>
+              </div>
               <label class="block text-xs text-gray-400">Length mode</label>
               <select id="metro-custom-length-mode" onchange="updateMetronomeSettings()" class="w-full bg-black/30 border border-gray-800 rounded-lg px-3 py-2 text-white outline-none">
                 <option value="beat">One metronome tick</option>

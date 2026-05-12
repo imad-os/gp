@@ -193,7 +193,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.05.12.4',
+      version: 'v2026.05.12.5',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -3766,20 +3766,75 @@ Drop back to 70 BPM for clean finish.`,
     }
 
     function syncMetronomeRecordingOptions() {
-      const select = document.getElementById('metro-custom-audio-recording');
-      if (!select) return;
+      const selectedInput = document.getElementById('metro-custom-audio-recording');
+      const searchInput = document.getElementById('metro-custom-audio-recording-search');
+      if (!selectedInput || !searchInput) return;
       const saved = (() => {
         try { return JSON.parse(localStorage.getItem(METRONOME_STORAGE_KEY) || '{}')?.selectedRecordingId || ''; }
         catch { return ''; }
       })();
-      const current = select.value || saved;
-      const options = ['<option value="">None</option>'].concat(
-        toolRecordings.map(item => `<option value="${item.id}">${escapeHtml(item.name || 'Untitled sound')}</option>`)
-      );
-      select.innerHTML = options.join('');
-      if (toolRecordings.some(item => item.id === current)) select.value = current;
-      else select.value = '';
+      const current = String(selectedInput.value || saved || '');
+      const matched = toolRecordings.find(item => item.id === current);
+      selectedInput.value = matched ? matched.id : '';
+      searchInput.value = matched ? String(matched.name || 'Untitled sound') : '';
+      renderMetronomeRecordingSearchResults(searchInput.value);
     }
+
+    function renderMetronomeRecordingSearchResults(query = '') {
+      const results = document.getElementById('metro-custom-audio-recording-results');
+      if (!results) return;
+      const normalized = String(query || '').trim().toLowerCase();
+      const filtered = toolRecordings.filter(item => {
+        if (!normalized) return true;
+        return String(item?.name || '').toLowerCase().includes(normalized);
+      }).slice(0, 20);
+      if (!filtered.length) {
+        results.innerHTML = `<button type="button" onclick="selectMetronomeRecording('')" class="w-full text-left rounded-lg px-2 py-2 text-xs text-gray-500 hover:bg-black/20">No matches. Use uploaded file or clear search.</button>`;
+        return;
+      }
+      results.innerHTML = filtered.map(item => `
+        <button type="button" onclick="selectMetronomeRecording('${item.id}')" class="w-full text-left bg-black/20 border border-gray-800 hover:border-primary/50 rounded-lg px-2 py-1.5 btn-press">
+          <div class="text-sm text-white truncate">${escapeHtml(item.name || 'Untitled sound')}</div>
+          <div class="text-[10px] text-gray-500">${Math.max(1, Math.round((Number(item.durationMs) || 0) / 1000))}s</div>
+        </button>
+      `).join('');
+    }
+
+    function closeMetronomeRecordingDropdown() {
+      const results = document.getElementById('metro-custom-audio-recording-results');
+      if (!results) return;
+      results.classList.add('hidden');
+    }
+
+    window.openMetronomeRecordingDropdown = function() {
+      const results = document.getElementById('metro-custom-audio-recording-results');
+      const searchInput = document.getElementById('metro-custom-audio-recording-search');
+      if (!results || !searchInput) return;
+      renderMetronomeRecordingSearchResults(searchInput.value || '');
+      results.classList.remove('hidden');
+    };
+
+    window.onMetronomeRecordingSearchInput = function(value = '') {
+      const selectedInput = document.getElementById('metro-custom-audio-recording');
+      if (selectedInput) selectedInput.value = '';
+      renderMetronomeRecordingSearchResults(value);
+      window.openMetronomeRecordingDropdown();
+      updateMetronomeSettings();
+    };
+
+    window.selectMetronomeRecording = function(recordingId = '') {
+      const selectedInput = document.getElementById('metro-custom-audio-recording');
+      const searchInput = document.getElementById('metro-custom-audio-recording-search');
+      if (!selectedInput || !searchInput) return;
+      const picked = toolRecordings.find(item => item.id === recordingId);
+      selectedInput.value = picked ? picked.id : '';
+      searchInput.value = picked ? String(picked.name || 'Untitled sound') : '';
+      closeMetronomeRecordingDropdown();
+      const fileInput = document.getElementById('metro-custom-audio-file');
+      if (picked && fileInput) fileInput.value = '';
+      if (picked) metronomeCustomFileDataUrl = '';
+      updateMetronomeSettings();
+    };
 
     function getToolAudio(recordingId) {
       const recording = toolRecordings.find(item => item.id === recordingId);
@@ -9461,8 +9516,11 @@ Rules:
         reader.onloadend = () => resolve(String(reader.result || ''));
         reader.readAsDataURL(file);
       });
-      const select = document.getElementById('metro-custom-audio-recording');
-      if (select) select.value = '';
+      const selectedInput = document.getElementById('metro-custom-audio-recording');
+      const searchInput = document.getElementById('metro-custom-audio-recording-search');
+      if (selectedInput) selectedInput.value = '';
+      if (searchInput) searchInput.value = '';
+      closeMetronomeRecordingDropdown();
       updateMetronomeSettings();
       updateMetronomeAudioCursorUI();
       showToast('Custom metronome sound loaded.', true);
@@ -10471,6 +10529,12 @@ Rules:
       updateTrainingPatternEditor();
       restoreMetronomeSettings();
       renderStandaloneMetronomeVisual();
+      document.addEventListener('click', (event) => {
+        const wrap = document.getElementById('metro-custom-sound');
+        const results = document.getElementById('metro-custom-audio-recording-results');
+        if (!wrap || !results) return;
+        if (!wrap.contains(event.target)) closeMetronomeRecordingDropdown();
+      });
       window.addEventListener('online', () => {
         refreshNetworkUiState();
         updateSettingsUpdateUi();

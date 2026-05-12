@@ -1,4 +1,4 @@
-const SW_VERSION = '2026.05.12.4';
+const SW_VERSION = '2026.05.12.5';
 const STATIC_CACHE = `guitartrainer-static-${SW_VERSION}`;
 const RUNTIME_CACHE = `guitartrainer-runtime-${SW_VERSION}`;
 const CORE_ASSETS = [
