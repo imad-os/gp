@@ -59,6 +59,8 @@ import { FirestoreRepository } from './modules/repository.js';
     let metronomeCustomFileDataUrl = '';
     let metronomeCustomAudioElement = null;
     let metronomeCustomActivePlayback = null;
+    let metronomeFreeLoopAudio = null;
+    let metronomeAudioCursorRafId = null;
     let activeToolRecordingEditorId = '';
     let toolRecordings = [];
     let toolAudioPlayers = new Map();
@@ -191,7 +193,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.05.12.3',
+      version: 'v2026.05.12.4',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -9440,6 +9442,7 @@ Rules:
       document.getElementById('metro-bpm-label').innerText = bpm;
       localStorage.setItem(METRONOME_STORAGE_KEY, JSON.stringify({ bpm, beats, visualMode, selectedRecordingId, lengthMode, keepTicks }));
       renderStandaloneMetronomeVisual();
+      updateMetronomeAudioCursorUI();
       if (metronomeTimer) {
         stopStandaloneMetronome();
         startStandaloneMetronome();
@@ -9461,6 +9464,7 @@ Rules:
       const select = document.getElementById('metro-custom-audio-recording');
       if (select) select.value = '';
       updateMetronomeSettings();
+      updateMetronomeAudioCursorUI();
       showToast('Custom metronome sound loaded.', true);
     };
 
@@ -9481,6 +9485,66 @@ Rules:
       }
       const cached = Number(metronomeCustomAudioElement?.duration || 0);
       return cached > 0 ? cached : 0;
+    }
+
+    function formatSecondsShort(totalSec) {
+      const safe = Math.max(0, Math.floor(Number(totalSec) || 0));
+      const m = Math.floor(safe / 60);
+      const s = safe % 60;
+      return `${m}:${String(s).padStart(2, '0')}`;
+    }
+
+    function updateMetronomeAudioCursorUI() {
+      const bar = document.getElementById('metro-custom-audio-progress');
+      const label = document.getElementById('metro-custom-audio-time');
+      if (!bar || !label) return;
+      const lengthMode = String(document.getElementById('metro-custom-length-mode')?.value || 'bar');
+      const audio = lengthMode === 'audio' ? metronomeFreeLoopAudio : metronomeCustomActivePlayback;
+      const duration = Number(audio?.duration || getSelectedMetronomeCustomDurationSec() || 0);
+      const current = Number(audio?.currentTime || 0);
+      const pct = duration > 0 ? Math.max(0, Math.min(100, (current / duration) * 100)) : 0;
+      bar.style.width = `${pct}%`;
+      label.innerText = `${formatSecondsShort(current)} / ${formatSecondsShort(duration)}`;
+    }
+
+    function stopMetronomeAudioCursorTracking() {
+      if (metronomeAudioCursorRafId) {
+        cancelAnimationFrame(metronomeAudioCursorRafId);
+        metronomeAudioCursorRafId = null;
+      }
+      updateMetronomeAudioCursorUI();
+    }
+
+    function startMetronomeAudioCursorTracking() {
+      stopMetronomeAudioCursorTracking();
+      const tick = () => {
+        updateMetronomeAudioCursorUI();
+        if (metronomeTimer) metronomeAudioCursorRafId = requestAnimationFrame(tick);
+      };
+      metronomeAudioCursorRafId = requestAnimationFrame(tick);
+    }
+
+    function stopMetronomeFreeAudioLoop() {
+      if (metronomeFreeLoopAudio) {
+        try {
+          metronomeFreeLoopAudio.pause();
+          metronomeFreeLoopAudio.currentTime = 0;
+        } catch {}
+        metronomeFreeLoopAudio = null;
+      }
+    }
+
+    function startMetronomeFreeAudioLoop() {
+      stopMetronomeFreeAudioLoop();
+      const customAudioUrl = getSelectedMetronomeCustomAudioUrl();
+      if (!customAudioUrl) return;
+      const playback = new Audio(customAudioUrl);
+      playback.preload = 'auto';
+      playback.loop = true;
+      playback.playbackRate = 1;
+      playback.currentTime = 0;
+      metronomeFreeLoopAudio = playback;
+      playback.play().catch(() => {});
     }
 
     function renderStandaloneMetronomeVisual(active = -1) {
@@ -9528,7 +9592,12 @@ Rules:
       const now = when ?? audioCtx.currentTime;
       const customAudioUrl = getSelectedMetronomeCustomAudioUrl();
       const keepTicks = !!document.getElementById('metro-keep-ticks')?.checked;
+      const lengthMode = String(document.getElementById('metro-custom-length-mode')?.value || 'bar');
       if (customAudioUrl) {
+        if (lengthMode === 'audio') {
+          // In audio-length mode, audio runs as its own loop, not tied to beat hits.
+          if (!metronomeFreeLoopAudio || metronomeFreeLoopAudio.paused) startMetronomeFreeAudioLoop();
+        } else {
         if (!metronomeCustomAudioElement || metronomeCustomAudioElement.src !== customAudioUrl) {
           metronomeCustomAudioElement = new Audio(customAudioUrl);
           metronomeCustomAudioElement.preload = 'auto';
@@ -9541,7 +9610,6 @@ Rules:
           metronomeCustomActivePlayback = null;
         }
         const playback = metronomeCustomAudioElement.cloneNode();
-        const lengthMode = String(document.getElementById('metro-custom-length-mode')?.value || 'bar');
         const targetSec = lengthMode === 'beat' ? beatDurationSec : (lengthMode === 'bar' ? (beatDurationSec * beatsPerBar) : null);
         const naturalSec = getSelectedMetronomeCustomDurationSec() || Number(playback.duration || 0);
         playback.playbackRate = (targetSec && naturalSec > 0) ? Math.max(0.25, Math.min(4, naturalSec / targetSec)) : 1;
@@ -9551,6 +9619,7 @@ Rules:
           if (metronomeCustomActivePlayback === playback) metronomeCustomActivePlayback = null;
         };
         playback.play().catch(() => {});
+        }
       }
       if (keepTicks || !customAudioUrl) {
         const osc = audioCtx.createOscillator();
@@ -9592,6 +9661,8 @@ Rules:
     function startStandaloneMetronome() {
       const bpm = parseInt(document.getElementById('metro-bpm').value, 10);
       const beats = parseInt(document.getElementById('metro-beats').value, 10);
+      const lengthMode = String(document.getElementById('metro-custom-length-mode')?.value || 'bar');
+      const customAudioUrl = getSelectedMetronomeCustomAudioUrl();
       if (!audioCtx) audioCtx = new AudioContext();
       metronomeBeatDurationMs = (60 / bpm) * 1000;
       metronomeStartAtMs = performance.now() + 80;
@@ -9603,6 +9674,8 @@ Rules:
       if (metronomeRafId) cancelAnimationFrame(metronomeRafId);
       metronomeRafId = requestAnimationFrame(runMetronomeSwingAnimation);
       if (metronomeVisualTimer) clearTimeout(metronomeVisualTimer);
+      if (customAudioUrl && lengthMode === 'audio') startMetronomeFreeAudioLoop();
+      startMetronomeAudioCursorTracking();
       scheduleNextStandaloneMetronomeBeat(beats);
       const btn = document.getElementById('btn-metro-toggle');
       btn.innerHTML = `<i class="fas fa-stop mr-2"></i> Stop Metronome`;
@@ -9612,6 +9685,8 @@ Rules:
 
     function stopStandaloneMetronome() {
       metronomeTimer = null;
+      stopMetronomeAudioCursorTracking();
+      stopMetronomeFreeAudioLoop();
       if (metronomeCustomActivePlayback) {
         try {
           metronomeCustomActivePlayback.pause();

@@ -835,6 +835,15 @@
               <input id="metro-keep-ticks" type="checkbox" checked onchange="updateMetronomeSettings()" class="accent-[#9c6a3d]">
               Keep metronome tick sound
               </label>
+              <div class="bg-black/30 border border-gray-800 rounded-lg px-3 py-2">
+                <div class="flex items-center justify-between text-[10px] uppercase tracking-[0.2em] text-gray-500 mb-1">
+                  <span>Audio Cursor</span>
+                  <span id="metro-custom-audio-time">0:00 / 0:00</span>
+                </div>
+                <div class="h-1.5 rounded-full bg-gray-800 overflow-hidden">
+                  <div id="metro-custom-audio-progress" class="h-full bg-primary transition-all duration-100" style="width:0%"></div>
+                </div>
+              </div>
             </div>
           </details>
           <div id="metro-visual" class="flex justify-center gap-3 mt-6"></div>
