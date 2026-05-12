@@ -58,6 +58,7 @@ import { FirestoreRepository } from './modules/repository.js';
     let metronomeRafId = null;
     let metronomeCustomFileDataUrl = '';
     let metronomeCustomAudioElement = null;
+    let metronomeCustomActivePlayback = null;
     let activeToolRecordingEditorId = '';
     let toolRecordings = [];
     let toolAudioPlayers = new Map();
@@ -190,7 +191,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.05.12.2',
+      version: 'v2026.05.12.3',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -9532,12 +9533,23 @@ Rules:
           metronomeCustomAudioElement = new Audio(customAudioUrl);
           metronomeCustomAudioElement.preload = 'auto';
         }
+        if (metronomeCustomActivePlayback) {
+          try {
+            metronomeCustomActivePlayback.pause();
+            metronomeCustomActivePlayback.currentTime = 0;
+          } catch {}
+          metronomeCustomActivePlayback = null;
+        }
         const playback = metronomeCustomAudioElement.cloneNode();
         const lengthMode = String(document.getElementById('metro-custom-length-mode')?.value || 'bar');
         const targetSec = lengthMode === 'beat' ? beatDurationSec : (lengthMode === 'bar' ? (beatDurationSec * beatsPerBar) : null);
         const naturalSec = getSelectedMetronomeCustomDurationSec() || Number(playback.duration || 0);
         playback.playbackRate = (targetSec && naturalSec > 0) ? Math.max(0.25, Math.min(4, naturalSec / targetSec)) : 1;
         playback.currentTime = 0;
+        metronomeCustomActivePlayback = playback;
+        playback.onended = () => {
+          if (metronomeCustomActivePlayback === playback) metronomeCustomActivePlayback = null;
+        };
         playback.play().catch(() => {});
       }
       if (keepTicks || !customAudioUrl) {
@@ -9600,6 +9612,13 @@ Rules:
 
     function stopStandaloneMetronome() {
       metronomeTimer = null;
+      if (metronomeCustomActivePlayback) {
+        try {
+          metronomeCustomActivePlayback.pause();
+          metronomeCustomActivePlayback.currentTime = 0;
+        } catch {}
+        metronomeCustomActivePlayback = null;
+      }
       if (metronomeVisualTimer) {
         clearTimeout(metronomeVisualTimer);
         metronomeVisualTimer = null;
