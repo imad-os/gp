@@ -204,7 +204,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.05.13.10',
+      version: 'v2026.05.13.11',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -3782,13 +3782,21 @@ Drop back to 70 BPM for clean finish.`,
           </div>
           <div id="record-editor-${recording.id}" class="${activeToolRecordingEditorId === recording.id ? '' : 'hidden'} mt-3 bg-black/25 border border-gray-800 rounded-xl p-3">
             <p class="text-[10px] uppercase tracking-[0.22em] text-gray-500 mb-2">Edit Sound</p>
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <label class="text-xs text-gray-400">Trim start (sec)
-                <input id="record-edit-start-${recording.id}" type="number" min="0" step="0.01" value="0" class="mt-1 w-full bg-black/30 border border-gray-800 rounded-lg px-3 py-2 text-white outline-none">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <label class="text-xs text-gray-400">Trim start
+                <div class="mt-1 flex items-center gap-2">
+                  <input id="record-edit-start-${recording.id}" type="range" min="0" max="${Math.max(0.01, Number(recording.durationMs || 0) / 1000)}" step="0.01" value="0" oninput="onToolRecordingTrimSliderInput('${recording.id}', 'start')" class="w-full accent-[#9c6a3d]">
+                  <span id="record-edit-start-value-${recording.id}" class="text-[11px] text-gray-300 w-14 text-right">0.00s</span>
+                </div>
               </label>
-              <label class="text-xs text-gray-400">Trim end (sec, blank = full)
-                <input id="record-edit-end-${recording.id}" type="number" min="0" step="0.01" value="" class="mt-1 w-full bg-black/30 border border-gray-800 rounded-lg px-3 py-2 text-white outline-none">
+              <label class="text-xs text-gray-400">Trim end
+                <div class="mt-1 flex items-center gap-2">
+                  <input id="record-edit-end-${recording.id}" type="range" min="0" max="${Math.max(0.01, Number(recording.durationMs || 0) / 1000)}" step="0.01" value="${Math.max(0.01, Number(recording.durationMs || 0) / 1000)}" oninput="onToolRecordingTrimSliderInput('${recording.id}', 'end')" class="w-full accent-[#9c6a3d]">
+                  <span id="record-edit-end-value-${recording.id}" class="text-[11px] text-gray-300 w-14 text-right">${(Math.max(0.01, Number(recording.durationMs || 0) / 1000)).toFixed(2)}s</span>
+                </div>
               </label>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-1 gap-2 mt-2">
               <label class="text-xs text-gray-400">Noise reduction
                 <select id="record-edit-noise-${recording.id}" class="mt-1 w-full bg-black/30 border border-gray-800 rounded-lg px-3 py-2 text-white outline-none">
                   <option value="none" selected>Off</option>
@@ -3807,6 +3815,25 @@ Drop back to 70 BPM for clean finish.`,
         </div>
       `).join('');
     }
+
+    window.onToolRecordingTrimSliderInput = function(recordingId, changed = 'start') {
+      const startEl = document.getElementById(`record-edit-start-${recordingId}`);
+      const endEl = document.getElementById(`record-edit-end-${recordingId}`);
+      const startValueEl = document.getElementById(`record-edit-start-value-${recordingId}`);
+      const endValueEl = document.getElementById(`record-edit-end-value-${recordingId}`);
+      if (!startEl || !endEl) return;
+      let start = Number(startEl.value || 0);
+      let end = Number(endEl.value || 0);
+      if (changed === 'start' && start > end) {
+        end = start;
+        endEl.value = String(end);
+      } else if (changed === 'end' && end < start) {
+        start = end;
+        startEl.value = String(start);
+      }
+      if (startValueEl) startValueEl.innerText = `${start.toFixed(2)}s`;
+      if (endValueEl) endValueEl.innerText = `${end.toFixed(2)}s`;
+    };
 
     function syncMetronomeRecordingOptions() {
       const selectedInput = document.getElementById('metro-custom-audio-recording');
@@ -4033,7 +4060,8 @@ Drop back to 70 BPM for clean finish.`,
         const audioBuffer = await decodeAudioDataFromUrl(recording.dataUrl);
         const duration = audioBuffer.duration || 0;
         const startSec = Math.max(0, Math.min(start, duration));
-        const endSec = endInput ? Math.max(startSec + 0.01, Math.min(Number(endInput), duration)) : duration;
+        const endCandidate = endInput ? Math.min(Number(endInput), duration) : duration;
+        const endSec = Math.min(duration, Math.max(startSec + 0.01, endCandidate));
         const startFrame = Math.floor(startSec * audioBuffer.sampleRate);
         const endFrame = Math.floor(endSec * audioBuffer.sampleRate);
         const outLength = Math.max(1, endFrame - startFrame);
