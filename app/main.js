@@ -72,6 +72,10 @@ import { FirestoreRepository } from './modules/repository.js';
     let toolSongsSearchResults = [];
     let lastToolSongsQuery = '';
     const TOOL_SONGS_PAGE_SIZE = 20;
+    const AUDIO_FILE_EXTENSIONS = ['.mp3', '.flac', '.wav', '.m4a', '.aac', '.ogg', '.opus', '.wma', '.aiff', '.alac', '.webm'];
+    const VIDEO_FILE_EXTENSIONS = ['.mp4', '.m4v', '.mov', '.webm', '.mkv', '.avi', '.wmv', '.3gp'];
+    const AUDIO_UPLOAD_ACCEPT = `${AUDIO_FILE_EXTENSIONS.join(',')},audio/*`;
+    const LOOPER_UPLOAD_ACCEPT = `${[...new Set([...AUDIO_FILE_EXTENSIONS, ...VIDEO_FILE_EXTENSIONS])].join(',')},audio/*,video/*`;
     let toolSongsBrowsePage = 1;
     let toolSongsBrowseCursors = [null];
     let toolSongsBrowseNextCursor = null;
@@ -197,7 +201,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.05.13.1',
+      version: 'v2026.05.13.2',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -2787,6 +2791,38 @@ Drop back to 70 BPM for clean finish.`,
       });
     }
 
+    function getFileExtension(name = '') {
+      const dot = String(name || '').toLowerCase().lastIndexOf('.');
+      return dot >= 0 ? String(name).toLowerCase().slice(dot) : '';
+    }
+
+    function detectUploadMediaType(file, { allowVideo = false } = {}) {
+      const mime = String(file?.type || '').toLowerCase();
+      const ext = getFileExtension(file?.name || '');
+      if (allowVideo && (mime.startsWith('video/') || VIDEO_FILE_EXTENSIONS.includes(ext))) return 'video';
+      if (mime.startsWith('audio/') || AUDIO_FILE_EXTENSIONS.includes(ext)) return 'audio';
+      return '';
+    }
+
+    function applySharedUploadAcceptAttributes() {
+      const audioIds = [
+        'metro-custom-audio-file',
+        'tool-sfx-upload',
+        'tool-guitar-tone-file-e2',
+        'tool-guitar-tone-file-a2',
+        'tool-guitar-tone-file-d3',
+        'tool-guitar-tone-file-g3',
+        'tool-guitar-tone-file-b3',
+        'tool-guitar-tone-file-e4'
+      ];
+      audioIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.setAttribute('accept', AUDIO_UPLOAD_ACCEPT);
+      });
+      const looperInput = document.getElementById('tool-looper-file');
+      if (looperInput) looperInput.setAttribute('accept', LOOPER_UPLOAD_ACCEPT);
+    }
+
     async function getLooperMediaDataUrlByItemId(itemId = '') {
       const item = looperHistory.find(entry => entry.id === itemId);
       if (!item || !repository || item.sourceType !== 'upload') return '';
@@ -4262,6 +4298,11 @@ Drop back to 70 BPM for clean finish.`,
         renderGuitarToneEditorStatus();
         return;
       }
+      if (detectUploadMediaType(file) !== 'audio') {
+        showToast(`${key} must be an audio file.`);
+        event.target.value = '';
+        return;
+      }
       if (file.size > GUITAR_TONE_MAX_UPLOAD_BYTES) {
         showToast(`${key} sample too large. Max ${formatBytes(GUITAR_TONE_MAX_UPLOAD_BYTES)}.`);
         event.target.value = '';
@@ -4569,6 +4610,12 @@ Drop back to 70 BPM for clean finish.`,
     window.handleLooperFileSelected = async function(event) {
       const file = event?.target?.files?.[0];
       if (!file) return;
+      const mediaType = detectUploadMediaType(file, { allowVideo: true });
+      if (!mediaType) {
+        showToast('Unsupported file type. Use common audio/video formats.');
+        event.target.value = '';
+        return;
+      }
       if (file.size > LOOPER_MAX_UPLOAD_BYTES) {
         showToast(`File too large. Max ${formatBytes(LOOPER_MAX_UPLOAD_BYTES)}.`);
         event.target.value = '';
@@ -4577,7 +4624,7 @@ Drop back to 70 BPM for clean finish.`,
       destroyLooperYoutubePlayer();
       resetLooperObjectUrl();
       looperObjectUrl = URL.createObjectURL(file);
-      const isVideo = String(file.type || '').startsWith('video/');
+      const isVideo = mediaType === 'video';
       activeLooperHistoryId = '';
       looperPendingUploadFile = file;
       looperPendingDataUrl = '';
@@ -9523,7 +9570,7 @@ Rules:
     window.onMetronomeCustomFileSelected = async function(event) {
       const file = event?.target?.files?.[0];
       if (!file) return;
-      if (!file.type.startsWith('audio/')) {
+      if (detectUploadMediaType(file) !== 'audio') {
         showToast('Please upload an audio file.');
         return;
       }
@@ -10536,6 +10583,7 @@ Rules:
       registerServiceWorker();
       restoreRedirectedRouteFromQuery();
       populateCapoOptions();
+      applySharedUploadAcceptAttributes();
       renderBottomTabs();
       setupChordPopoverHandlers();
       applyUserSettings(DEFAULT_SETTINGS);

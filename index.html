@@ -820,7 +820,7 @@
             <summary class="cursor-pointer text-[11px] uppercase tracking-[0.22em] text-gray-400">Custom Sound</summary>
             <div class="mt-3 space-y-3">
               <label class="block text-xs text-gray-400">Upload audio file</label>
-              <input id="metro-custom-audio-file" type="file" accept="audio/*" onchange="onMetronomeCustomFileSelected(event)" class="w-full text-xs text-gray-300 file:mr-3 file:rounded-lg file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-black file:font-bold">
+              <input id="metro-custom-audio-file" type="file" accept=".mp3,.flac,.wav,.m4a,.aac,.ogg,.opus,.wma,.aiff,.alac,.webm,audio/*" onchange="onMetronomeCustomFileSelected(event)" class="w-full text-xs text-gray-300 file:mr-3 file:rounded-lg file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-black file:font-bold">
               <label class="block text-xs text-gray-400">Or use registered sound</label>
               <div class="relative">
                 <input id="metro-custom-audio-recording-search" type="search" autocomplete="off" placeholder="Type sound name..." oninput="onMetronomeRecordingSearchInput(this.value)" onfocus="openMetronomeRecordingDropdown()" onclick="openMetronomeRecordingDropdown()" onkeydown="onMetronomeRecordingSearchKeyDown(event)" class="w-full bg-black/30 border border-gray-800 rounded-lg px-3 py-2 text-white outline-none text-sm">
