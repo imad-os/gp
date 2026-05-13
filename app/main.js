@@ -3,6 +3,8 @@ import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, 
 import { getFirestore } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import * as UI from './modules/renderers.js';
 import { FirestoreRepository } from './modules/repository.js';
+import { AUDIO_UPLOAD_ACCEPT, LOOPER_UPLOAD_ACCEPT, dataUrlToBlob, detectUploadMediaType, readFileAsDataUrl } from './modules/media-utils.js';
+import { TOOL_PAGES, TOOL_PAGE_SET, TOOL_SUBTITLES, importToolModule } from './tools/tool-registry.js';
 
     const appId = typeof __app_id !== 'undefined' ? __app_id : "1:282086325190:web:b3ec1bca510460e87a50c7";
     const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
@@ -75,10 +77,6 @@ import { FirestoreRepository } from './modules/repository.js';
     let toolSongsSearchResults = [];
     let lastToolSongsQuery = '';
     const TOOL_SONGS_PAGE_SIZE = 20;
-    const AUDIO_FILE_EXTENSIONS = ['.mp3', '.flac', '.wav', '.m4a', '.aac', '.ogg', '.opus', '.wma', '.aiff', '.alac', '.webm'];
-    const VIDEO_FILE_EXTENSIONS = ['.mp4', '.m4v', '.mov', '.webm', '.mkv', '.avi', '.wmv', '.3gp'];
-    const AUDIO_UPLOAD_ACCEPT = `${AUDIO_FILE_EXTENSIONS.join(',')},audio/*`;
-    const LOOPER_UPLOAD_ACCEPT = `${[...new Set([...AUDIO_FILE_EXTENSIONS, ...VIDEO_FILE_EXTENSIONS])].join(',')},audio/*,video/*`;
     let toolSongsBrowsePage = 1;
     let toolSongsBrowseCursors = [null];
     let toolSongsBrowseNextCursor = null;
@@ -204,7 +202,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.05.13.11',
+      version: 'v2026.05.13.12',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -1015,25 +1013,6 @@ Drop back to 70 BPM for clean finish.`,
         return !!ok;
       } catch {
         return false;
-      }
-    }
-
-    function dataUrlToBlob(dataUrl = '') {
-      const raw = String(dataUrl || '');
-      const parts = raw.split(',');
-      if (parts.length < 2) return null;
-      const meta = parts[0] || '';
-      const payload = parts.slice(1).join(',');
-      const mimeMatch = meta.match(/^data:([^;]+);base64$/i);
-      if (!mimeMatch) return null;
-      const mime = mimeMatch[1] || 'application/octet-stream';
-      try {
-        const binary = atob(payload);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-        return new Blob([bytes], { type: mime });
-      } catch {
-        return null;
       }
     }
 
@@ -2781,32 +2760,6 @@ Drop back to 70 BPM for clean finish.`,
       }
     }
 
-    function readFileAsDataUrl(file) {
-      return new Promise((resolve, reject) => {
-        if (!file) {
-          reject(new Error('Missing file'));
-          return;
-        }
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result || ''));
-        reader.onerror = () => reject(reader.error || new Error('Read failed'));
-        reader.readAsDataURL(file);
-      });
-    }
-
-    function getFileExtension(name = '') {
-      const dot = String(name || '').toLowerCase().lastIndexOf('.');
-      return dot >= 0 ? String(name).toLowerCase().slice(dot) : '';
-    }
-
-    function detectUploadMediaType(file, { allowVideo = false } = {}) {
-      const mime = String(file?.type || '').toLowerCase();
-      const ext = getFileExtension(file?.name || '');
-      if (allowVideo && (mime.startsWith('video/') || VIDEO_FILE_EXTENSIONS.includes(ext))) return 'video';
-      if (mime.startsWith('audio/') || AUDIO_FILE_EXTENSIONS.includes(ext)) return 'audio';
-      return '';
-    }
-
     function applySharedUploadAcceptAttributes() {
       const audioIds = [
         'metro-custom-audio-file',
@@ -2847,10 +2800,7 @@ Drop back to 70 BPM for clean finish.`,
       const key = String(tool || '').trim();
       if (!key) return null;
       if (lazyToolModuleCache.has(key)) return lazyToolModuleCache.get(key);
-      let mod = null;
-      if (key === 'sound-effects') {
-        mod = await import('./tools/sound-effects.js');
-      }
+      const mod = await importToolModule(key);
       lazyToolModuleCache.set(key, mod);
       return mod;
     }
@@ -4010,7 +3960,15 @@ Drop back to 70 BPM for clean finish.`,
 
     async function decodeAudioDataFromUrl(dataUrl) {
       if (!audioCtx) audioCtx = new AudioContext();
-      const blob = dataUrlToBlob(dataUrl);
+      let blob = dataUrlToBlob(dataUrl);
+      if (!blob) {
+        const src = String(dataUrl || '').trim();
+        if (!src) throw new Error('Invalid audio data');
+        // Support non-data URLs (blob/http/https) used by some saved recordings.
+        const res = await fetch(src);
+        if (!res.ok) throw new Error(`Could not load audio source (${res.status})`);
+        blob = await res.blob();
+      }
       if (!blob) throw new Error('Invalid audio data');
       const buffer = await blob.arrayBuffer();
       return await audioCtx.decodeAudioData(buffer.slice(0));
@@ -5309,7 +5267,7 @@ Drop back to 70 BPM for clean finish.`,
         stopLooperPlayback();
       }
       activeToolPage = tool;
-      const pages = ['metronome', 'recorder', 'chords', 'chord-builder', 'guitar-tones', 'songs', 'looper', 'tabs-preview', 'guitarpro-viewer', 'chord-translation', 'ai-song', 'sound-effects'];
+      const pages = TOOL_PAGES;
       if (tool !== 'tabs-preview') stopTabsPreviewPlayback();
       document.getElementById('tools-home-panel')?.classList.add('hidden');
       pages.forEach(page => {
@@ -5320,29 +5278,7 @@ Drop back to 70 BPM for clean finish.`,
       });
       document.getElementById('tools-back-btn')?.classList.remove('hidden');
       const subtitle = document.getElementById('tools-header-subtitle');
-      if (subtitle) subtitle.innerText = tool === 'metronome'
-        ? 'Keep steady time.'
-        : tool === 'recorder'
-          ? 'Save and replay short clips.'
-          : tool === 'chord-builder'
-            ? 'Add new chords to the database.'
-            : tool === 'guitar-tones'
-              ? 'Upload open-string samples and build dynamic guitar tones.'
-            : tool === 'songs'
-              ? 'Find a song quickly.'
-              : tool === 'looper'
-              ? 'Loop full track or A-B sections.'
-              : tool === 'tabs-preview'
-                ? 'Paste tabs and preview real notes.'
-              : tool === 'guitarpro-viewer'
-                ? 'Upload GP3 or GP4 and render notation.'
-              : tool === 'sound-effects'
-                ? 'Shape audio with layered effects.'
-              : tool === 'chord-translation'
-                ? 'Translate European Do/Re/Mi chords into USA notation.'
-              : tool === 'ai-song'
-                ? 'Generate a full song draft with Gemini.'
-                : 'Browse and hear the chord library.';
+      if (subtitle) subtitle.innerText = TOOL_SUBTITLES[tool] || TOOL_SUBTITLES.chords;
       if (tool === 'chord-builder') updateChordBuilderPreview();
       if (tool === 'chords') renderChordExplorer();
       if (tool === 'guitar-tones') {
@@ -5398,7 +5334,7 @@ Drop back to 70 BPM for clean finish.`,
       activeToolPage = 'home';
       document.getElementById('tools-home-panel')?.classList.remove('hidden');
       stopTabsPreviewPlayback();
-      ['metronome', 'recorder', 'chords', 'chord-builder', 'guitar-tones', 'songs', 'looper', 'tabs-preview', 'guitarpro-viewer', 'chord-translation', 'ai-song', 'sound-effects'].forEach(page => {
+      TOOL_PAGES.forEach(page => {
         const el = document.getElementById(`tool-page-${page}`);
         if (el) el.classList.add('hidden');
       });
@@ -7700,8 +7636,7 @@ Rules:
         if (parts[0] === 'tools') {
           navigate('tools', { skipUrl: true });
           const tool = decodeURIComponent(parts[1] || '');
-          const allowed = new Set(['metronome', 'recorder', 'chords', 'chord-builder', 'guitar-tones', 'songs', 'looper', 'tabs-preview', 'guitarpro-viewer', 'chord-translation', 'ai-song', 'sound-effects']);
-          if (tool && allowed.has(tool)) openToolPage(tool, { skipUrl: true });
+          if (tool && TOOL_PAGE_SET.has(tool)) openToolPage(tool, { skipUrl: true });
           else showToolsHome({ skipUrl: true });
           return;
         }
