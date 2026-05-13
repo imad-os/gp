@@ -123,6 +123,21 @@ export class FirestoreRepository {
     });
   }
 
+  async idbDelete(cacheKey) {
+    const db = await this.getIdb();
+    if (!db) return;
+    await new Promise(resolve => {
+      try {
+        const tx = db.transaction(this.idbStore, 'readwrite');
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+        tx.objectStore(this.idbStore).delete(cacheKey);
+      } catch {
+        resolve();
+      }
+    });
+  }
+
   async readWithIdbCache(cacheKey, fetcher, { timeoutMs = this.readTimeoutMs } = {}) {
     try {
       const value = await this.withTimeout(Promise.resolve().then(fetcher), timeoutMs);
@@ -444,11 +459,54 @@ export class FirestoreRepository {
   }
 
   async deleteToolRecording(userId, recordingId) {
+    await this.deleteToolRecordingData(userId, recordingId);
     await deleteDoc(doc(this.db, 'users', userId, 'tool_recordings', recordingId));
   }
 
   async updateToolRecording(userId, recordingId, patch) {
     await setDoc(doc(this.db, 'users', userId, 'tool_recordings', recordingId), patch, { merge: true });
+  }
+
+  async saveToolRecordingData(userId, recordingId, dataUrl) {
+    const chunksRef = collection(this.db, 'users', userId, 'tool_recordings', recordingId, 'audio_chunks');
+    const existing = await getDocs(chunksRef);
+    for (const entry of existing.docs) {
+      await deleteDoc(entry.ref);
+    }
+    const CHUNK_SIZE = 350000;
+    const source = String(dataUrl || '');
+    const chunkCount = Math.max(1, Math.ceil(source.length / CHUNK_SIZE));
+    for (let i = 0; i < chunkCount; i += 1) {
+      const start = i * CHUNK_SIZE;
+      const part = source.slice(start, start + CHUNK_SIZE);
+      const chunkId = String(i).padStart(5, '0');
+      await setDoc(doc(chunksRef, chunkId), { index: i, data: part });
+    }
+    await this.idbSet(this.makeCacheKey('tool_recording_audio', `${userId}:${recordingId}`), source);
+    return chunkCount;
+  }
+
+  async loadToolRecordingData(userId, recordingId) {
+    const cacheKey = this.makeCacheKey('tool_recording_audio', `${userId}:${recordingId}`);
+    return await this.readWithIdbCache(cacheKey, async () => {
+      const chunksRef = collection(this.db, 'users', userId, 'tool_recordings', recordingId, 'audio_chunks');
+      const snap = await getDocs(chunksRef);
+      if (snap.empty) return '';
+      return snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (a.index ?? Number(a.id)) - (b.index ?? Number(b.id)))
+        .map(item => String(item.data || ''))
+        .join('');
+    }, { timeoutMs: 10000 });
+  }
+
+  async deleteToolRecordingData(userId, recordingId) {
+    const chunksRef = collection(this.db, 'users', userId, 'tool_recordings', recordingId, 'audio_chunks');
+    const snap = await getDocs(chunksRef);
+    for (const entry of snap.docs) {
+      await deleteDoc(entry.ref);
+    }
+    await this.idbDelete(this.makeCacheKey('tool_recording_audio', `${userId}:${recordingId}`));
   }
 
   async loadLooperHistory(userId) {

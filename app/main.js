@@ -78,6 +78,7 @@ import { TOOL_PAGES, TOOL_PAGE_SET, TOOL_SUBTITLES, importToolModule } from './t
     let toolSongsSearchResults = [];
     let lastToolSongsQuery = '';
     const TOOL_SONGS_PAGE_SIZE = 20;
+    const TOOL_RECORDING_MAX_DURATION_MS = 10 * 60 * 1000;
     let toolSongsBrowsePage = 1;
     let toolSongsBrowseCursors = [null];
     let toolSongsBrowseNextCursor = null;
@@ -205,7 +206,7 @@ import { TOOL_PAGES, TOOL_PAGE_SET, TOOL_SUBTITLES, importToolModule } from './t
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.05.13.15',
+      version: 'v2026.05.13.16',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -3878,7 +3879,7 @@ Drop back to 70 BPM for clean finish.`,
       }
     };
 
-    window.selectMetronomeRecording = function(recordingId = '') {
+    window.selectMetronomeRecording = async function(recordingId = '') {
       const selectedInput = document.getElementById('metro-custom-audio-recording');
       const searchInput = document.getElementById('metro-custom-audio-recording-search');
       if (!selectedInput || !searchInput) return;
@@ -3889,14 +3890,32 @@ Drop back to 70 BPM for clean finish.`,
       const fileInput = document.getElementById('metro-custom-audio-file');
       if (picked && fileInput) fileInput.value = '';
       if (picked) metronomeCustomFileDataUrl = '';
+      if (picked && !picked.dataUrl) await ensureToolRecordingDataUrl(picked.id);
       updateMetronomeSettings();
     };
 
-    function getToolAudio(recordingId) {
+    async function ensureToolRecordingDataUrl(recordingId) {
+      const recording = toolRecordings.find(item => item.id === recordingId);
+      if (!recording) return '';
+      if (recording.dataUrl) return recording.dataUrl;
+      if (!repository || !user || user.isAnonymous) return '';
+      try {
+        const dataUrl = await repository.loadToolRecordingData(user.uid, recordingId);
+        if (dataUrl) recording.dataUrl = dataUrl;
+        return dataUrl || '';
+      } catch (err) {
+        console.error('Could not load recording audio data', err);
+        return '';
+      }
+    }
+
+    async function getToolAudio(recordingId) {
       const recording = toolRecordings.find(item => item.id === recordingId);
       if (!recording) return null;
+      const dataUrl = await ensureToolRecordingDataUrl(recordingId);
+      if (!dataUrl) return null;
       if (!toolAudioPlayers.has(recordingId)) {
-        const audio = new Audio(recording.dataUrl);
+        const audio = new Audio(dataUrl);
         audio.addEventListener('timeupdate', () => updateToolRecordingPlaybackUI(recordingId));
         audio.addEventListener('loadedmetadata', () => updateToolRecordingPlaybackUI(recordingId));
         audio.addEventListener('durationchange', () => updateToolRecordingPlaybackUI(recordingId));
@@ -3949,9 +3968,12 @@ Drop back to 70 BPM for clean finish.`,
       toolAudioProgressRafId = requestAnimationFrame(tick);
     }
 
-    window.toggleToolRecordingPlayback = function(recordingId) {
-      const audio = getToolAudio(recordingId);
-      if (!audio) return;
+    window.toggleToolRecordingPlayback = async function(recordingId) {
+      const audio = await getToolAudio(recordingId);
+      if (!audio) {
+        showToast('Could not load recording audio.');
+        return;
+      }
       if (activeToolAudioId && activeToolAudioId !== recordingId) {
         const current = toolAudioPlayers.get(activeToolAudioId);
         if (current) {
@@ -3972,20 +3994,24 @@ Drop back to 70 BPM for clean finish.`,
       updateToolRecordingPlaybackUI(recordingId, false);
     };
 
-    window.downloadToolRecording = function(recordingId) {
+    window.downloadToolRecording = async function(recordingId) {
       const recording = toolRecordings.find(item => item.id === recordingId);
       if (!recording) return;
+      const dataUrl = await ensureToolRecordingDataUrl(recordingId);
+      if (!dataUrl) return showToast('Could not load recording audio.');
       const link = document.createElement('a');
-      link.href = recording.dataUrl;
+      link.href = dataUrl;
       link.download = `${(recording.name || 'recording').replace(/[^a-z0-9_-]+/gi, '_')}.webm`;
       link.click();
     };
 
     window.shareToolRecording = async function(recordingId) {
       const recording = toolRecordings.find(item => item.id === recordingId);
-      if (!recording?.dataUrl) return;
+      if (!recording) return;
+      const dataUrl = await ensureToolRecordingDataUrl(recordingId);
+      if (!dataUrl) return showToast('Could not load recording audio.');
       const safeName = (recording.name || 'recording').replace(/[^a-z0-9_-]+/gi, '_');
-      const blob = dataUrlToBlob(recording.dataUrl);
+      const blob = dataUrlToBlob(dataUrl);
       if (!blob) {
         showToast('Could not prepare recording for sharing.');
         return;
@@ -4069,10 +4095,12 @@ Drop back to 70 BPM for clean finish.`,
       const recording = toolRecordings.find(item => item.id === recordingId);
       if (!recording || !user || user.isAnonymous) return;
       try {
+        const dataUrl = await ensureToolRecordingDataUrl(recordingId);
+        if (!dataUrl) throw new Error('Missing recording audio data');
         const start = Number(document.getElementById(`record-edit-start-${recordingId}`)?.value || 0);
         const endInput = document.getElementById(`record-edit-end-${recordingId}`)?.value;
         const noiseLevel = String(document.getElementById(`record-edit-noise-${recordingId}`)?.value || 'none');
-        const audioBuffer = await decodeAudioDataFromUrl(recording.dataUrl);
+        const audioBuffer = await decodeAudioDataFromUrl(dataUrl);
         const duration = audioBuffer.duration || 0;
         const startSec = Math.max(0, Math.min(start, duration));
         const endCandidate = endInput ? Math.min(Number(endInput), duration) : duration;
@@ -4093,8 +4121,12 @@ Drop back to 70 BPM for clean finish.`,
           }
         }
         const editedDataUrl = await bufferToDataUrl(trimmed);
+        const inlineDataUrl = String(editedDataUrl || '').length <= 700000 ? editedDataUrl : '';
+        const chunkCount = await repository.saveToolRecordingData(user.uid, recordingId, editedDataUrl);
         await repository.updateToolRecording(user.uid, recordingId, {
-          dataUrl: editedDataUrl,
+          dataUrl: inlineDataUrl,
+          audioStored: true,
+          audioChunkCount: chunkCount,
           mimeType: 'audio/wav',
           durationMs: Math.round(trimmed.duration * 1000),
           updatedAt: Date.now()
@@ -6096,10 +6128,12 @@ Rules:
         viz.style.overflow = 'hidden';
         viz.innerHTML = `
           <div class="absolute left-0 right-0 top-1/2 h-px bg-white/10"></div>
-          ${Array.from({ length: 72 }, () => `
-          <span data-record-wave-bar="1" class="block flex-1 rounded-full" style="height:2px;min-width:2px;background:rgba(207,102,121,0.34);opacity:0.36"></span>
+          ${Array.from({ length: 84 }, () => `
+          <span data-record-wave-bar="1" class="block rounded-full" style="flex:0 0 3px;width:3px;height:2px;background:rgba(207,102,121,0.34);opacity:0.36"></span>
         `).join('')}
         `;
+        viz.style.justifyContent = 'flex-end';
+        viz.style.gap = '2px';
       }
       return Array.from(viz.querySelectorAll('[data-record-wave-bar]'));
     }
@@ -6264,10 +6298,6 @@ Rules:
           toolRecorder = null;
           stopToolRecordingStream();
           if (!blob.size) return;
-          if (blob.size > 900000) {
-            showToast("Recording is too large. Keep it short.");
-            return;
-          }
           const dataUrl = await new Promise(resolve => {
             const reader = new FileReader();
             reader.onloadend = () => resolve(reader.result);
@@ -6275,14 +6305,23 @@ Rules:
           });
           const nameInput = document.getElementById('tool-recording-name');
           const name = (nameInput?.value || '').trim() || `Sound ${new Date().toLocaleTimeString()}`;
-          await repository.saveToolRecording(user.uid, {
+          const inlineDataUrl = String(dataUrl || '').length <= 700000 ? dataUrl : '';
+          const recordingId = await repository.saveToolRecording(user.uid, {
             name,
-            dataUrl,
+            dataUrl: inlineDataUrl,
             mimeType: blob.type || 'audio/webm',
             durationMs: Date.now() - startedAt,
             createdAt: Date.now(),
             quality,
-            bitrate: audioBitsPerSecond
+            bitrate: audioBitsPerSecond,
+            audioStored: false,
+            audioChunkCount: 0
+          });
+          const chunkCount = await repository.saveToolRecordingData(user.uid, recordingId, dataUrl);
+          await repository.updateToolRecording(user.uid, recordingId, {
+            audioStored: true,
+            audioChunkCount: chunkCount,
+            updatedAt: Date.now()
           });
           if (nameInput) nameInput.value = '';
           await loadToolRecordings();
@@ -6294,7 +6333,7 @@ Rules:
         startToolRecordingVisualizer(toolRecordingStream);
         toolRecordingTimeout = setTimeout(() => {
           if (toolRecorder && toolRecorder.state === 'recording') toolRecorder.stop();
-        }, 12000);
+        }, TOOL_RECORDING_MAX_DURATION_MS);
       } catch (e) {
         console.error("Tool recording failed", e);
         stopToolRecordingStream();
