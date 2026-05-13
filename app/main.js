@@ -74,6 +74,7 @@ import { TOOL_PAGES, TOOL_PAGE_SET, TOOL_SUBTITLES, importToolModule } from './t
     let toolRecordings = [];
     let toolAudioPlayers = new Map();
     let activeToolAudioId = null;
+    let toolAudioProgressRafId = null;
     let toolSongsSearchResults = [];
     let lastToolSongsQuery = '';
     const TOOL_SONGS_PAGE_SIZE = 20;
@@ -202,7 +203,7 @@ import { TOOL_PAGES, TOOL_PAGE_SET, TOOL_SUBTITLES, importToolModule } from './t
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.05.13.12',
+      version: 'v2026.05.13.13',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -3726,25 +3727,24 @@ Drop back to 70 BPM for clean finish.`,
                 }).join('')}
               </div>
               <div class="h-1.5 rounded-full bg-gray-800 overflow-hidden">
-                <div id="record-progress-${recording.id}" class="h-full bg-primary transition-all duration-150" style="width:0%"></div>
+                <div id="record-progress-${recording.id}" class="h-full bg-primary" style="width:0%"></div>
               </div>
             </div>
           </div>
           <div id="record-editor-${recording.id}" class="${activeToolRecordingEditorId === recording.id ? '' : 'hidden'} mt-3 bg-black/25 border border-gray-800 rounded-xl p-3">
             <p class="text-[10px] uppercase tracking-[0.22em] text-gray-500 mb-2">Edit Sound</p>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <label class="text-xs text-gray-400">Trim start
-                <div class="mt-1 flex items-center gap-2">
-                  <input id="record-edit-start-${recording.id}" type="range" min="0" max="${Math.max(0.01, Number(recording.durationMs || 0) / 1000)}" step="0.01" value="0" oninput="onToolRecordingTrimSliderInput('${recording.id}', 'start')" class="w-full accent-[#9c6a3d]">
-                  <span id="record-edit-start-value-${recording.id}" class="text-[11px] text-gray-300 w-14 text-right">0.00s</span>
-                </div>
-              </label>
-              <label class="text-xs text-gray-400">Trim end
-                <div class="mt-1 flex items-center gap-2">
-                  <input id="record-edit-end-${recording.id}" type="range" min="0" max="${Math.max(0.01, Number(recording.durationMs || 0) / 1000)}" step="0.01" value="${Math.max(0.01, Number(recording.durationMs || 0) / 1000)}" oninput="onToolRecordingTrimSliderInput('${recording.id}', 'end')" class="w-full accent-[#9c6a3d]">
-                  <span id="record-edit-end-value-${recording.id}" class="text-[11px] text-gray-300 w-14 text-right">${(Math.max(0.01, Number(recording.durationMs || 0) / 1000)).toFixed(2)}s</span>
-                </div>
-              </label>
+            <div>
+              <div class="flex items-center justify-between text-[11px] text-gray-400 mb-2">
+                <span>Start <span id="record-edit-start-value-${recording.id}" class="text-gray-200">0.00s</span></span>
+                <span>End <span id="record-edit-end-value-${recording.id}" class="text-gray-200">${(Math.max(0.01, Number(recording.durationMs || 0) / 1000)).toFixed(2)}s</span></span>
+              </div>
+              <div id="record-trim-timeline-${recording.id}" class="relative h-9 rounded-full bg-gray-900 border border-gray-700 overflow-hidden">
+                <div class="absolute inset-y-0 left-0 bg-white/5"></div>
+                <div id="record-trim-selection-${recording.id}" class="absolute inset-y-0" style="left:0%;width:100%;background:rgba(156,106,61,0.35);border-left:1px solid var(--primary);border-right:1px solid var(--primary)"></div>
+                <div id="record-trim-playhead-${recording.id}" class="absolute top-0 bottom-0 w-[2px] bg-active shadow-[0_0_10px_rgba(3,218,198,0.85)]" style="left:0%"></div>
+                <input id="record-edit-start-${recording.id}" type="range" min="0" max="${Math.max(0.01, Number(recording.durationMs || 0) / 1000)}" step="0.01" value="0" oninput="onToolRecordingTrimSliderInput('${recording.id}', 'start')" class="record-trim-range" style="z-index:20">
+                <input id="record-edit-end-${recording.id}" type="range" min="0" max="${Math.max(0.01, Number(recording.durationMs || 0) / 1000)}" step="0.01" value="${Math.max(0.01, Number(recording.durationMs || 0) / 1000)}" oninput="onToolRecordingTrimSliderInput('${recording.id}', 'end')" class="record-trim-range" style="z-index:30">
+              </div>
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-1 gap-2 mt-2">
               <label class="text-xs text-gray-400">Noise reduction
@@ -3769,8 +3769,6 @@ Drop back to 70 BPM for clean finish.`,
     window.onToolRecordingTrimSliderInput = function(recordingId, changed = 'start') {
       const startEl = document.getElementById(`record-edit-start-${recordingId}`);
       const endEl = document.getElementById(`record-edit-end-${recordingId}`);
-      const startValueEl = document.getElementById(`record-edit-start-value-${recordingId}`);
-      const endValueEl = document.getElementById(`record-edit-end-value-${recordingId}`);
       if (!startEl || !endEl) return;
       let start = Number(startEl.value || 0);
       let end = Number(endEl.value || 0);
@@ -3781,9 +3779,33 @@ Drop back to 70 BPM for clean finish.`,
         start = end;
         startEl.value = String(start);
       }
+      updateToolRecordingTrimTimeline(recordingId);
+    };
+
+    function updateToolRecordingTrimTimeline(recordingId, currentSec = null) {
+      const startEl = document.getElementById(`record-edit-start-${recordingId}`);
+      const endEl = document.getElementById(`record-edit-end-${recordingId}`);
+      const selection = document.getElementById(`record-trim-selection-${recordingId}`);
+      const playhead = document.getElementById(`record-trim-playhead-${recordingId}`);
+      const startValueEl = document.getElementById(`record-edit-start-value-${recordingId}`);
+      const endValueEl = document.getElementById(`record-edit-end-value-${recordingId}`);
+      if (!startEl || !endEl) return;
+      const max = Math.max(0.01, Number(endEl.max || startEl.max || 0.01));
+      const start = Math.max(0, Math.min(Number(startEl.value || 0), max));
+      const end = Math.max(start, Math.min(Number(endEl.value || max), max));
+      const startPct = (start / max) * 100;
+      const endPct = (end / max) * 100;
+      if (selection) {
+        selection.style.left = `${startPct}%`;
+        selection.style.width = `${Math.max(0, endPct - startPct)}%`;
+      }
+      if (playhead) {
+        const current = currentSec == null ? Number(toolAudioPlayers.get(recordingId)?.currentTime || 0) : Number(currentSec || 0);
+        playhead.style.left = `${Math.max(0, Math.min(100, (current / max) * 100))}%`;
+      }
       if (startValueEl) startValueEl.innerText = `${start.toFixed(2)}s`;
       if (endValueEl) endValueEl.innerText = `${end.toFixed(2)}s`;
-    };
+    }
 
     function syncMetronomeRecordingOptions() {
       const selectedInput = document.getElementById('metro-custom-audio-recording');
@@ -3874,8 +3896,15 @@ Drop back to 70 BPM for clean finish.`,
       if (!toolAudioPlayers.has(recordingId)) {
         const audio = new Audio(recording.dataUrl);
         audio.addEventListener('timeupdate', () => updateToolRecordingPlaybackUI(recordingId));
+        audio.addEventListener('loadedmetadata', () => updateToolRecordingPlaybackUI(recordingId));
+        audio.addEventListener('durationchange', () => updateToolRecordingPlaybackUI(recordingId));
+        audio.addEventListener('seeking', () => updateToolRecordingPlaybackUI(recordingId));
+        audio.addEventListener('seeked', () => updateToolRecordingPlaybackUI(recordingId));
+        audio.addEventListener('play', () => updateToolRecordingPlaybackUI(recordingId));
+        audio.addEventListener('pause', () => updateToolRecordingPlaybackUI(recordingId));
         audio.addEventListener('ended', () => {
           activeToolAudioId = null;
+          stopToolAudioProgressTracking();
           updateToolRecordingPlaybackUI(recordingId, true);
         });
         toolAudioPlayers.set(recordingId, audio);
@@ -3891,9 +3920,31 @@ Drop back to 70 BPM for clean finish.`,
         const pct = reset || !audio?.duration ? 0 : (audio.currentTime / audio.duration) * 100;
         progress.style.width = `${pct}%`;
       }
+      updateToolRecordingTrimTimeline(recordingId, reset ? 0 : Number(audio?.currentTime || 0));
       if (playBtn) {
         playBtn.innerHTML = `<i class="fas ${audio && !audio.paused && !reset ? 'fa-pause' : 'fa-play'}"></i>`;
       }
+    }
+
+    function stopToolAudioProgressTracking() {
+      if (toolAudioProgressRafId) {
+        cancelAnimationFrame(toolAudioProgressRafId);
+        toolAudioProgressRafId = null;
+      }
+    }
+
+    function startToolAudioProgressTracking(recordingId) {
+      stopToolAudioProgressTracking();
+      const tick = () => {
+        const audio = toolAudioPlayers.get(recordingId);
+        if (!audio || audio.paused || audio.ended || activeToolAudioId !== recordingId) {
+          toolAudioProgressRafId = null;
+          return;
+        }
+        updateToolRecordingPlaybackUI(recordingId, false);
+        toolAudioProgressRafId = requestAnimationFrame(tick);
+      };
+      toolAudioProgressRafId = requestAnimationFrame(tick);
     }
 
     window.toggleToolRecordingPlayback = function(recordingId) {
@@ -3905,13 +3956,16 @@ Drop back to 70 BPM for clean finish.`,
           current.pause();
           updateToolRecordingPlaybackUI(activeToolAudioId, false);
         }
+        stopToolAudioProgressTracking();
       }
       if (audio.paused) {
         audio.play();
         activeToolAudioId = recordingId;
+        startToolAudioProgressTracking(recordingId);
       } else {
         audio.pause();
         activeToolAudioId = null;
+        stopToolAudioProgressTracking();
       }
       updateToolRecordingPlaybackUI(recordingId, false);
     };
@@ -3956,6 +4010,7 @@ Drop back to 70 BPM for clean finish.`,
     window.toggleToolRecordingEditor = function(recordingId) {
       activeToolRecordingEditorId = activeToolRecordingEditorId === recordingId ? '' : recordingId;
       renderToolRecordings();
+      if (activeToolRecordingEditorId) updateToolRecordingTrimTimeline(activeToolRecordingEditorId);
     };
 
     async function decodeAudioDataFromUrl(dataUrl) {
