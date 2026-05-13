@@ -202,7 +202,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.05.13.5',
+      version: 'v2026.05.13.6',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -9589,12 +9589,15 @@ Rules:
       });
       const selectedInput = document.getElementById('metro-custom-audio-recording');
       const searchInput = document.getElementById('metro-custom-audio-recording-search');
+      const lengthModeEl = document.getElementById('metro-custom-length-mode');
       if (selectedInput) selectedInput.value = '';
       if (searchInput) searchInput.value = '';
+      // Uploaded tracks are usually full songs; switch to full-length playback.
+      if (lengthModeEl) lengthModeEl.value = 'audio';
       closeMetronomeRecordingDropdown();
       updateMetronomeSettings();
       updateMetronomeAudioCursorUI();
-      showToast('Custom metronome sound loaded.', true);
+      showToast('Custom metronome sound loaded. Length mode set to Audio length.', true);
     };
 
     function getSelectedMetronomeCustomAudioUrl() {
@@ -9618,10 +9621,12 @@ Rules:
     }
 
     function formatSecondsShort(totalSec) {
-      const safe = Math.max(0, Math.floor(Number(totalSec) || 0));
-      const m = Math.floor(safe / 60);
-      const s = safe % 60;
-      return `${m}:${String(s).padStart(2, '0')}`;
+      const safe = Math.max(0, Number(totalSec) || 0);
+      const whole = Math.floor(safe);
+      const m = Math.floor(whole / 60);
+      const s = whole % 60;
+      const tenths = Math.floor((safe - whole) * 10);
+      return `${m}:${String(s).padStart(2, '0')}.${tenths}`;
     }
 
     function updateMetronomeAudioCursorUI() {
