@@ -90,6 +90,8 @@ import { TOOL_PAGES, TOOL_PAGE_SET, TOOL_SUBTITLES, importToolModule } from './t
     let toolRecordingAnalyser = null;
     let toolRecordingSource = null;
     let toolRecordingVizAnimationId = null;
+    let toolRecordingWaveHistory = [];
+    let toolRecordingWaveLastAtMs = 0;
     let selectedChordReference = 'C';
     let chordBuilderEditingId = '';
     let guitarToneProfiles = [];
@@ -203,7 +205,7 @@ import { TOOL_PAGES, TOOL_PAGE_SET, TOOL_SUBTITLES, importToolModule } from './t
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.05.13.14',
+      version: 'v2026.05.13.15',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -6087,26 +6089,54 @@ Rules:
     function ensureToolRecordingVizBars() {
       const viz = document.getElementById('tool-recording-viz');
       if (!viz) return [];
-      if (!viz.children.length) {
+      if (!viz.querySelector('[data-record-wave-bar]')) {
+        viz.style.position = 'relative';
         viz.style.alignItems = 'center';
-        viz.innerHTML = Array.from({ length: 48 }, () => `
-          <span class="block flex-1 rounded-full transition-[height,opacity,background-color] duration-75" style="height:4px;min-width:2px;background:rgba(156,106,61,0.35);opacity:0.45"></span>
-        `).join('');
+        viz.style.height = '64px';
+        viz.style.overflow = 'hidden';
+        viz.innerHTML = `
+          <div class="absolute left-0 right-0 top-1/2 h-px bg-white/10"></div>
+          ${Array.from({ length: 72 }, () => `
+          <span data-record-wave-bar="1" class="block flex-1 rounded-full" style="height:2px;min-width:2px;background:rgba(207,102,121,0.34);opacity:0.36"></span>
+        `).join('')}
+        `;
       }
-      return Array.from(viz.children);
+      return Array.from(viz.querySelectorAll('[data-record-wave-bar]'));
+    }
+
+    function renderToolRecordingWaveBars(bars, history = []) {
+      const count = bars.length;
+      const padded = Array.from({ length: count }, (_, idx) => history[history.length - count + idx] || 0);
+      padded.forEach((amp, idx) => {
+        const bar = bars[idx];
+        const height = 2 + Math.min(1, amp) * 58;
+        const active = amp > 0.035;
+        bar.style.height = `${height.toFixed(1)}px`;
+        bar.style.opacity = active ? `${Math.max(0.42, Math.min(1, amp * 2.7))}` : '0.28';
+        bar.style.background = active
+          ? 'linear-gradient(180deg, #ff9b87, #cf6679)'
+          : 'rgba(207,102,121,0.28)';
+      });
+    }
+
+    function resetToolRecordingWaveHistory() {
+      const bars = ensureToolRecordingVizBars();
+      toolRecordingWaveHistory = Array.from({ length: bars.length }, () => 0);
+      toolRecordingWaveLastAtMs = 0;
+      renderToolRecordingWaveBars(bars, toolRecordingWaveHistory);
+      return bars;
     }
 
     function setToolRecordingVizIdle() {
-      const bars = ensureToolRecordingVizBars();
+      const bars = resetToolRecordingWaveHistory();
       bars.forEach((bar, idx) => {
-        const base = idx % 4 === 0 ? 8 : 4;
+        const base = idx % 9 === 0 ? 6 : 2;
         bar.style.height = `${base}px`;
-        bar.style.opacity = '0.28';
-        bar.style.background = 'rgba(156,106,61,0.28)';
+        bar.style.opacity = '0.22';
+        bar.style.background = 'rgba(207,102,121,0.22)';
       });
       updateToolRecordingSignalLabel('Idle', false);
     }
-
     function updateToolRecordingSignalLabel(text = 'Idle', hasSignal = false) {
       const label = document.getElementById('tool-recording-viz-label');
       if (!label) return;
@@ -6139,30 +6169,28 @@ Rules:
         toolRecordingAnalyser.smoothingTimeConstant = 0.35;
         toolRecordingSource = ctx.createMediaStreamSource(stream);
         toolRecordingSource.connect(toolRecordingAnalyser);
-        const bars = ensureToolRecordingVizBars();
+        const bars = resetToolRecordingWaveHistory();
         const timeData = new Uint8Array(toolRecordingAnalyser.fftSize);
         const render = () => {
           if (!toolRecordingAnalyser) return;
           toolRecordingAnalyser.getByteTimeDomainData(timeData);
-          const chunk = Math.max(1, Math.floor(timeData.length / bars.length));
           let rmsSum = 0;
-          bars.forEach((bar, idx) => {
-            const start = idx * chunk;
-            const end = Math.min(timeData.length, start + chunk);
-            let peak = 0;
-            for (let i = start; i < end; i++) {
-              const centered = Math.abs(timeData[i] - 128) / 128;
-              peak = Math.max(peak, centered);
-              rmsSum += centered * centered;
-            }
-            const height = 4 + Math.min(1, peak * 2.8) * 44;
-            const active = peak > 0.025;
-            bar.style.height = `${height.toFixed(1)}px`;
-            bar.style.opacity = `${active ? Math.max(0.45, Math.min(1, peak * 3.5)) : 0.26}`;
-            bar.style.background = active ? 'rgba(3,218,198,0.82)' : 'rgba(156,106,61,0.32)';
-          });
+          let peak = 0;
+          for (let i = 0; i < timeData.length; i++) {
+            const centered = Math.abs(timeData[i] - 128) / 128;
+            peak = Math.max(peak, centered);
+            rmsSum += centered * centered;
+          }
           const rms = Math.sqrt(rmsSum / Math.max(1, timeData.length));
-          const signalPct = Math.max(0, Math.min(100, Math.round(rms * 260)));
+          const amp = Math.max(Math.min(1, peak * 1.75), Math.min(1, rms * 5.5));
+          const nowMs = performance.now();
+          if (!toolRecordingWaveLastAtMs || nowMs - toolRecordingWaveLastAtMs >= 34) {
+            toolRecordingWaveHistory.push(amp);
+            while (toolRecordingWaveHistory.length > bars.length) toolRecordingWaveHistory.shift();
+            renderToolRecordingWaveBars(bars, toolRecordingWaveHistory);
+            toolRecordingWaveLastAtMs = nowMs;
+          }
+          const signalPct = Math.max(0, Math.min(100, Math.round(rms * 300)));
           updateToolRecordingSignalLabel(signalPct > 3 ? `Signal ${signalPct}%` : 'Silent / no input', signalPct > 3);
           toolRecordingVizAnimationId = requestAnimationFrame(render);
         };
