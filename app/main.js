@@ -57,10 +57,14 @@ import { FirestoreRepository } from './modules/repository.js';
     let metronomeBeatCounter = 0;
     let metronomeRafId = null;
     let metronomeCustomFileDataUrl = '';
+    let metronomeCustomFileDurationSec = 0;
     let metronomeCustomAudioElement = null;
     let metronomeCustomActivePlayback = null;
+    let metronomeCustomActiveStartedAtMs = 0;
+    let metronomeCustomActiveTargetSec = 0;
     let metronomeFreeLoopAudio = null;
     let metronomeAudioCursorRafId = null;
+    let metronomeRecordingSearchIds = [];
     let activeToolRecordingEditorId = '';
     let toolRecordings = [];
     let toolAudioPlayers = new Map();
@@ -193,7 +197,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.05.12.6',
+      version: 'v2026.05.13.1',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -3788,6 +3792,7 @@ Drop back to 70 BPM for clean finish.`,
         if (!normalized) return true;
         return String(item?.name || '').toLowerCase().includes(normalized);
       }).slice(0, 20);
+      metronomeRecordingSearchIds = filtered.map(item => item.id);
       if (!filtered.length) {
         results.innerHTML = `<button type="button" onclick="selectMetronomeRecording('')" class="w-full text-left rounded-lg px-2 py-2 text-xs text-gray-500 hover:bg-black/20">No matches. Use uploaded file or clear search.</button>`;
         return;
@@ -3820,6 +3825,17 @@ Drop back to 70 BPM for clean finish.`,
       renderMetronomeRecordingSearchResults(value);
       window.openMetronomeRecordingDropdown();
       updateMetronomeSettings();
+    };
+
+    window.onMetronomeRecordingSearchKeyDown = function(event) {
+      if (!event) return;
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        const firstId = metronomeRecordingSearchIds[0] || '';
+        if (firstId) window.selectMetronomeRecording(firstId);
+      } else if (event.key === 'Escape') {
+        closeMetronomeRecordingDropdown();
+      }
     };
 
     window.selectMetronomeRecording = function(recordingId = '') {
@@ -9516,6 +9532,13 @@ Rules:
         reader.onloadend = () => resolve(String(reader.result || ''));
         reader.readAsDataURL(file);
       });
+      metronomeCustomFileDurationSec = await new Promise(resolve => {
+        const probe = new Audio();
+        probe.preload = 'metadata';
+        probe.src = metronomeCustomFileDataUrl;
+        probe.onloadedmetadata = () => resolve(Number(probe.duration || 0));
+        probe.onerror = () => resolve(0);
+      });
       const selectedInput = document.getElementById('metro-custom-audio-recording');
       const searchInput = document.getElementById('metro-custom-audio-recording-search');
       if (selectedInput) selectedInput.value = '';
@@ -9541,6 +9564,7 @@ Rules:
         const recording = toolRecordings.find(item => item.id === selectedRecordingId);
         if (recording?.durationMs) return Math.max(0.01, Number(recording.durationMs) / 1000);
       }
+      if (metronomeCustomFileDurationSec > 0) return metronomeCustomFileDurationSec;
       const cached = Number(metronomeCustomAudioElement?.duration || 0);
       return cached > 0 ? cached : 0;
     }
@@ -9558,8 +9582,12 @@ Rules:
       if (!bar || !label) return;
       const lengthMode = String(document.getElementById('metro-custom-length-mode')?.value || 'bar');
       const audio = lengthMode === 'audio' ? metronomeFreeLoopAudio : metronomeCustomActivePlayback;
-      const duration = Number(audio?.duration || getSelectedMetronomeCustomDurationSec() || 0);
-      const current = Number(audio?.currentTime || 0);
+      let duration = Number(audio?.duration || getSelectedMetronomeCustomDurationSec() || 0);
+      let current = Number(audio?.currentTime || 0);
+      if (lengthMode !== 'audio' && metronomeCustomActiveTargetSec > 0 && metronomeCustomActiveStartedAtMs > 0) {
+        duration = metronomeCustomActiveTargetSec;
+        current = Math.max(0, Math.min(duration, (performance.now() - metronomeCustomActiveStartedAtMs) / 1000));
+      }
       const pct = duration > 0 ? Math.max(0, Math.min(100, (current / duration) * 100)) : 0;
       bar.style.width = `${pct}%`;
       label.innerText = `${formatSecondsShort(current)} / ${formatSecondsShort(duration)}`;
@@ -9673,8 +9701,14 @@ Rules:
         playback.playbackRate = (targetSec && naturalSec > 0) ? Math.max(0.25, Math.min(4, naturalSec / targetSec)) : 1;
         playback.currentTime = 0;
         metronomeCustomActivePlayback = playback;
+        metronomeCustomActiveStartedAtMs = performance.now();
+        metronomeCustomActiveTargetSec = targetSec || naturalSec || 0;
         playback.onended = () => {
-          if (metronomeCustomActivePlayback === playback) metronomeCustomActivePlayback = null;
+          if (metronomeCustomActivePlayback === playback) {
+            metronomeCustomActivePlayback = null;
+            metronomeCustomActiveStartedAtMs = 0;
+            metronomeCustomActiveTargetSec = 0;
+          }
         };
         playback.play().catch(() => {});
         }
@@ -9752,6 +9786,8 @@ Rules:
         } catch {}
         metronomeCustomActivePlayback = null;
       }
+      metronomeCustomActiveStartedAtMs = 0;
+      metronomeCustomActiveTargetSec = 0;
       if (metronomeVisualTimer) {
         clearTimeout(metronomeVisualTimer);
         metronomeVisualTimer = null;
