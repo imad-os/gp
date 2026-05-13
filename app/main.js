@@ -65,6 +65,8 @@ import { FirestoreRepository } from './modules/repository.js';
     let metronomeFreeLoopAudio = null;
     let metronomeAudioCursorRafId = null;
     let metronomeTrackedAudioElement = null;
+    let metronomeLastCursorSec = 0;
+    let metronomeLoopWrapFlashUntilMs = 0;
     let metronomeRecordingSearchIds = [];
     let activeToolRecordingEditorId = '';
     let toolRecordings = [];
@@ -202,7 +204,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.05.13.7',
+      version: 'v2026.05.13.8',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -9642,7 +9644,19 @@ Rules:
         duration = metronomeCustomActiveTargetSec;
         current = Math.max(0, Math.min(duration, (performance.now() - metronomeCustomActiveStartedAtMs) / 1000));
       }
-      const pct = duration > 0 ? Math.max(0, Math.min(100, (current / duration) * 100)) : 0;
+      if (lengthMode === 'audio' && audio && duration > 0) {
+        const nowMs = performance.now();
+        // Looping audio can wrap before hitting an exact last-frame duration.
+        if (audio.loop && current + 0.03 < metronomeLastCursorSec) {
+          metronomeLoopWrapFlashUntilMs = nowMs + 120;
+        }
+        metronomeLastCursorSec = current;
+        if (metronomeLoopWrapFlashUntilMs > nowMs) current = duration;
+      } else {
+        metronomeLastCursorSec = current;
+      }
+      const pctRaw = duration > 0 ? (current / duration) * 100 : 0;
+      const pct = Math.max(0, Math.min(100, pctRaw >= 99.5 ? 100 : pctRaw));
       bar.style.width = `${pct}%`;
       label.innerText = `${formatSecondsShort(current)} / ${formatSecondsShort(duration)}`;
     }
@@ -9671,6 +9685,8 @@ Rules:
         metronomeAudioCursorRafId = null;
       }
       bindMetronomeAudioCursorSource(null);
+      metronomeLastCursorSec = 0;
+      metronomeLoopWrapFlashUntilMs = 0;
       updateMetronomeAudioCursorUI();
     }
 
