@@ -203,7 +203,7 @@ import { TOOL_PAGES, TOOL_PAGE_SET, TOOL_SUBTITLES, importToolModule } from './t
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.05.13.13',
+      version: 'v2026.05.13.14',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -6088,7 +6088,10 @@ Rules:
       const viz = document.getElementById('tool-recording-viz');
       if (!viz) return [];
       if (!viz.children.length) {
-        viz.innerHTML = Array.from({ length: 28 }, () => `<span class="block flex-1 rounded-full bg-primary/70 transition-all duration-75" style="height:6px"></span>`).join('');
+        viz.style.alignItems = 'center';
+        viz.innerHTML = Array.from({ length: 48 }, () => `
+          <span class="block flex-1 rounded-full transition-[height,opacity,background-color] duration-75" style="height:4px;min-width:2px;background:rgba(156,106,61,0.35);opacity:0.45"></span>
+        `).join('');
       }
       return Array.from(viz.children);
     }
@@ -6096,10 +6099,20 @@ Rules:
     function setToolRecordingVizIdle() {
       const bars = ensureToolRecordingVizBars();
       bars.forEach((bar, idx) => {
-        const base = idx % 3 === 0 ? 8 : 6;
+        const base = idx % 4 === 0 ? 8 : 4;
         bar.style.height = `${base}px`;
-        bar.style.opacity = '0.35';
+        bar.style.opacity = '0.28';
+        bar.style.background = 'rgba(156,106,61,0.28)';
       });
+      updateToolRecordingSignalLabel('Idle', false);
+    }
+
+    function updateToolRecordingSignalLabel(text = 'Idle', hasSignal = false) {
+      const label = document.getElementById('tool-recording-viz-label');
+      if (!label) return;
+      label.innerText = text;
+      label.classList.toggle('text-active', hasSignal);
+      label.classList.toggle('text-gray-500', !hasSignal);
     }
 
     function stopToolRecordingVisualizer() {
@@ -6120,27 +6133,37 @@ Rules:
         const ctx = await ensureAudioReady();
         if (!ctx || !stream) return;
         stopToolRecordingVisualizer();
+        updateToolRecordingSignalLabel('Waiting for signal...', false);
         toolRecordingAnalyser = ctx.createAnalyser();
-        toolRecordingAnalyser.fftSize = 256;
-        toolRecordingAnalyser.smoothingTimeConstant = 0.78;
+        toolRecordingAnalyser.fftSize = 1024;
+        toolRecordingAnalyser.smoothingTimeConstant = 0.35;
         toolRecordingSource = ctx.createMediaStreamSource(stream);
         toolRecordingSource.connect(toolRecordingAnalyser);
         const bars = ensureToolRecordingVizBars();
-        const freqData = new Uint8Array(toolRecordingAnalyser.frequencyBinCount);
+        const timeData = new Uint8Array(toolRecordingAnalyser.fftSize);
         const render = () => {
           if (!toolRecordingAnalyser) return;
-          toolRecordingAnalyser.getByteFrequencyData(freqData);
-          const chunk = Math.max(1, Math.floor(freqData.length / bars.length));
+          toolRecordingAnalyser.getByteTimeDomainData(timeData);
+          const chunk = Math.max(1, Math.floor(timeData.length / bars.length));
+          let rmsSum = 0;
           bars.forEach((bar, idx) => {
             const start = idx * chunk;
-            const end = Math.min(freqData.length, start + chunk);
-            let sum = 0;
-            for (let i = start; i < end; i++) sum += freqData[i];
-            const avg = end > start ? sum / (end - start) : 0;
-            const height = 6 + (avg / 255) * 40;
+            const end = Math.min(timeData.length, start + chunk);
+            let peak = 0;
+            for (let i = start; i < end; i++) {
+              const centered = Math.abs(timeData[i] - 128) / 128;
+              peak = Math.max(peak, centered);
+              rmsSum += centered * centered;
+            }
+            const height = 4 + Math.min(1, peak * 2.8) * 44;
+            const active = peak > 0.025;
             bar.style.height = `${height.toFixed(1)}px`;
-            bar.style.opacity = `${Math.max(0.35, avg / 255)}`;
+            bar.style.opacity = `${active ? Math.max(0.45, Math.min(1, peak * 3.5)) : 0.26}`;
+            bar.style.background = active ? 'rgba(3,218,198,0.82)' : 'rgba(156,106,61,0.32)';
           });
+          const rms = Math.sqrt(rmsSum / Math.max(1, timeData.length));
+          const signalPct = Math.max(0, Math.min(100, Math.round(rms * 260)));
+          updateToolRecordingSignalLabel(signalPct > 3 ? `Signal ${signalPct}%` : 'Silent / no input', signalPct > 3);
           toolRecordingVizAnimationId = requestAnimationFrame(render);
         };
         render();
@@ -6165,7 +6188,7 @@ Rules:
       }
       if (status) status.innerText = isRecording ? 'Recording' : 'Idle';
       if (vizWrap) vizWrap.classList.toggle('hidden', !isRecording);
-      if (vizLabel) vizLabel.innerText = isRecording ? 'Capturing...' : 'Idle';
+      if (vizLabel) updateToolRecordingSignalLabel(isRecording ? 'Waiting for signal...' : 'Idle', false);
       if (!isRecording) stopToolRecordingVisualizer();
     }
 
