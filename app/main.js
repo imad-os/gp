@@ -204,7 +204,7 @@ import { FirestoreRepository } from './modules/repository.js';
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.05.13.9',
+      version: 'v2026.05.13.10',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -9603,6 +9603,8 @@ Rules:
     };
 
     function getSelectedMetronomeCustomAudioUrl() {
+      const customSoundOpen = !!document.getElementById('metro-custom-sound')?.open;
+      if (!customSoundOpen) return '';
       const selectedRecordingId = String(document.getElementById('metro-custom-audio-recording')?.value || '');
       if (selectedRecordingId) {
         const recording = toolRecordings.find(item => item.id === selectedRecordingId);
@@ -9612,6 +9614,8 @@ Rules:
     }
 
     function getSelectedMetronomeCustomDurationSec() {
+      const customSoundOpen = !!document.getElementById('metro-custom-sound')?.open;
+      if (!customSoundOpen) return 0;
       const selectedRecordingId = String(document.getElementById('metro-custom-audio-recording')?.value || '');
       if (selectedRecordingId) {
         const recording = toolRecordings.find(item => item.id === selectedRecordingId);
@@ -10657,6 +10661,25 @@ Rules:
       updateTrainingPatternEditor();
       restoreMetronomeSettings();
       renderStandaloneMetronomeVisual();
+      const metroCustomDetails = document.getElementById('metro-custom-sound');
+      if (metroCustomDetails) {
+        metroCustomDetails.addEventListener('toggle', () => {
+          if (!metroCustomDetails.open) {
+            stopMetronomeFreeAudioLoop();
+            if (metronomeCustomActivePlayback) {
+              try {
+                metronomeCustomActivePlayback.pause();
+                metronomeCustomActivePlayback.currentTime = 0;
+              } catch {}
+              metronomeCustomActivePlayback = null;
+            }
+            metronomeCustomActiveStartedAtMs = 0;
+            metronomeCustomActiveTargetSec = 0;
+          }
+          updateMetronomeSettings();
+          updateMetronomeAudioCursorUI();
+        });
+      }
       document.addEventListener('click', (event) => {
         const wrap = document.getElementById('metro-custom-sound');
         const results = document.getElementById('metro-custom-audio-recording-results');
