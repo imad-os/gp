@@ -142,6 +142,17 @@ import { TOOL_PAGES, TOOL_PAGE_SET, TOOL_SUBTITLES, importToolModule } from './t
     let looperSharingHistoryStatus = '';
     let looperLinkingHistoryId = '';
     let looperSongLinkSearchQuery = '';
+    let musicLibrary = [];
+    let musicPlaylists = [];
+    let musicSelectedTrackId = '';
+    let activeMusicTrackId = '';
+    let musicQueueIds = [];
+    let musicQueueIndex = -1;
+    let musicObjectUrl = '';
+    let musicActiveDataUrl = '';
+    let musicLoadingTrackId = '';
+    let musicSelectedPlaylistId = '';
+    let musicToolView = 'library';
     let tabsPreviewTimerIds = [];
     let tabsPreviewSessionId = 0;
     let tabsPreviewHistory = [];
@@ -206,7 +217,7 @@ import { TOOL_PAGES, TOOL_PAGE_SET, TOOL_SUBTITLES, importToolModule } from './t
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.05.14.27',
+      version: 'v2026.05.14.28',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -1614,6 +1625,779 @@ Drop back to 70 BPM for clean finish.`,
 
     function hasActiveLooperTrack() {
       return looperMode !== 'none' && !!looperActiveSource;
+    }
+
+    function sanitizeMusicText(raw = '', fallback = '') {
+      const value = String(raw || '').replace(/\s+/g, ' ').trim();
+      return value || fallback;
+    }
+
+    function normalizeMusicOriginLabel(raw = '') {
+      const value = String(raw || '').trim().toLowerCase();
+      if (value === 'edited') return 'Edited';
+      if (value === 'looper') return 'Looper';
+      return 'Uploaded';
+    }
+
+    function normalizeMusicItem(item = {}) {
+      const title = sanitizeMusicText(item.title || item.name, 'Untitled Track');
+      const artist = sanitizeMusicText(item.artist, '');
+      const album = sanitizeMusicText(item.album, '');
+      const originLabel = normalizeMusicOriginLabel(item.originLabel || item.sourceLabel || item.uploadSource || item.sourceType);
+      return {
+        ...item,
+        id: String(item.id || '').trim(),
+        title,
+        artist,
+        album,
+        noteText: String(item.noteText || item.notes || ''),
+        mimeType: String(item.mimeType || 'audio/*'),
+        duration: Number(item.duration || 0) || 0,
+        sizeBytes: Number(item.sizeBytes || 0) || 0,
+        originLabel,
+        createdAt: Number(item.createdAt || 0) || 0,
+        updatedAt: Number(item.updatedAt || item.createdAt || 0) || 0,
+        sourceLooperHistoryId: String(item.sourceLooperHistoryId || '').trim()
+      };
+    }
+
+    function normalizeMusicPlaylist(item = {}) {
+      return {
+        ...item,
+        id: String(item.id || '').trim(),
+        name: sanitizeMusicText(item.name, 'Untitled Playlist'),
+        itemIds: Array.from(new Set((Array.isArray(item.itemIds) ? item.itemIds : []).map(id => String(id || '').trim()).filter(Boolean))),
+        createdAt: Number(item.createdAt || 0) || 0,
+        updatedAt: Number(item.updatedAt || item.createdAt || 0) || 0
+      };
+    }
+
+    function getMusicItemById(itemId = '') {
+      const id = String(itemId || '').trim();
+      return musicLibrary.find(item => item.id === id) || null;
+    }
+
+    function getSelectedMusicItem() {
+      return getMusicItemById(musicSelectedTrackId);
+    }
+
+    function resetMusicObjectUrl() {
+      if (musicObjectUrl) {
+        URL.revokeObjectURL(musicObjectUrl);
+        musicObjectUrl = '';
+      }
+    }
+
+    function getMusicAudioEl() {
+      return document.getElementById('tool-music-audio');
+    }
+
+    function setMusicStatus(text = '', isError = false) {
+      const el = document.getElementById('tool-music-status');
+      if (!el) return;
+      el.innerText = text || 'Library ready';
+      el.classList.toggle('text-danger', !!isError);
+      el.classList.toggle('text-gray-500', !isError);
+    }
+
+    function getMusicDisplaySubtitle(item = null) {
+      if (!item) return 'Choose a track from the library or a playlist.';
+      const parts = [item.artist, item.album].filter(Boolean);
+      return parts.length ? parts.join(' • ') : 'Saved in your personal music collection.';
+    }
+
+    function fillMusicEditor(item = null) {
+      const title = document.getElementById('tool-music-title');
+      const artist = document.getElementById('tool-music-artist');
+      const album = document.getElementById('tool-music-album');
+      const notes = document.getElementById('tool-music-notes');
+      const meta = document.getElementById('tool-music-selected-meta');
+      if (title) title.value = item?.title || '';
+      if (artist) artist.value = item?.artist || '';
+      if (album) album.value = item?.album || '';
+      if (notes) notes.value = item?.noteText || '';
+      if (meta) {
+        if (!item) meta.innerText = 'Pick a saved track to edit its details or play it.';
+        else meta.innerText = `${item.originLabel} • ${item.duration > 0 ? formatLooperTime(item.duration) : 'Length unknown'} • ${item.sizeBytes > 0 ? formatBytes(item.sizeBytes) : 'Size unknown'}`;
+      }
+    }
+
+    function clearMusicSelection() {
+      musicSelectedTrackId = '';
+      fillMusicEditor(null);
+      renderMusicLibrary();
+      renderMusicPlaylists();
+    }
+
+    function renderMusicToolTabs() {
+      ['library', 'player', 'playlists'].forEach(view => {
+        const btn = document.getElementById(`tool-music-tab-${view}`);
+        const panel = document.getElementById(`tool-music-view-${view}`);
+        if (btn) {
+          btn.classList.toggle('bg-primary', musicToolView === view);
+          btn.classList.toggle('text-black', musicToolView === view);
+        }
+        if (panel) panel.classList.toggle('hidden', musicToolView !== view);
+      });
+    }
+
+    function showMusicToolView(view = 'library') {
+      musicToolView = ['library', 'player', 'playlists'].includes(view) ? view : 'library';
+      renderMusicToolTabs();
+      if (musicToolView === 'library') {
+        renderMusicLibrary();
+        renderMusicLooperImportList();
+      } else if (musicToolView === 'player') {
+        renderMusicPlayer();
+        renderMusicQueue();
+      } else if (musicToolView === 'playlists') {
+        renderMusicPlaylists();
+      }
+    }
+
+    function renderMusicPlayer() {
+      const item = getMusicItemById(activeMusicTrackId);
+      const title = document.getElementById('tool-music-now-playing-title');
+      const subtitle = document.getElementById('tool-music-now-playing-subtitle');
+      const badges = document.getElementById('tool-music-now-playing-badges');
+      if (title) title.innerText = item?.title || 'No track selected';
+      if (subtitle) subtitle.innerText = getMusicDisplaySubtitle(item);
+      if (badges) {
+        const badgeItems = item ? [
+          `<span class="px-2.5 py-1 rounded-full bg-black/30 border border-gray-800 text-[11px] text-primary uppercase tracking-[0.18em]">${escapeHtml(item.originLabel)}</span>`,
+          item.duration > 0 ? `<span class="px-2.5 py-1 rounded-full bg-black/30 border border-gray-800 text-[11px] text-gray-300">${escapeHtml(formatLooperTime(item.duration))}</span>` : '',
+          item.album ? `<span class="px-2.5 py-1 rounded-full bg-black/30 border border-gray-800 text-[11px] text-gray-300">${escapeHtml(item.album)}</span>` : ''
+        ].filter(Boolean) : [];
+        badges.innerHTML = badgeItems.join('');
+      }
+    }
+
+    function renderMusicQueue() {
+      const list = document.getElementById('tool-music-queue-list');
+      if (!list) return;
+      const queueItems = musicQueueIds.map(id => getMusicItemById(id)).filter(Boolean);
+      if (!queueItems.length) {
+        list.innerHTML = `<div class="bg-black/20 border border-gray-800 rounded-xl px-3 py-3 text-sm text-gray-500">Queue is empty.</div>`;
+        return;
+      }
+      list.innerHTML = queueItems.map((item, idx) => `
+        <div class="bg-black/20 border ${idx === musicQueueIndex ? 'border-primary/60' : 'border-gray-800'} rounded-xl px-3 py-3">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <p class="font-semibold text-sm text-white truncate">${escapeHtml(item.title)}</p>
+              <p class="text-[11px] text-gray-500 mt-1">${escapeHtml(item.artist || 'Unknown artist')} • ${escapeHtml(item.originLabel)}</p>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+              <button onclick="playMusicQueueIndex(${idx})" class="w-8 h-8 rounded-full btn-soft btn-press" title="Play">
+                <i class="fas fa-play text-xs"></i>
+              </button>
+              <button onclick="removeMusicQueueIndex(${idx})" class="w-8 h-8 rounded-full btn-soft btn-press" title="Remove">
+                <i class="fas fa-xmark text-xs"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function getFilteredMusicLibrary() {
+      const query = String(document.getElementById('tool-music-search')?.value || '').trim().toLowerCase();
+      if (!query) return [...musicLibrary];
+      return musicLibrary.filter(item => {
+        const haystack = `${item.title} ${item.artist} ${item.album} ${item.originLabel}`.toLowerCase();
+        return haystack.includes(query);
+      });
+    }
+
+    function renderMusicLibrary() {
+      const list = document.getElementById('tool-music-library-list');
+      if (!list) return;
+      const items = getFilteredMusicLibrary();
+      if (!items.length) {
+        list.innerHTML = `<div class="bg-black/20 border border-gray-800 rounded-xl px-3 py-3 text-sm text-gray-500">${musicLibrary.length ? 'No tracks match this search.' : 'No music saved yet.'}</div>`;
+        return;
+      }
+      list.innerHTML = items.map(item => `
+        <div class="bg-black/20 border ${item.id === musicSelectedTrackId ? 'border-primary/60' : 'border-gray-800'} rounded-xl px-3 py-3">
+          <div class="flex items-start justify-between gap-3">
+            <button onclick="selectMusicTrack('${item.id}')" class="min-w-0 text-left flex-1">
+              <p class="font-semibold text-sm text-white truncate">${escapeHtml(item.title)}</p>
+              <p class="text-[11px] text-gray-500 mt-1">${escapeHtml(item.artist || 'Unknown artist')} ${item.album ? `• ${escapeHtml(item.album)}` : ''}</p>
+              <div class="flex flex-wrap gap-2 mt-2">
+                <span class="px-2 py-0.5 rounded-full bg-black/40 border border-gray-800 text-[10px] uppercase tracking-[0.16em] text-primary">${escapeHtml(item.originLabel)}</span>
+                ${item.duration > 0 ? `<span class="px-2 py-0.5 rounded-full bg-black/40 border border-gray-800 text-[10px] text-gray-300">${escapeHtml(formatLooperTime(item.duration))}</span>` : ''}
+              </div>
+            </button>
+            <div class="flex items-center gap-2 shrink-0">
+              <button onclick="playMusicTrackDirect('${item.id}')" class="w-8 h-8 rounded-full btn-soft btn-press" title="Play">
+                <i class="fas fa-play text-xs"></i>
+              </button>
+              <button onclick="queueMusicTrackById('${item.id}')" class="w-8 h-8 rounded-full btn-soft btn-press" title="Queue">
+                <i class="fas fa-list text-xs"></i>
+              </button>
+              <button onclick="openMusicInAudioStudio('${item.id}')" class="w-8 h-8 rounded-full btn-soft btn-press" title="Open in Audio Studio">
+                <i class="fas fa-sliders text-xs"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function renderMusicLooperImportList() {
+      const host = document.getElementById('tool-music-looper-imports');
+      if (!host) return;
+      if (!looperHistory.length) {
+        host.innerHTML = `<div class="bg-black/20 border border-gray-800 rounded-xl px-3 py-3 text-sm text-gray-500">No looper items available yet.</div>`;
+        return;
+      }
+      host.innerHTML = looperHistory.slice(0, 8).map(item => `
+        <div class="bg-black/20 border border-gray-800 rounded-xl px-3 py-3">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <p class="font-semibold text-sm text-white truncate">${escapeHtml(item.title || 'Untitled media')}</p>
+              <p class="text-[11px] text-gray-500 mt-1">${escapeHtml(item.mediaType === 'video' ? 'Looper video/audio' : 'Looper audio')} • ${escapeHtml(formatLooperTime(Number(item.duration || 0)))}</p>
+            </div>
+            <button onclick="importLooperHistoryItemToMusic('${item.id}')" class="btn-soft rounded-lg px-3 py-2 text-xs btn-press shrink-0">Import</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function renderMusicPlaylists() {
+      const host = document.getElementById('tool-music-playlists-list');
+      if (!host) return;
+      if (!musicPlaylists.length) {
+        host.innerHTML = `<div class="bg-black/20 border border-gray-800 rounded-xl px-3 py-3 text-sm text-gray-500">No playlists yet.</div>`;
+        return;
+      }
+      host.innerHTML = musicPlaylists.map(playlist => {
+        const items = playlist.itemIds.map(id => getMusicItemById(id)).filter(Boolean);
+        return `
+          <div class="bg-black/20 border ${playlist.id === musicSelectedPlaylistId ? 'border-primary/60' : 'border-gray-800'} rounded-2xl px-4 py-4">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <p class="font-semibold text-white">${escapeHtml(playlist.name)}</p>
+                <p class="text-[11px] text-gray-500 mt-1">${items.length} track${items.length === 1 ? '' : 's'}</p>
+                <div class="mt-2 space-y-1">
+                  ${items.slice(0, 4).map(item => `<p class="text-[11px] text-gray-400 truncate">${escapeHtml(item.title)}${item.artist ? ` • ${escapeHtml(item.artist)}` : ''}</p>`).join('') || '<p class="text-[11px] text-gray-500">No tracks added yet.</p>'}
+                </div>
+              </div>
+              <div class="flex items-center gap-2 shrink-0">
+                <button onclick="playMusicPlaylist('${playlist.id}')" class="w-8 h-8 rounded-full btn-soft btn-press" title="Play playlist"><i class="fas fa-play text-xs"></i></button>
+                <button onclick="addSelectedTrackToPlaylist('${playlist.id}')" class="w-8 h-8 rounded-full btn-soft btn-press" title="Add selected track"><i class="fas fa-plus text-xs"></i></button>
+                <button onclick="deleteMusicPlaylist('${playlist.id}')" class="w-8 h-8 rounded-full btn-soft btn-press" title="Delete playlist"><i class="fas fa-trash text-xs"></i></button>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function loadMusicLibrary() {
+      if (!user || user.isAnonymous) {
+        musicLibrary = repository?.loadMusicLibraryFromDeviceCache?.().map(normalizeMusicItem) || [];
+        musicPlaylists = [];
+        renderMusicLibrary();
+        renderMusicPlayer();
+        renderMusicQueue();
+        renderMusicPlaylists();
+        return;
+      }
+      try {
+        musicLibrary = (await repository.loadMusicLibrary(user.uid)).map(normalizeMusicItem);
+      } catch (e) {
+        console.error('Failed to load music library', e);
+        musicLibrary = repository?.loadMusicLibraryFromDeviceCache?.().map(normalizeMusicItem) || [];
+      }
+      try {
+        musicPlaylists = (await repository.loadMusicPlaylists(user.uid)).map(normalizeMusicPlaylist);
+      } catch (e) {
+        console.error('Failed to load music playlists', e);
+        musicPlaylists = [];
+      }
+      renderMusicLibrary();
+      renderMusicPlayer();
+      renderMusicQueue();
+      renderMusicPlaylists();
+    }
+
+    async function saveMusicItemFromDataUrl(dataUrl, meta = {}) {
+      if (!repository || !user || user.isAnonymous) {
+        showToast('Create an account to save music.');
+        return '';
+      }
+      const now = Date.now();
+      const detectedMimeType = String(String(dataUrl || '').match(/^data:([^;]+);base64,/i)?.[1] || '').trim();
+      const itemId = await repository.saveMusicItem(user.uid, meta.itemId || null, {
+        title: sanitizeMusicText(meta.title, 'Untitled Track'),
+        artist: sanitizeMusicText(meta.artist, ''),
+        album: sanitizeMusicText(meta.album, ''),
+        noteText: String(meta.noteText || ''),
+        mimeType: String(meta.mimeType || detectedMimeType || 'audio/*'),
+        duration: Number(meta.duration || 0) || 0,
+        sizeBytes: Number(meta.sizeBytes || 0) || 0,
+        originLabel: normalizeMusicOriginLabel(meta.originLabel),
+        sourceLooperHistoryId: String(meta.sourceLooperHistoryId || ''),
+        sourceMusicItemId: String(meta.sourceMusicItemId || ''),
+        updatedAt: now,
+        createdAt: Number(meta.createdAt || 0) || now
+      });
+      const chunkCount = await repository.saveMusicMediaData(user.uid, itemId, dataUrl);
+      await repository.updateMusicItem(user.uid, itemId, { mediaStored: true, mediaChunkCount: chunkCount, updatedAt: Date.now() });
+      await loadMusicLibrary();
+      return itemId;
+    }
+
+    async function loadMusicTrackSource(itemId, { autoplay = false } = {}) {
+      const item = getMusicItemById(itemId);
+      if (!item || !repository || !user || user.isAnonymous) {
+        showToast('Sign in to load music from your library.');
+        return;
+      }
+      const audio = getMusicAudioEl();
+      if (!audio) return;
+      musicLoadingTrackId = itemId;
+      setMusicStatus('Loading track...');
+      try {
+        const dataUrl = await repository.loadMusicMediaData(user.uid, itemId);
+        if (!dataUrl) {
+          showToast('Could not load this track.');
+          return;
+        }
+        const blob = dataUrlToBlob(dataUrl);
+        resetMusicObjectUrl();
+        musicActiveDataUrl = dataUrl;
+        musicObjectUrl = blob ? URL.createObjectURL(blob) : dataUrl;
+        audio.src = musicObjectUrl;
+        activeMusicTrackId = itemId;
+        musicSelectedTrackId = itemId;
+        fillMusicEditor(item);
+        renderMusicLibrary();
+        renderMusicPlayer();
+        renderMusicQueue();
+        if (autoplay) {
+          try { await audio.play(); } catch {}
+        }
+        setMusicStatus(`Loaded ${item.title}`, false);
+      } catch (e) {
+        console.error('Could not load music track', e);
+        showToast('Could not load this track.');
+        setMusicStatus('Could not load track.', true);
+      } finally {
+        musicLoadingTrackId = '';
+      }
+    }
+
+    function rebuildMusicQueueFromIds(ids = [], activeId = '') {
+      const nextIds = ids.map(id => String(id || '').trim()).filter(id => getMusicItemById(id));
+      musicQueueIds = nextIds;
+      musicQueueIndex = activeId ? nextIds.indexOf(activeId) : (nextIds.length ? 0 : -1);
+      renderMusicQueue();
+    }
+
+    window.showMusicToolView = function(view = 'library') {
+      showMusicToolView(view);
+    };
+
+    window.renderMusicLibrary = function() {
+      renderMusicLibrary();
+    };
+
+    window.renderMusicLooperImportList = function() {
+      renderMusicLooperImportList();
+    };
+
+    window.selectMusicTrack = function(itemId) {
+      const item = getMusicItemById(itemId);
+      if (!item) return;
+      musicSelectedTrackId = item.id;
+      fillMusicEditor(item);
+      renderMusicLibrary();
+      renderMusicPlaylists();
+    };
+
+    window.clearMusicSelection = function() {
+      clearMusicSelection();
+    };
+
+    window.handleMusicUploadSelected = async function(event) {
+      const file = event?.target?.files?.[0];
+      if (!file) return;
+      if (!user || user.isAnonymous) {
+        showToast('Create an account to save music.');
+        event.target.value = '';
+        return;
+      }
+      if (detectUploadMediaType(file) !== 'audio') {
+        showToast('Please choose an audio file.');
+        event.target.value = '';
+        return;
+      }
+      setMusicStatus('Uploading track...');
+      try {
+        const dataUrl = await readFileAsDataUrl(file);
+        const title = sanitizeMusicText(file.name.replace(/\.[^.]+$/, ''), 'Uploaded Track');
+        const itemId = await saveMusicItemFromDataUrl(dataUrl, {
+          title,
+          mimeType: String(file.type || 'audio/*'),
+          sizeBytes: Number(file.size || 0) || 0,
+          originLabel: 'Uploaded'
+        });
+        musicSelectedTrackId = itemId;
+        fillMusicEditor(getMusicItemById(itemId));
+        renderMusicLibrary();
+        renderMusicPlaylists();
+        setMusicStatus('Track uploaded.', false);
+        showToast('Track saved to your music library.', true);
+      } catch (e) {
+        console.error('Music upload failed', e);
+        setMusicStatus('Could not upload track.', true);
+        showToast('Could not upload this track.');
+      } finally {
+        event.target.value = '';
+      }
+    };
+
+    window.saveMusicMetadataEdits = async function() {
+      const item = getSelectedMusicItem();
+      if (!item || !repository || !user || user.isAnonymous) {
+        showToast('Select a saved track first.');
+        return;
+      }
+      try {
+        await repository.updateMusicItem(user.uid, item.id, {
+          title: sanitizeMusicText(document.getElementById('tool-music-title')?.value || '', item.title),
+          artist: sanitizeMusicText(document.getElementById('tool-music-artist')?.value || ''),
+          album: sanitizeMusicText(document.getElementById('tool-music-album')?.value || ''),
+          noteText: String(document.getElementById('tool-music-notes')?.value || ''),
+          updatedAt: Date.now()
+        });
+        await loadMusicLibrary();
+        musicSelectedTrackId = item.id;
+        fillMusicEditor(getMusicItemById(item.id));
+        renderMusicLibrary();
+        renderMusicPlaylists();
+        showToast('Track details updated.', true);
+      } catch (e) {
+        console.error('Could not update music metadata', e);
+        showToast('Could not update this track.');
+      }
+    };
+
+    window.deleteSelectedMusicTrack = async function() {
+      const item = getSelectedMusicItem();
+      if (!item || !repository || !user || user.isAnonymous) {
+        showToast('Select a saved track first.');
+        return;
+      }
+      if (!confirm(`Delete "${item.title}" from your music library?`)) return;
+      try {
+        await repository.deleteMusicMediaData(user.uid, item.id);
+        await repository.deleteMusicItem(user.uid, item.id);
+        for (const playlist of musicPlaylists) {
+          if (!playlist.itemIds.includes(item.id)) continue;
+          await repository.saveMusicPlaylist(user.uid, playlist.id, {
+            ...playlist,
+            itemIds: playlist.itemIds.filter(id => id !== item.id),
+            updatedAt: Date.now()
+          });
+        }
+        if (activeMusicTrackId === item.id) {
+          const audio = getMusicAudioEl();
+          if (audio) {
+            audio.pause();
+            audio.removeAttribute('src');
+            audio.load();
+          }
+          activeMusicTrackId = '';
+          musicActiveDataUrl = '';
+          resetMusicObjectUrl();
+        }
+        rebuildMusicQueueFromIds(musicQueueIds.filter(id => id !== item.id), '');
+        await loadMusicLibrary();
+        musicPlaylists = user && !user.isAnonymous ? (await repository.loadMusicPlaylists(user.uid)).map(normalizeMusicPlaylist) : [];
+        clearMusicSelection();
+        renderMusicPlayer();
+        renderMusicPlaylists();
+        showToast('Track deleted.', true);
+      } catch (e) {
+        console.error('Could not delete music track', e);
+        showToast('Could not delete this track.');
+      }
+    };
+
+    window.playMusicTrackDirect = async function(itemId) {
+      const ids = getFilteredMusicLibrary().map(item => item.id);
+      rebuildMusicQueueFromIds(ids, itemId);
+      if (musicQueueIndex < 0) musicQueueIndex = 0;
+      await loadMusicTrackSource(String(itemId || ''), { autoplay: true });
+      showMusicToolView('player');
+    };
+
+    window.playSelectedMusicTrack = async function() {
+      const item = getSelectedMusicItem();
+      if (!item) {
+        showToast('Select a track first.');
+        return;
+      }
+      await window.playMusicTrackDirect(item.id);
+    };
+
+    window.queueMusicTrackById = function(itemId) {
+      const item = getMusicItemById(itemId);
+      if (!item) return;
+      if (!musicQueueIds.includes(item.id)) musicQueueIds.push(item.id);
+      if (musicQueueIndex < 0) musicQueueIndex = 0;
+      renderMusicQueue();
+      showToast(`Added "${item.title}" to queue.`, true);
+    };
+
+    window.queueSelectedMusicTrack = function() {
+      const item = getSelectedMusicItem();
+      if (!item) {
+        showToast('Select a track first.');
+        return;
+      }
+      window.queueMusicTrackById(item.id);
+    };
+
+    window.playMusicQueueIndex = async function(index) {
+      const nextIndex = Number(index);
+      if (!Number.isFinite(nextIndex) || nextIndex < 0 || nextIndex >= musicQueueIds.length) return;
+      musicQueueIndex = nextIndex;
+      const itemId = musicQueueIds[musicQueueIndex];
+      await loadMusicTrackSource(itemId, { autoplay: true });
+      renderMusicQueue();
+      showMusicToolView('player');
+    };
+
+    window.removeMusicQueueIndex = function(index) {
+      const nextIndex = Number(index);
+      if (!Number.isFinite(nextIndex) || nextIndex < 0 || nextIndex >= musicQueueIds.length) return;
+      const removedId = musicQueueIds[nextIndex];
+      musicQueueIds = musicQueueIds.filter((_, idx) => idx !== nextIndex);
+      if (musicQueueIndex > nextIndex) musicQueueIndex -= 1;
+      else if (musicQueueIndex === nextIndex) {
+        musicQueueIndex = Math.min(musicQueueIds.length - 1, nextIndex);
+        if (activeMusicTrackId === removedId) activeMusicTrackId = musicQueueIds[musicQueueIndex] || '';
+      }
+      renderMusicQueue();
+      renderMusicPlayer();
+    };
+
+    window.clearMusicQueue = function() {
+      musicQueueIds = [];
+      musicQueueIndex = -1;
+      renderMusicQueue();
+    };
+
+    window.toggleMusicPlayback = async function() {
+      const audio = getMusicAudioEl();
+      if (!audio) return;
+      if (!audio.src && activeMusicTrackId) {
+        await loadMusicTrackSource(activeMusicTrackId, { autoplay: true });
+        return;
+      }
+      if (!audio.src && musicQueueIds.length) {
+        await window.playMusicQueueIndex(Math.max(0, musicQueueIndex));
+        return;
+      }
+      if (audio.paused) {
+        try { await audio.play(); } catch {}
+      } else {
+        audio.pause();
+      }
+    };
+
+    window.playNextMusicTrack = async function() {
+      if (!musicQueueIds.length) {
+        showToast('Queue is empty.');
+        return;
+      }
+      const nextIndex = musicQueueIndex + 1;
+      if (nextIndex >= musicQueueIds.length) {
+        showToast('Reached the end of the queue.', true);
+        return;
+      }
+      await window.playMusicQueueIndex(nextIndex);
+    };
+
+    window.playPreviousMusicTrack = async function() {
+      if (!musicQueueIds.length) {
+        showToast('Queue is empty.');
+        return;
+      }
+      const nextIndex = Math.max(0, musicQueueIndex - 1);
+      await window.playMusicQueueIndex(nextIndex);
+    };
+
+    window.createMusicPlaylist = async function() {
+      const input = document.getElementById('tool-music-playlist-name');
+      const name = sanitizeMusicText(input?.value || '', '');
+      if (!name) {
+        showToast('Enter a playlist name.');
+        return;
+      }
+      if (!repository || !user || user.isAnonymous) {
+        showToast('Create an account to save playlists.');
+        return;
+      }
+      try {
+        await repository.saveMusicPlaylist(user.uid, null, {
+          name,
+          itemIds: [],
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        });
+        if (input) input.value = '';
+        musicPlaylists = (await repository.loadMusicPlaylists(user.uid)).map(normalizeMusicPlaylist);
+        renderMusicPlaylists();
+        showToast('Playlist created.', true);
+      } catch (e) {
+        console.error('Could not create playlist', e);
+        showToast('Could not create playlist.');
+      }
+    };
+
+    window.addSelectedTrackToPlaylist = async function(playlistId) {
+      const track = getSelectedMusicItem();
+      const playlist = musicPlaylists.find(item => item.id === String(playlistId || '').trim());
+      if (!track) {
+        showToast('Select a track first.');
+        return;
+      }
+      if (!playlist || !repository || !user || user.isAnonymous) return;
+      try {
+        await repository.saveMusicPlaylist(user.uid, playlist.id, {
+          ...playlist,
+          itemIds: Array.from(new Set([...playlist.itemIds, track.id])),
+          updatedAt: Date.now()
+        });
+        musicPlaylists = (await repository.loadMusicPlaylists(user.uid)).map(normalizeMusicPlaylist);
+        musicSelectedPlaylistId = playlist.id;
+        renderMusicPlaylists();
+        showToast(`Added "${track.title}" to ${playlist.name}.`, true);
+      } catch (e) {
+        console.error('Could not update playlist', e);
+        showToast('Could not update playlist.');
+      }
+    };
+
+    window.deleteMusicPlaylist = async function(playlistId) {
+      const playlist = musicPlaylists.find(item => item.id === String(playlistId || '').trim());
+      if (!playlist || !repository || !user || user.isAnonymous) return;
+      if (!confirm(`Delete playlist "${playlist.name}"?`)) return;
+      try {
+        await repository.deleteMusicPlaylist(user.uid, playlist.id);
+        musicPlaylists = (await repository.loadMusicPlaylists(user.uid)).map(normalizeMusicPlaylist);
+        if (musicSelectedPlaylistId === playlist.id) musicSelectedPlaylistId = '';
+        renderMusicPlaylists();
+        showToast('Playlist deleted.', true);
+      } catch (e) {
+        console.error('Could not delete playlist', e);
+        showToast('Could not delete playlist.');
+      }
+    };
+
+    window.playMusicPlaylist = async function(playlistId) {
+      const playlist = musicPlaylists.find(item => item.id === String(playlistId || '').trim());
+      if (!playlist) return;
+      const validIds = playlist.itemIds.filter(id => getMusicItemById(id));
+      if (!validIds.length) {
+        showToast('This playlist has no playable tracks.');
+        return;
+      }
+      musicSelectedPlaylistId = playlist.id;
+      rebuildMusicQueueFromIds(validIds, validIds[0]);
+      await window.playMusicQueueIndex(0);
+      renderMusicPlaylists();
+    };
+
+    window.importActiveLooperToMusic = async function() {
+      if (!user || user.isAnonymous || !repository) {
+        showToast('Create an account to save music.');
+        return;
+      }
+      if (!looperPendingDataUrl) {
+        showToast('Load a local looper audio/video file first.');
+        return;
+      }
+      try {
+        const itemId = await saveMusicItemFromDataUrl(looperPendingDataUrl, {
+          title: getDefaultLooperTitle(),
+          mimeType: looperActiveSource?.mimeType || 'audio/*',
+          sizeBytes: Number(looperPendingUploadFile?.size || 0) || 0,
+          duration: Number(looperDuration || getLooperDuration() || 0) || 0,
+          originLabel: 'Looper',
+          sourceLooperHistoryId: String(activeLooperHistoryId || '')
+        });
+        musicSelectedTrackId = itemId;
+        fillMusicEditor(getMusicItemById(itemId));
+        renderMusicLibrary();
+        showToast('Current looper track imported.', true);
+      } catch (e) {
+        console.error('Could not import active looper track', e);
+        showToast('Could not import current looper track.');
+      }
+    };
+
+    window.importLooperHistoryItemToMusic = async function(itemId) {
+      const item = looperHistory.find(entry => entry.id === String(itemId || '').trim());
+      if (!item || !repository || !user || user.isAnonymous) {
+        showToast('Sign in to import looper tracks.');
+        return;
+      }
+      try {
+        const dataUrl = await repository.loadLooperMediaData(user.uid, item.id);
+        if (!dataUrl) {
+          showToast('This looper item has no saved media.');
+          return;
+        }
+        const nextId = await saveMusicItemFromDataUrl(dataUrl, {
+          title: sanitizeMusicText(item.title || '', 'Looper Import'),
+          mimeType: item.mediaType === 'video' ? 'video/*' : 'audio/*',
+          sizeBytes: Number(item.sizeBytes || 0) || 0,
+          duration: Number(item.duration || 0) || 0,
+          originLabel: 'Looper',
+          sourceLooperHistoryId: item.id
+        });
+        musicSelectedTrackId = nextId;
+        fillMusicEditor(getMusicItemById(nextId));
+        renderMusicLibrary();
+        showToast('Looper item imported to music library.', true);
+      } catch (e) {
+        console.error('Could not import looper history item', e);
+        showToast('Could not import that looper item.');
+      }
+    };
+
+    window.openMusicInAudioStudio = function(itemId = '') {
+      const safeId = encodeURIComponent(String(itemId || '').trim());
+      const target = safeId ? `/AudioStudio/?musicId=${safeId}` : '/AudioStudio/';
+      window.open(target, '_blank', 'noopener,noreferrer');
+    };
+
+    function bindMusicAudioUi() {
+      const audio = getMusicAudioEl();
+      if (!audio || audio.dataset.boundMusic === '1') return;
+      audio.dataset.boundMusic = '1';
+      audio.addEventListener('ended', () => {
+        if (musicQueueIndex >= 0 && musicQueueIndex < musicQueueIds.length - 1) {
+          window.playNextMusicTrack();
+        } else {
+          setMusicStatus('Queue finished.', false);
+        }
+      });
+      audio.addEventListener('play', () => {
+        const item = getMusicItemById(activeMusicTrackId);
+        if (item) setMusicStatus(`Playing ${item.title}`, false);
+      });
+      audio.addEventListener('pause', () => {
+        if (audio.ended) return;
+        const item = getMusicItemById(activeMusicTrackId);
+        if (item) setMusicStatus(`Paused ${item.title}`, false);
+      });
     }
 
     function setTabsPreviewStatus(text = '', isError = false) {
@@ -3291,6 +4075,7 @@ Drop back to 70 BPM for clean finish.`,
               await loadGuitarToneProfiles();
               await loadToolRecordings();
               await loadLooperHistory();
+              await loadMusicLibrary();
               renderToolRecordings();
               renderLooperHistory();
               renderChordExplorer();
@@ -3306,7 +4091,13 @@ Drop back to 70 BPM for clean finish.`,
             updateUserHeaderState();
             refreshLibraryAdminButtons();
             looperHistory = withLooperSource(repository?.loadLooperHistoryFromDeviceCache?.() || [], 'device');
+            musicLibrary = repository?.loadMusicLibraryFromDeviceCache?.().map(normalizeMusicItem) || [];
+            musicPlaylists = [];
             renderLooperHistory();
+            renderMusicLibrary();
+            renderMusicPlayer();
+            renderMusicQueue();
+            renderMusicPlaylists();
             renderHomeDashboard();
             try {
               await signInAnonymously(auth);
@@ -5382,6 +6173,15 @@ Drop back to 70 BPM for clean finish.`,
         } else {
           renderToolSongsBrowse();
         }
+      }
+      if (tool === 'music') {
+        bindMusicAudioUi();
+        renderMusicToolTabs();
+        renderMusicLibrary();
+        renderMusicPlayer();
+        renderMusicQueue();
+        renderMusicPlaylists();
+        renderMusicLooperImportList();
       }
       if (tool === 'looper') {
         refreshLooperUi();

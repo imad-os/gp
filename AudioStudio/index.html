@@ -15,7 +15,9 @@
           <button data-action="new-project">New<span>Ctrl+N</span></button>
           <hr>
           <button data-action="open-audio">Open Audio<span>Ctrl+O</span></button>
+          <button data-action="open-music-library">Open From Music</button>
           <button data-action="export-audio">Export Audio<span>Ctrl+E</span></button>
+          <button data-action="save-to-music-library">Save To Music</button>
           <hr>
           <button data-action="save-profile">Save Profile<span>Ctrl+Shift+S</span></button>
           <button data-action="apply-profile">Apply Profile<span>Ctrl+Shift+O</span></button>
@@ -145,6 +147,19 @@
   <div id="settingsModal" class="modal-shell" hidden>
     <div class="modal-card settings-modal-card">
       <div id="settingsModalContent"></div>
+    </div>
+  </div>
+
+  <div id="musicLibraryModal" class="modal-shell" hidden>
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">Music Collection</div>
+          <div class="modal-subtitle">Open a saved track from your Guitar Trainer music library.</div>
+        </div>
+        <button class="modal-close" data-action="close-music-library-modal">Ã—</button>
+      </div>
+      <div id="musicLibraryList" class="profile-list"></div>
     </div>
   </div>
 

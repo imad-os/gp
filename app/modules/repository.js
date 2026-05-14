@@ -223,6 +223,9 @@ export class FirestoreRepository {
       push('user_recordings', `users/${userId}/tool_recordings`, await this.measureCollectionUsage(['users', userId, 'tool_recordings']));
       push('user_looper_history', `users/${userId}/looper_history`, await this.measureCollectionUsage(['users', userId, 'looper_history']));
       push('user_looper_chunks', `users/${userId}/looper_history/*/media_chunks`, await this.measureNestedUsage(['users', userId, 'looper_history'], 'media_chunks'));
+      push('user_music', `users/${userId}/music`, await this.measureCollectionUsage(['users', userId, 'music']));
+      push('user_music_chunks', `users/${userId}/music/*/media_chunks`, await this.measureNestedUsage(['users', userId, 'music'], 'media_chunks'));
+      push('user_music_playlists', `users/${userId}/music_playlists`, await this.measureCollectionUsage(['users', userId, 'music_playlists']));
       push('user_gp_files', `users/${userId}/guitarpro_files`, await this.measureCollectionUsage(['users', userId, 'guitarpro_files']));
       push('user_gp_chunks', `users/${userId}/guitarpro_files/*/file_chunks`, await this.measureNestedUsage(['users', userId, 'guitarpro_files'], 'file_chunks'));
     }
@@ -622,6 +625,176 @@ export class FirestoreRepository {
     const snap = await getDocs(chunksRef);
     for (const entry of snap.docs) {
       await deleteDoc(entry.ref);
+    }
+  }
+
+  async loadMusicLibrary(userId) {
+    const items = await this.readWithCache(this.makeCacheKey('music_library', userId), async () => {
+      const ref = collection(this.db, 'users', userId, 'music');
+      const snap = await getDocs(ref);
+      return snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+    });
+    this.setCacheJson(this.makeCacheKey('music_library_device', 'all'), items);
+    return Array.isArray(items) ? items : [];
+  }
+
+  loadMusicLibraryFromDeviceCache() {
+    return this.getCacheJson(this.makeCacheKey('music_library_device', 'all')) || [];
+  }
+
+  async saveMusicItem(userId, itemId, payload) {
+    if (!userId) throw new Error('Missing user id');
+    const id = String(itemId || '').trim();
+    if (id) {
+      await setDoc(doc(this.db, 'users', userId, 'music', id), payload, { merge: true });
+    } else {
+      const created = await addDoc(collection(this.db, 'users', userId, 'music'), payload);
+      itemId = created.id;
+    }
+    const safeId = String(itemId || id || '').trim();
+    const cacheKey = this.makeCacheKey('music_library', userId);
+    const current = this.getCacheJson(cacheKey);
+    if (Array.isArray(current)) {
+      const idx = current.findIndex(item => item?.id === safeId);
+      const nextItem = { id: safeId, ...(idx >= 0 ? current[idx] : {}), ...payload };
+      const next = idx >= 0 ? current.map(item => (item?.id === safeId ? nextItem : item)) : [nextItem, ...current];
+      next.sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+      this.setCacheJson(cacheKey, next);
+      this.setCacheJson(this.makeCacheKey('music_library_device', 'all'), next);
+    }
+    return safeId;
+  }
+
+  async updateMusicItem(userId, itemId, patch) {
+    if (!userId || !itemId) return;
+    await setDoc(doc(this.db, 'users', userId, 'music', itemId), patch, { merge: true });
+    const cacheKey = this.makeCacheKey('music_library', userId);
+    const current = this.getCacheJson(cacheKey);
+    if (Array.isArray(current)) {
+      const next = current.map(item => (item?.id === itemId ? { ...item, ...patch } : item))
+        .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+      this.setCacheJson(cacheKey, next);
+      this.setCacheJson(this.makeCacheKey('music_library_device', 'all'), next);
+    }
+  }
+
+  async deleteMusicItem(userId, itemId) {
+    if (!userId || !itemId) return;
+    await deleteDoc(doc(this.db, 'users', userId, 'music', itemId));
+    const cacheKey = this.makeCacheKey('music_library', userId);
+    const current = this.getCacheJson(cacheKey);
+    if (Array.isArray(current)) {
+      const next = current.filter(item => item?.id !== itemId);
+      this.setCacheJson(cacheKey, next);
+      this.setCacheJson(this.makeCacheKey('music_library_device', 'all'), next);
+    }
+    await this.idbDelete(this.makeCacheKey('music_media', `${userId}:${itemId}`));
+    await this.idbDelete(this.makeCacheKey('music_media_device', itemId));
+  }
+
+  async saveMusicMediaData(userId, itemId, dataUrl) {
+    const chunksRef = collection(this.db, 'users', userId, 'music', itemId, 'media_chunks');
+    const existing = await getDocs(chunksRef);
+    for (const entry of existing.docs) {
+      await deleteDoc(entry.ref);
+    }
+    const CHUNK_SIZE = 350000;
+    const source = String(dataUrl || '');
+    const chunkCount = Math.max(1, Math.ceil(source.length / CHUNK_SIZE));
+    for (let i = 0; i < chunkCount; i += 1) {
+      const start = i * CHUNK_SIZE;
+      const part = source.slice(start, start + CHUNK_SIZE);
+      const chunkId = String(i).padStart(5, '0');
+      await setDoc(doc(chunksRef, chunkId), { index: i, data: part });
+    }
+    await this.idbSet(this.makeCacheKey('music_media', `${userId}:${itemId}`), source);
+    await this.idbSet(this.makeCacheKey('music_media_device', itemId), source);
+    return chunkCount;
+  }
+
+  async loadMusicMediaData(userId, itemId, onProgress = null) {
+    const cacheKey = this.makeCacheKey('music_media', `${userId}:${itemId}`);
+    try {
+      const value = await this.readWithIdbCache(cacheKey, async () => {
+        const chunksRef = collection(this.db, 'users', userId, 'music', itemId, 'media_chunks');
+        const snap = await getDocs(chunksRef);
+        if (snap.empty) return '';
+        if (typeof onProgress === 'function') onProgress(18);
+        const ordered = snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => (a.index ?? Number(a.id)) - (b.index ?? Number(b.id)));
+        const total = Math.max(1, ordered.length);
+        const parts = [];
+        for (let i = 0; i < ordered.length; i += 1) {
+          parts.push(String(ordered[i].data || ''));
+          if (typeof onProgress === 'function') {
+            const progress = 18 + Math.round(((i + 1) / total) * 72);
+            onProgress(Math.min(90, progress));
+          }
+          if (i % 25 === 0) await Promise.resolve();
+        }
+        if (typeof onProgress === 'function') onProgress(95);
+        return parts.join('');
+      }, { timeoutMs: 10000 });
+      if (value) {
+        await this.idbSet(this.makeCacheKey('music_media_device', itemId), value);
+        return value;
+      }
+      const globalFallback = await this.idbGet(this.makeCacheKey('music_media_device', itemId));
+      return globalFallback || '';
+    } catch {
+      const globalFallback = await this.idbGet(this.makeCacheKey('music_media_device', itemId));
+      return globalFallback || '';
+    }
+  }
+
+  async deleteMusicMediaData(userId, itemId) {
+    if (!userId || !itemId) return;
+    const chunksRef = collection(this.db, 'users', userId, 'music', itemId, 'media_chunks');
+    const snap = await getDocs(chunksRef);
+    for (const entry of snap.docs) {
+      await deleteDoc(entry.ref);
+    }
+    await this.idbDelete(this.makeCacheKey('music_media', `${userId}:${itemId}`));
+    await this.idbDelete(this.makeCacheKey('music_media_device', itemId));
+  }
+
+  async loadMusicPlaylists(userId) {
+    const items = await this.readWithCache(this.makeCacheKey('music_playlists', userId), async () => {
+      const ref = collection(this.db, 'users', userId, 'music_playlists');
+      const snap = await getDocs(ref);
+      return snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+    });
+    return Array.isArray(items) ? items : [];
+  }
+
+  async saveMusicPlaylist(userId, playlistId, payload) {
+    if (!userId) throw new Error('Missing user id');
+    const id = String(playlistId || '').trim() || `playlist-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+    await setDoc(doc(this.db, 'users', userId, 'music_playlists', id), payload, { merge: true });
+    const cacheKey = this.makeCacheKey('music_playlists', userId);
+    const current = this.getCacheJson(cacheKey);
+    if (Array.isArray(current)) {
+      const idx = current.findIndex(item => item?.id === id);
+      const nextItem = { id, ...(idx >= 0 ? current[idx] : {}), ...payload };
+      const next = idx >= 0 ? current.map(item => (item?.id === id ? nextItem : item)) : [nextItem, ...current];
+      next.sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+      this.setCacheJson(cacheKey, next);
+    }
+    return id;
+  }
+
+  async deleteMusicPlaylist(userId, playlistId) {
+    if (!userId || !playlistId) return;
+    await deleteDoc(doc(this.db, 'users', userId, 'music_playlists', playlistId));
+    const cacheKey = this.makeCacheKey('music_playlists', userId);
+    const current = this.getCacheJson(cacheKey);
+    if (Array.isArray(current)) {
+      this.setCacheJson(cacheKey, current.filter(item => item?.id !== playlistId));
     }
   }
 

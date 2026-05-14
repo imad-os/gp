@@ -60,6 +60,25 @@ function escapeHtml(value = "") {
     .replaceAll("'", "&#39;");
 }
 
+function dataUrlToBlob(dataUrl = "") {
+  const raw = String(dataUrl || "");
+  const parts = raw.split(",");
+  if (parts.length < 2) return null;
+  const meta = parts[0] || "";
+  const payload = parts.slice(1).join(",");
+  const mimeMatch = meta.match(/^data:([^;]+);base64$/i);
+  if (!mimeMatch) return null;
+  const mime = mimeMatch[1] || "application/octet-stream";
+  try {
+    const binary = atob(payload);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    return new Blob([bytes], { type: mime });
+  } catch {
+    return null;
+  }
+}
+
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyD-J0dAS2C7_KCpupKpvB_lLhi55TkbWTQ",
   authDomain: "guitarpractice-dfa4b.firebaseapp.com",
@@ -75,7 +94,7 @@ const STUDIO_SETTINGS_FIELD = "audiostudio_settings";
 const STUDIO_SETTINGS_STORAGE_KEY = "audiostudio.settings";
 const APP_VERSIONS_URL = "/AudioStudio/versions.json";
 const APP_BUILD = {
-  version: "v2026.05.14.27",
+  version: "v2026.05.14.28",
 };
 const AUDIO_FILE_EXTENSIONS = Object.freeze([
   ".mp3",
@@ -211,6 +230,51 @@ class StudioCloudStore {
       [STUDIO_PROFILES_FIELD]: profiles,
       [STUDIO_SETTINGS_FIELD]: normalizeStudioSettings(settings || {}),
     }, { merge: true });
+  }
+
+  async loadMusicLibrary(uid) {
+    const snap = await this.db.collection("users").doc(uid).collection("music").get();
+    return snap.docs
+      .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+      .sort((a, b) => (Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0)));
+  }
+
+  async loadMusicMediaData(uid, itemId) {
+    const snap = await this.db.collection("users").doc(uid).collection("music").doc(itemId).collection("media_chunks").get();
+    if (snap.empty) return "";
+    return snap.docs
+      .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+      .sort((a, b) => (Number(a.index ?? a.id) - Number(b.index ?? b.id)))
+      .map((entry) => String(entry.data || ""))
+      .join("");
+  }
+
+  async saveMusicEntry(uid, payload, itemId = "") {
+    const userRef = this.db.collection("users").doc(uid).collection("music");
+    if (itemId) {
+      await userRef.doc(itemId).set(payload, { merge: true });
+      return itemId;
+    }
+    const created = await userRef.add(payload);
+    return created.id;
+  }
+
+  async updateMusicEntry(uid, itemId, patch) {
+    await this.db.collection("users").doc(uid).collection("music").doc(itemId).set(patch, { merge: true });
+  }
+
+  async saveMusicMediaData(uid, itemId, dataUrl) {
+    const chunksRef = this.db.collection("users").doc(uid).collection("music").doc(itemId).collection("media_chunks");
+    const existing = await chunksRef.get();
+    for (const entry of existing.docs) await entry.ref.delete();
+    const source = String(dataUrl || "");
+    const CHUNK_SIZE = 350000;
+    const chunkCount = Math.max(1, Math.ceil(source.length / CHUNK_SIZE));
+    for (let i = 0; i < chunkCount; i += 1) {
+      const part = source.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+      await chunksRef.doc(String(i).padStart(5, "0")).set({ index: i, data: part });
+    }
+    return chunkCount;
   }
 }
 
@@ -1583,6 +1647,8 @@ class ProAudioStudioWeb {
     this.latestCatalogEntry = null;
     this.catalogUpdateAvailable = false;
     this.editingChangeIndex = null;
+    this.musicLibraryItems = [];
+    this.pendingMusicLibraryId = new URLSearchParams(window.location.search).get("musicId") || "";
     this.cacheElements();
     this.initDefaults();
     this.wave = new WaveformView(this.waveCanvas, (seconds) => this.seek(seconds));
@@ -1631,6 +1697,8 @@ class ProAudioStudioWeb {
     this.authEmail = document.getElementById("authEmail");
     this.authPassword = document.getElementById("authPassword");
     this.authMessage = document.getElementById("authMessage");
+    this.musicLibraryModal = document.getElementById("musicLibraryModal");
+    this.musicLibraryList = document.getElementById("musicLibraryList");
     this.profileModal.addEventListener("click", (event) => {
       if (event.target === this.profileModal) this.closeProfileModal();
     });
@@ -1639,6 +1707,9 @@ class ProAudioStudioWeb {
     });
     this.settingsModal?.addEventListener("click", (event) => {
       if (event.target === this.settingsModal) this.closeSettingsModal();
+    });
+    this.musicLibraryModal?.addEventListener("click", (event) => {
+      if (event.target === this.musicLibraryModal) this.closeMusicLibraryModal();
     });
     if (this.buildVersion) {
       this.buildVersion.textContent = APP_BUILD.version;
@@ -1717,6 +1788,16 @@ class ProAudioStudioWeb {
       this.updateAuthUI();
       this.renderActivePanel();
       this.renderAll();
+      if (this.pendingMusicLibraryId && this.canUseCloudStorage) {
+        const targetId = this.pendingMusicLibraryId;
+        this.pendingMusicLibraryId = "";
+        try {
+          this.musicLibraryItems = await this.cloud.loadMusicLibrary(user.uid);
+          await this.loadMusicLibraryItem(targetId);
+        } catch (error) {
+          this.setStatus(`Could not auto-open music item: ${error.message}`);
+        }
+      }
     });
     await this.cloud.ensureAnonymous();
   }
@@ -1856,13 +1937,21 @@ class ProAudioStudioWeb {
     EFFECTS.forEach((effect) => {
       const button = document.createElement("button");
       button.className = "effect-item";
-      button.textContent = effect.label;
       button.addEventListener("click", () => {
+        if (this.editingChangeIndex != null && effect.key !== this.activeEffectKey) {
+          const editingLabel = this.engine.changeLog[this.editingChangeIndex]?.label || "effect edit";
+          this.cancelEffectEditingSession({
+            nextEffectKey: effect.key,
+            statusText: `Canceled editing ${editingLabel}. Switched to ${effect.label}.`,
+          });
+          return;
+        }
         this.activeEffectKey = effect.key;
         this.renderActivePanel();
         this.updateEffectButtons();
       });
       button.dataset.effect = effect.key;
+      button.dataset.label = effect.label;
       this.effectList.appendChild(button);
     });
     this.updateEffectButtons();
@@ -1885,12 +1974,134 @@ class ProAudioStudioWeb {
 
   updateEffectButtons() {
     this.effectList.querySelectorAll(".effect-item").forEach((button) => {
-      button.classList.toggle("active", button.dataset.effect === this.activeEffectKey);
+      const isActive = button.dataset.effect === this.activeEffectKey;
+      const isEditing = isActive && this.editingChangeIndex != null;
+      button.classList.toggle("active", isActive);
+      button.classList.toggle("editing", isEditing);
+      button.textContent = isEditing ? `${button.dataset.label} (Editing)` : (button.dataset.label || "");
     });
+  }
+
+  closeMusicLibraryModal() {
+    if (this.musicLibraryModal) this.musicLibraryModal.hidden = true;
+  }
+
+  async openMusicLibraryModal() {
+    if (!this.canUseCloudStorage) {
+      alert("Sign in to open tracks from your shared music collection.");
+      return;
+    }
+    if (this.musicLibraryModal) this.musicLibraryModal.hidden = false;
+    await this.renderMusicLibraryModal();
+  }
+
+  async renderMusicLibraryModal() {
+    if (!this.musicLibraryList) return;
+    this.musicLibraryList.innerHTML = `<div class="profile-empty">Loading music library...</div>`;
+    try {
+      this.musicLibraryItems = await this.cloud.loadMusicLibrary(this.currentUser.uid);
+      if (!this.musicLibraryItems.length) {
+        this.musicLibraryList.innerHTML = `<div class="profile-empty">No music saved yet.</div>`;
+        return;
+      }
+      this.musicLibraryList.innerHTML = this.musicLibraryItems.map((item) => `
+        <button class="profile-item" data-role="open-music-item" data-id="${escapeHtml(item.id)}">
+          <div>
+            <div class="profile-name">${escapeHtml(item.title || "Untitled Track")}</div>
+            <div class="profile-meta">${escapeHtml(item.artist || "Unknown artist")} • ${escapeHtml(item.originLabel || "Uploaded")}</div>
+          </div>
+        </button>
+      `).join("");
+      this.musicLibraryList.querySelectorAll('[data-role="open-music-item"]').forEach((button) => {
+        button.addEventListener("click", async () => {
+          const itemId = button.getAttribute("data-id") || "";
+          await this.loadMusicLibraryItem(itemId);
+        });
+      });
+    } catch (error) {
+      this.musicLibraryList.innerHTML = `<div class="profile-empty">Could not load music collection.</div>`;
+      this.setStatus(`Music library load failed: ${error.message}`);
+    }
+  }
+
+  async loadMusicLibraryItem(itemId) {
+    if (!this.canUseCloudStorage) return;
+    const item = this.musicLibraryItems.find((entry) => entry.id === itemId);
+    if (!item) return;
+    try {
+      this.setBusy(true, "Loading music collection item...");
+      const dataUrl = await this.cloud.loadMusicMediaData(this.currentUser.uid, itemId);
+      const blob = dataUrlToBlob(dataUrl);
+      if (!blob) throw new Error("This saved track has no playable audio data.");
+      const ext = String(item.mimeType || blob.type || "audio/wav").split("/")[1] || "audio";
+      const safeExt = ext.replace(/[^a-z0-9]+/gi, "").toLowerCase() || "audio";
+      const fileName = `${String(item.title || "music").replace(/[<>:\"/\\|?*]+/g, "_")}.${safeExt}`;
+      const file = new File([blob], fileName, { type: item.mimeType || blob.type || "audio/*", lastModified: Number(item.updatedAt || Date.now()) });
+      await this.loadAudio(file);
+      this.closeMusicLibraryModal();
+      this.setStatus(`Loaded ${item.title || "music item"} from music collection`);
+    } catch (error) {
+      this.setStatus(`Could not open music item: ${error.message}`);
+      alert(`Could not open this music collection item.\n\n${error.message}`);
+    } finally {
+      this.setBusy(false);
+    }
+  }
+
+  async saveEditedAudioToMusicLibrary() {
+    if (!this.engine.currentBuffer) return alert("Open a file first.");
+    if (!this.canUseCloudStorage) {
+      alert("Sign in to save edited tracks to your shared music collection.");
+      return;
+    }
+    const baseName = this.engine.fileName.replace(/\.[^.]+$/, "") || "Edited Track";
+    const title = prompt("Save edited track as", `${baseName} Edited`);
+    if (!title) return;
+    try {
+      this.setBusy(true, "Saving to music collection...");
+      const blob = encodeWav(this.engine.currentBuffer);
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(reader.error || new Error("Read failed"));
+        reader.readAsDataURL(blob);
+      });
+      const now = Date.now();
+      const itemId = await this.cloud.saveMusicEntry(this.currentUser.uid, {
+        title: String(title || "").trim() || "Edited Track",
+        artist: "",
+        album: "Audio Studio",
+        noteText: "Saved from Audio Studio",
+        mimeType: "audio/wav",
+        duration: Number(this.engine.duration || 0) || 0,
+        sizeBytes: Number(blob.size || 0) || 0,
+        originLabel: "Edited",
+        updatedAt: now,
+        createdAt: now,
+      });
+      const chunkCount = await this.cloud.saveMusicMediaData(this.currentUser.uid, itemId, dataUrl);
+      await this.cloud.updateMusicEntry(this.currentUser.uid, itemId, { mediaStored: true, mediaChunkCount: chunkCount, updatedAt: Date.now() });
+      this.setStatus("Saved edited track to music collection");
+    } catch (error) {
+      this.setStatus(`Music save failed: ${error.message}`);
+      alert(`Could not save to music collection.\n\n${error.message}`);
+    } finally {
+      this.setBusy(false);
+    }
   }
 
   clearEffectEditingState() {
     this.editingChangeIndex = null;
+  }
+
+  cancelEffectEditingSession({ nextEffectKey = "", statusText = "Effect edit cancelled." } = {}) {
+    this.clearEffectEditingState();
+    this.previewEffectEnabled = false;
+    this.engine.clearPreviewBuffer();
+    if (nextEffectKey) this.activeEffectKey = nextEffectKey;
+    this.renderActivePanel();
+    this.renderAll();
+    this.setStatus(statusText);
   }
 
   canSafelyModifyAppliedEffects() {
@@ -2216,12 +2427,7 @@ class ProAudioStudioWeb {
 
     panel.querySelector(".save-preset-button").addEventListener("click", () => this.saveCurrentPreset());
     panel.querySelector('[data-role="cancel-effect-edit"]')?.addEventListener("click", () => {
-      this.clearEffectEditingState();
-      this.previewEffectEnabled = false;
-      this.engine.clearPreviewBuffer();
-      this.renderActivePanel();
-      this.renderAll();
-      this.setStatus("Effect edit cancelled");
+      this.cancelEffectEditingSession({ statusText: "Effect edit cancelled." });
     });
 
     const previewToggle = panel.querySelector('.preview-toggle input');
@@ -2862,6 +3068,9 @@ class ProAudioStudioWeb {
       case "open-audio":
         this.audioInput.click();
         break;
+      case "open-music-library":
+        this.openMusicLibraryModal();
+        break;
       case "new-project":
         this.engine.newProject();
         this.clearEffectEditingState();
@@ -2876,6 +3085,9 @@ class ProAudioStudioWeb {
         break;
       case "export-audio":
         this.exportAudio();
+        break;
+      case "save-to-music-library":
+        this.saveEditedAudioToMusicLibrary();
         break;
       case "save-profile":
         this.saveProfile();
@@ -2894,6 +3106,9 @@ class ProAudioStudioWeb {
         break;
       case "close-auth-modal":
         this.closeAuthModal();
+        break;
+      case "close-music-library-modal":
+        this.closeMusicLibraryModal();
         break;
       case "email-sign-in":
         this.emailSignIn();
