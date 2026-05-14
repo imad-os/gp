@@ -206,7 +206,7 @@ import { TOOL_PAGES, TOOL_PAGE_SET, TOOL_SUBTITLES, importToolModule } from './t
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.05.14.1',
+      version: 'v2026.05.14.2',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -5416,6 +5416,11 @@ Drop back to 70 BPM for clean finish.`,
       if (!skipUrl && !isHandlingRouteChange) {
         pushUrlPath(`/tools/${encodeURIComponent(tool)}`, { replace: replaceUrl });
       }
+    };
+
+    window.openExternalTool = function(uri = '/') {
+      const target = typeof uri === 'string' && uri.trim() ? uri.trim() : '/';
+      window.open(target, '_blank', 'noopener,noreferrer');
     };
 
     window.showToolsHome = function(options = {}) {
