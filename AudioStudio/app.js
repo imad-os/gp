@@ -51,6 +51,15 @@ function formatParamValue(value) {
   return String(value);
 }
 
+function escapeHtml(value = "") {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyD-J0dAS2C7_KCpupKpvB_lLhi55TkbWTQ",
   authDomain: "guitarpractice-dfa4b.firebaseapp.com",
@@ -62,6 +71,54 @@ const FIREBASE_CONFIG = {
 
 const STUDIO_PRESETS_FIELD = "audiostudio_effects_presets";
 const STUDIO_PROFILES_FIELD = "audiostudio_effects_profiles";
+const STUDIO_SETTINGS_FIELD = "audiostudio_settings";
+const STUDIO_SETTINGS_STORAGE_KEY = "audiostudio.settings";
+const APP_VERSIONS_URL = "/AudioStudio/versions.json";
+const APP_BUILD = {
+  version: "v2026.05.14.1",
+};
+const DEFAULT_SETTINGS = Object.freeze({
+  appFontSize: 15,
+});
+
+function normalizeStudioSettings(raw = {}) {
+  return {
+    appFontSize: clamp(Number(raw?.appFontSize || DEFAULT_SETTINGS.appFontSize), 12, 24),
+  };
+}
+
+function parseVersionParts(version = "") {
+  return String(version || "")
+    .trim()
+    .replace(/^v/i, "")
+    .split(/[^0-9]+/)
+    .filter(Boolean)
+    .map((part) => parseInt(part, 10))
+    .filter(Number.isFinite);
+}
+
+function compareVersions(a = "", b = "") {
+  const pa = parseVersionParts(a);
+  const pb = parseVersionParts(b);
+  const maxLen = Math.max(pa.length, pb.length);
+  for (let i = 0; i < maxLen; i += 1) {
+    const va = pa[i] || 0;
+    const vb = pb[i] || 0;
+    if (va > vb) return 1;
+    if (va < vb) return -1;
+  }
+  return String(a || "").localeCompare(String(b || ""), undefined, { numeric: true, sensitivity: "base" });
+}
+
+function normalizeVersionUpdateEntry(entry = {}) {
+  return {
+    version: String(entry.version || "").trim(),
+    releasedAt: String(entry.releasedAt || entry.date || "").trim(),
+    summary: String(entry.summary || "").trim(),
+    description: String(entry.description || "").trim(),
+    changes: Array.isArray(entry.changes) ? entry.changes.map((item) => String(item || "").trim()).filter(Boolean) : [],
+  };
+}
 
 class StudioCloudStore {
   constructor() {
@@ -105,13 +162,15 @@ class StudioCloudStore {
     return {
       presets: data?.[STUDIO_PRESETS_FIELD] || {},
       profiles: data?.[STUDIO_PROFILES_FIELD] || [],
+      settings: normalizeStudioSettings(data?.[STUDIO_SETTINGS_FIELD] || {}),
     };
   }
 
-  async saveUserData(uid, { presets, profiles }) {
+  async saveUserData(uid, { presets, profiles, settings }) {
     await this.db.collection("users").doc(uid).set({
       [STUDIO_PRESETS_FIELD]: presets,
       [STUDIO_PROFILES_FIELD]: profiles,
+      [STUDIO_SETTINGS_FIELD]: normalizeStudioSettings(settings || {}),
     }, { merge: true });
   }
 }
@@ -1202,6 +1261,7 @@ class ProAudioStudioWeb {
     this.cloud = new StudioCloudStore();
     this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     this.engine = new AudioEngine(this.audioCtx);
+    this.activeView = "effect";
     this.activeEffectKey = EFFECTS[0].key;
     this.effectValues = {};
     this.processing = false;
@@ -1211,8 +1271,18 @@ class ProAudioStudioWeb {
     this.cursorRAF = 0;
     this.userPresets = {};
     this.userProfiles = [];
+    this.userSettings = normalizeStudioSettings(DEFAULT_SETTINGS);
     this.currentUser = null;
     this.authInitialized = false;
+    this.swRegistration = null;
+    this.swUpdateReady = false;
+    this.swUpdateFlowStarted = false;
+    this.swControllerReloadTriggered = false;
+    this.swPeriodicUpdateTimer = null;
+    this.updateHistory = [];
+    this.latestCatalogVersion = APP_BUILD.version;
+    this.latestCatalogEntry = null;
+    this.catalogUpdateAvailable = false;
     this.cacheElements();
     this.initDefaults();
     this.wave = new WaveformView(this.waveCanvas, (seconds) => this.seek(seconds));
@@ -1222,10 +1292,12 @@ class ProAudioStudioWeb {
       this.setStatus("Playback finished");
     };
     this.buildEffectList();
-    this.renderActivePanel();
+    this.renderCurrentPanel();
     this.bindUI();
     this.renderAll();
     this.initAuth();
+    this.refreshVersionCatalog(false);
+    this.registerServiceWorker();
   }
 
   cacheElements() {
@@ -1268,6 +1340,28 @@ class ProAudioStudioWeb {
       });
       this.effectValues[effect.key] = initial;
     });
+    this.applyUserSettings(this.loadLocalSettings());
+  }
+
+  loadLocalSettings() {
+    try {
+      const raw = window.localStorage.getItem(STUDIO_SETTINGS_STORAGE_KEY);
+      if (!raw) return normalizeStudioSettings(DEFAULT_SETTINGS);
+      return normalizeStudioSettings(JSON.parse(raw));
+    } catch {
+      return normalizeStudioSettings(DEFAULT_SETTINGS);
+    }
+  }
+
+  persistLocalSettings() {
+    try {
+      window.localStorage.setItem(STUDIO_SETTINGS_STORAGE_KEY, JSON.stringify(this.userSettings));
+    } catch {}
+  }
+
+  applyUserSettings(settings = {}) {
+    this.userSettings = normalizeStudioSettings(settings);
+    document.documentElement.style.setProperty("--app-font-size", `${this.userSettings.appFontSize}px`);
   }
 
   async initAuth() {
@@ -1295,17 +1389,20 @@ class ProAudioStudioWeb {
       if (user.isAnonymous) {
         this.userPresets = {};
         this.userProfiles = [];
+        this.applyUserSettings(this.loadLocalSettings());
       } else {
         try {
           const data = await this.cloud.loadUserData(user.uid);
           this.userPresets = data.presets || {};
           this.userProfiles = data.profiles || [];
+          this.applyUserSettings(data.settings || DEFAULT_SETTINGS);
+          this.persistLocalSettings();
         } catch (error) {
           this.setStatus(`Cloud load failed: ${error.message}`);
         }
       }
       this.updateAuthUI();
-      this.renderActivePanel();
+      this.renderCurrentPanel();
       this.renderAll();
     });
     await this.cloud.ensureAnonymous();
@@ -1392,13 +1489,20 @@ class ProAudioStudioWeb {
       button.className = "effect-item";
       button.textContent = effect.label;
       button.addEventListener("click", () => {
+        this.activeView = "effect";
         this.activeEffectKey = effect.key;
-        this.renderActivePanel();
+        this.renderCurrentPanel();
         this.updateEffectButtons();
       });
       button.dataset.effect = effect.key;
       this.effectList.appendChild(button);
     });
+    const settingsButton = document.createElement("button");
+    settingsButton.className = "effect-item settings-entry";
+    settingsButton.textContent = "Settings";
+    settingsButton.dataset.effect = "__settings__";
+    settingsButton.addEventListener("click", () => this.openSettingsPanel());
+    this.effectList.appendChild(settingsButton);
     this.updateEffectButtons();
   }
 
@@ -1413,13 +1517,96 @@ class ProAudioStudioWeb {
     await this.cloud.saveUserData(this.currentUser.uid, {
       presets: this.userPresets,
       profiles: this.userProfiles,
+      settings: this.userSettings,
     });
   }
 
   updateEffectButtons() {
     this.effectList.querySelectorAll(".effect-item").forEach((button) => {
-      button.classList.toggle("active", button.dataset.effect === this.activeEffectKey);
+      const key = button.dataset.effect;
+      const active = this.activeView === "settings"
+        ? key === "__settings__"
+        : key === this.activeEffectKey;
+      button.classList.toggle("active", active);
     });
+  }
+
+  renderCurrentPanel() {
+    if (this.activeView === "settings") {
+      this.renderSettingsPanel();
+      return;
+    }
+    this.renderActivePanel();
+  }
+
+  openSettingsPanel() {
+    this.activeView = "settings";
+    this.renderCurrentPanel();
+    this.updateEffectButtons();
+  }
+
+  getPresetManagerEntries() {
+    return Object.entries(this.userPresets || {})
+      .flatMap(([effectKey, entries]) => (Array.isArray(entries) ? entries.map((entry) => ({ effectKey, ...entry })) : []))
+      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  }
+
+  renderSettingsPanel() {
+    const panel = document.createElement("div");
+    panel.className = "panel settings-panel";
+    panel.innerHTML = `
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">Settings</div>
+          <div class="panel-subtitle">Font size, updates, and preset management for Audio Studio.</div>
+        </div>
+      </div>
+      <div class="settings-grid">
+        <section class="settings-card">
+          <h3>Text Size</h3>
+          <p>Match the reading comfort of the main Guitar Trainer settings page.</p>
+          <div class="settings-row">
+            <input id="settings-font-size" type="range" min="12" max="24" step="1" value="${this.userSettings.appFontSize}">
+            <span id="settings-font-size-label" class="settings-value">${this.userSettings.appFontSize} px</span>
+            <button id="settings-save-btn" class="settings-button primary">Save Settings</button>
+          </div>
+        </section>
+        <section class="settings-card">
+          <h3>App Updates</h3>
+          <p id="settings-update-status">Checking update status...</p>
+          <div class="settings-row">
+            <button id="settings-update-btn" class="settings-button primary">Update App</button>
+            <button id="settings-check-update-btn" class="settings-button">Check For Updates</button>
+            <span id="settings-update-ready" class="settings-update-ready hidden">New version ready</span>
+          </div>
+          <div id="settings-update-description" class="settings-update-description hidden"></div>
+          <div id="settings-update-history" class="settings-history"></div>
+          <p id="settings-build-info"></p>
+        </section>
+        <section class="settings-card">
+          <h3>User Presets</h3>
+          <p>${this.canUseCloudStorage ? "Rename or delete the presets saved to your account." : "Sign in to rename or delete your cloud presets."}</p>
+          <div id="settings-preset-manager" class="preset-manager-list"></div>
+        </section>
+      </div>
+    `;
+    this.panelHost.replaceChildren(panel);
+
+    const slider = panel.querySelector("#settings-font-size");
+    const label = panel.querySelector("#settings-font-size-label");
+    slider?.addEventListener("input", () => {
+      const size = clamp(Number(slider.value), 12, 24);
+      label.textContent = `${size} px`;
+      this.applyUserSettings({ ...this.userSettings, appFontSize: size });
+    });
+    panel.querySelector("#settings-save-btn")?.addEventListener("click", () => this.saveSettings());
+    panel.querySelector("#settings-check-update-btn")?.addEventListener("click", () => this.checkForAppUpdate(true));
+    panel.querySelector("#settings-update-btn")?.addEventListener("click", () => this.forceAppUpdate());
+
+    this.renderPresetManagerUi();
+    this.renderBuildInfo();
+    this.updateSettingsUpdateUi();
+    this.renderUpdateHistoryUi();
   }
 
   renderActivePanel() {
@@ -1531,7 +1718,7 @@ class ProAudioStudioWeb {
       }
       if (!preset) return;
       this.effectValues[effect.key] = { ...this.effectValues[effect.key], ...preset };
-      this.renderActivePanel();
+      this.renderCurrentPanel();
       this.queuePreviewRender(true);
     });
 
@@ -1600,11 +1787,385 @@ class ProAudioStudioWeb {
     this.userPresets[effectKey] = list;
     try {
       await this.persistCloudData();
-      this.renderActivePanel();
+      this.renderCurrentPanel();
       this.setStatus(`Saved preset ${name}`);
     } catch (error) {
       this.setStatus(`Preset save failed: ${error.message}`);
       alert(`Could not save preset.\n\n${error.message}`);
+    }
+  }
+
+  async renameUserPreset(effectKey, oldName) {
+    if (!this.canUseCloudStorage) {
+      alert("Sign in to rename presets.");
+      return;
+    }
+    const nextName = prompt("Rename preset", oldName);
+    if (!nextName || nextName === oldName) return;
+    const list = this.getUserPresetEntries(effectKey);
+    const target = list.find((entry) => entry.name === oldName);
+    if (!target) return;
+    this.userPresets[effectKey] = list
+      .filter((entry) => entry.name !== oldName && entry.name !== nextName)
+      .concat([{ ...target, name: nextName, updatedAt: Date.now() }]);
+    try {
+      await this.persistCloudData();
+      this.renderCurrentPanel();
+      this.setStatus(`Renamed preset to ${nextName}`);
+    } catch (error) {
+      this.setStatus(`Rename failed: ${error.message}`);
+      alert(`Could not rename preset.\n\n${error.message}`);
+    }
+  }
+
+  async deleteUserPreset(effectKey, name) {
+    if (!this.canUseCloudStorage) {
+      alert("Sign in to delete presets.");
+      return;
+    }
+    if (!confirm(`Delete preset "${name}"?`)) return;
+    this.userPresets[effectKey] = this.getUserPresetEntries(effectKey).filter((entry) => entry.name !== name);
+    if (!this.userPresets[effectKey].length) delete this.userPresets[effectKey];
+    try {
+      await this.persistCloudData();
+      this.renderCurrentPanel();
+      this.setStatus(`Deleted preset ${name}`);
+    } catch (error) {
+      this.setStatus(`Delete failed: ${error.message}`);
+      alert(`Could not delete preset.\n\n${error.message}`);
+    }
+  }
+
+  renderPresetManagerUi() {
+    const host = document.getElementById("settings-preset-manager");
+    if (!host) return;
+    host.innerHTML = "";
+    const entries = this.getPresetManagerEntries();
+    if (!entries.length) {
+      host.innerHTML = `<div class="preset-empty">No user presets saved yet.</div>`;
+      return;
+    }
+    entries.forEach((entry) => {
+      const effectLabel = EFFECTS.find((item) => item.key === entry.effectKey)?.label || entry.effectKey;
+      const when = entry.updatedAt ? new Date(entry.updatedAt).toLocaleString() : "Unknown date";
+      const item = document.createElement("div");
+      item.className = "preset-manager-item";
+      item.innerHTML = `
+        <div>
+          <div class="preset-manager-name">${escapeHtml(entry.name || "Untitled preset")}</div>
+          <div class="preset-manager-meta">${escapeHtml(effectLabel)} • Updated ${escapeHtml(when)}</div>
+        </div>
+        <div class="preset-manager-actions">
+          <button class="settings-button" data-role="rename">Rename</button>
+          <button class="settings-button" data-role="delete">Delete</button>
+        </div>
+      `;
+      item.querySelector('[data-role="rename"]')?.addEventListener("click", () => this.renameUserPreset(entry.effectKey, entry.name));
+      item.querySelector('[data-role="delete"]')?.addEventListener("click", () => this.deleteUserPreset(entry.effectKey, entry.name));
+      host.appendChild(item);
+    });
+  }
+
+  async saveSettings() {
+    this.persistLocalSettings();
+    if (!this.canUseCloudStorage) {
+      this.renderCurrentPanel();
+      this.setStatus("Settings saved on this device.");
+      return;
+    }
+    try {
+      await this.persistCloudData();
+      this.renderCurrentPanel();
+      this.setStatus("Settings saved.");
+    } catch (error) {
+      this.setStatus(`Settings save failed: ${error.message}`);
+      alert(`Could not save settings.\n\n${error.message}`);
+    }
+  }
+
+  renderBuildInfo() {
+    const el = document.getElementById("settings-build-info");
+    if (!el) return;
+    el.textContent = `Version ${APP_BUILD.version} • Updated ${new Date().toLocaleString()}`;
+  }
+
+  renderUpdateHistoryUi() {
+    const historyEl = document.getElementById("settings-update-history");
+    const descriptionEl = document.getElementById("settings-update-description");
+    if (historyEl) {
+      if (!this.updateHistory.length) {
+        historyEl.innerHTML = `<p class="preset-empty">No update log available yet.</p>`;
+      } else {
+        historyEl.innerHTML = this.updateHistory.slice(0, 10).map((item) => {
+          const when = item.releasedAt ? new Date(item.releasedAt) : null;
+          const dateLabel = when && !Number.isNaN(when.getTime()) ? when.toLocaleString() : "Unknown date";
+          return `
+            <div class="settings-history-item">
+              <div class="settings-history-item-title">${escapeHtml(item.version || "Unversioned update")}</div>
+              <div class="settings-history-item-meta">${escapeHtml(dateLabel)}${item.summary ? ` • ${escapeHtml(item.summary)}` : ""}</div>
+            </div>
+          `;
+        }).join("");
+      }
+    }
+
+    if (!descriptionEl) return;
+    if (!this.catalogUpdateAvailable || !this.latestCatalogEntry) {
+      descriptionEl.classList.add("hidden");
+      descriptionEl.innerHTML = "";
+      return;
+    }
+    const changeLines = this.latestCatalogEntry.changes.length
+      ? `<ul>${this.latestCatalogEntry.changes.slice(0, 6).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
+      : "";
+    descriptionEl.innerHTML = `
+      <div class="settings-history-item-title">${escapeHtml(this.latestCatalogEntry.version || this.latestCatalogVersion)}</div>
+      ${this.latestCatalogEntry.summary ? `<div class="settings-history-item-meta">${escapeHtml(this.latestCatalogEntry.summary)}</div>` : ""}
+      ${this.latestCatalogEntry.description ? `<p>${escapeHtml(this.latestCatalogEntry.description)}</p>` : ""}
+      ${changeLines}
+    `;
+    descriptionEl.classList.remove("hidden");
+  }
+
+  updateSettingsUpdateUi() {
+    const status = document.getElementById("settings-update-status");
+    const notice = document.getElementById("settings-update-ready");
+    const hasAnyUpdate = this.swUpdateReady || this.catalogUpdateAvailable;
+    if (status) {
+      status.textContent = hasAnyUpdate
+        ? `New version ${this.latestCatalogVersion || APP_BUILD.version} available. Tap Update to apply it.`
+        : `App is up to date (build ${APP_BUILD.version}).`;
+    }
+    if (notice) notice.classList.toggle("hidden", !hasAnyUpdate);
+  }
+
+  markUpdateReady(showStatusMessage = true) {
+    if (this.swUpdateReady) return;
+    this.swUpdateReady = true;
+    this.updateSettingsUpdateUi();
+    if (showStatusMessage) this.setStatus("New app version available. Open Settings and tap Update.");
+  }
+
+  async refreshVersionCatalog(showFeedback = false) {
+    try {
+      const response = await fetch(`${APP_VERSIONS_URL}?t=${Date.now()}`, {
+        cache: "no-store",
+        headers: { "Cache-Control": "no-cache" },
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const payload = await response.json();
+      const updates = Array.isArray(payload?.updates)
+        ? payload.updates.map(normalizeVersionUpdateEntry).filter((item) => item.version)
+        : [];
+      updates.sort((a, b) => compareVersions(b.version, a.version));
+      this.updateHistory = updates;
+      this.latestCatalogVersion = String(payload?.latestVersion || updates[0]?.version || APP_BUILD.version);
+      this.latestCatalogEntry = updates.find((item) => item.version === this.latestCatalogVersion) || updates[0] || null;
+      this.catalogUpdateAvailable = compareVersions(this.latestCatalogVersion, APP_BUILD.version) > 0;
+      this.updateSettingsUpdateUi();
+      this.renderUpdateHistoryUi();
+      if (showFeedback) {
+        this.setStatus(this.catalogUpdateAvailable ? `New version ${this.latestCatalogVersion} is available.` : "No new version in update log right now.");
+      }
+      return this.catalogUpdateAvailable;
+    } catch (error) {
+      this.renderUpdateHistoryUi();
+      if (showFeedback) this.setStatus("Could not load update log.");
+      return false;
+    }
+  }
+
+  async waitForWaitingWorker(registration, timeoutMs = 12000) {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      if (registration.waiting) return true;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      try {
+        await registration.update();
+      } catch {}
+    }
+    return !!registration.waiting;
+  }
+
+  startPeriodicUpdateChecks() {
+    if (!("serviceWorker" in navigator) || this.swPeriodicUpdateTimer) return;
+    this.swPeriodicUpdateTimer = window.setInterval(async () => {
+      if (!navigator.onLine) return;
+      try {
+        const reg = this.swRegistration || await navigator.serviceWorker.getRegistration();
+        if (!reg) return;
+        this.swRegistration = reg;
+        await reg.update();
+        await this.refreshVersionCatalog(false);
+      } catch {}
+    }, 10 * 60 * 1000);
+  }
+
+  async checkForAppUpdate(showFeedback = false) {
+    if (!("serviceWorker" in navigator)) {
+      if (showFeedback) this.setStatus("This browser does not support service worker updates.");
+      return false;
+    }
+    if (!navigator.onLine) {
+      if (showFeedback) this.setStatus("You are offline. Connect to check for updates.");
+      return false;
+    }
+    const btn = document.getElementById("settings-check-update-btn");
+    const originalLabel = btn?.textContent || "";
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Checking...";
+    }
+    const status = document.getElementById("settings-update-status");
+    if (status) status.textContent = "Checking for updates...";
+    try {
+      const hasCatalogUpdate = await this.refreshVersionCatalog(false);
+      const reg = this.swRegistration || await navigator.serviceWorker.getRegistration();
+      if (!reg) {
+        this.updateSettingsUpdateUi();
+        return hasCatalogUpdate;
+      }
+      this.swRegistration = reg;
+      await reg.update();
+      const hasWaiting = await this.waitForWaitingWorker(reg);
+      if (hasWaiting) this.markUpdateReady(false);
+      if (hasWaiting || hasCatalogUpdate) {
+        this.updateSettingsUpdateUi();
+        if (showFeedback) {
+          this.setStatus(hasCatalogUpdate
+            ? `New version ${this.latestCatalogVersion} found. Tap Update to apply it.`
+            : "New app files are ready. Tap Update to apply it.");
+        }
+        return true;
+      }
+      this.updateSettingsUpdateUi();
+      if (showFeedback) this.setStatus("No new update right now.");
+      return false;
+    } catch (error) {
+      this.updateSettingsUpdateUi();
+      if (showFeedback) this.setStatus("Could not check for updates.");
+      return false;
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = originalLabel || "Check For Updates";
+      }
+    }
+  }
+
+  hardReloadWithBypass() {
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set("__app_update", String(Date.now()));
+      window.location.replace(url.toString());
+    } catch {
+      window.location.reload();
+    }
+  }
+
+  async forceAppUpdate() {
+    if (!("serviceWorker" in navigator)) {
+      this.setStatus("This browser does not support service worker updates.");
+      return;
+    }
+    const btn = document.getElementById("settings-update-btn");
+    const originalLabel = btn?.textContent || "";
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Updating...";
+    }
+    this.swUpdateFlowStarted = true;
+    this.setStatus("Applying update...");
+    try {
+      let reg = this.swRegistration || await navigator.serviceWorker.getRegistration();
+      if (!reg) {
+        reg = await navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" });
+      }
+      if (!reg) {
+        this.hardReloadWithBypass();
+        return;
+      }
+      this.swRegistration = reg;
+      const status = document.getElementById("settings-update-status");
+      if (status) status.textContent = "Checking for updates...";
+      await reg.update();
+      if (reg.waiting) {
+        this.swUpdateReady = true;
+        this.updateSettingsUpdateUi();
+        reg.waiting.postMessage({ type: "SKIP_WAITING" });
+        return;
+      }
+      if ("caches" in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.filter((key) => key.startsWith("guitartrainer-")).map((key) => caches.delete(key)));
+      }
+      if (navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({ type: "FORCE_UPDATE" });
+      }
+      if (status) status.textContent = "Refreshing cached app files...";
+      setTimeout(() => this.hardReloadWithBypass(), 1500);
+    } catch (error) {
+      this.swUpdateFlowStarted = false;
+      this.setStatus("Could not update right now.");
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = originalLabel || "Update App";
+      }
+    }
+  }
+
+  async registerServiceWorker() {
+    if (!("serviceWorker" in navigator)) return;
+    const isLocalhost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+    try {
+      if (isLocalhost) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map((reg) => reg.unregister()));
+        if ("caches" in window) {
+          const keys = await caches.keys();
+          await Promise.all(keys.map((key) => caches.delete(key)));
+        }
+        return;
+      }
+      this.swRegistration = await navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" });
+      this.startPeriodicUpdateChecks();
+      if (this.swRegistration.waiting) this.markUpdateReady();
+      this.swRegistration.addEventListener("updatefound", () => {
+        const installing = this.swRegistration.installing;
+        if (!installing) return;
+        installing.addEventListener("statechange", () => {
+          if (installing.state === "installed" && navigator.serviceWorker.controller) {
+            this.markUpdateReady();
+          }
+        });
+      });
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (this.swControllerReloadTriggered) return;
+        this.swControllerReloadTriggered = true;
+        if (this.swUpdateFlowStarted) window.location.reload();
+      });
+      navigator.serviceWorker.addEventListener("message", (event) => {
+        const data = event?.data || {};
+        if (data.type === "APP_FILES_REFRESHED") {
+          this.updateSettingsUpdateUi();
+          this.setStatus("App files refreshed. Reloading...");
+          if (this.swUpdateFlowStarted) setTimeout(() => this.hardReloadWithBypass(), 500);
+          return;
+        }
+        if (data.type === "APP_FILES_REFRESH_FAILED") {
+          this.swUpdateFlowStarted = false;
+          this.setStatus("Could not refresh all app files.");
+          return;
+        }
+        if (data.type === "SW_ACTIVE") {
+          this.swUpdateFlowStarted = false;
+          this.swUpdateReady = false;
+          this.updateSettingsUpdateUi();
+        }
+      });
+    } catch (error) {
+      this.setStatus(`Service worker warning: ${error.message}`);
     }
   }
 
@@ -1798,6 +2359,9 @@ class ProAudioStudioWeb {
         this.renderAll();
         this.setStatus(this.previewOriginal ? "Previewing original" : "Previewing edited");
         break;
+      case "open-settings":
+        this.openSettingsPanel();
+        break;
       case "show-shortcuts":
         alert(
           "Ctrl+O Open audio\n" +
@@ -1808,7 +2372,8 @@ class ProAudioStudioWeb {
           "Ctrl+Y Redo\n" +
           "Ctrl+X Cut selection\n" +
           "Ctrl+T Trim to selection\n" +
-          "Ctrl+B Toggle original preview"
+          "Ctrl+B Toggle original preview\n" +
+          "Ctrl+, Open settings"
         );
         break;
       case "show-about":
@@ -1849,6 +2414,9 @@ class ProAudioStudioWeb {
     } else if (event.ctrlKey && key === "b") {
       event.preventDefault();
       this.handleAction("toggle-original");
+    } else if (event.ctrlKey && key === ",") {
+      event.preventDefault();
+      this.openSettingsPanel();
     } else if (key === " ") {
       event.preventDefault();
       this.togglePlayback();
@@ -2099,6 +2667,12 @@ class ProAudioStudioWeb {
     this.updateCursor(this.engine.position || 0);
     this.updateEffectButtons();
     this.renderChangeList();
+    if (this.activeView === "settings") {
+      this.renderBuildInfo();
+      this.updateSettingsUpdateUi();
+      this.renderUpdateHistoryUi();
+      this.renderPresetManagerUi();
+    }
   }
 }
 

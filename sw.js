@@ -1,4 +1,4 @@
-const SW_VERSION = '2026.05.14.3';
+const SW_VERSION = '2026.05.14.5';
 const STATIC_CACHE = `guitartrainer-static-${SW_VERSION}`;
 const RUNTIME_CACHE = `guitartrainer-runtime-${SW_VERSION}`;
 const CORE_ASSETS = [
@@ -12,6 +12,11 @@ const CORE_ASSETS = [
   '/app/modules/music.js',
   '/app/modules/renderers.js',
   '/app/modules/repository.js',
+  '/AudioStudio/',
+  '/AudioStudio/index.html',
+  '/AudioStudio/app.js',
+  '/AudioStudio/styles.css',
+  '/AudioStudio/versions.json',
   '/assets/pwa/icon-192.png',
   '/assets/pwa/icon-512.png',
   '/assets/pwa/apple-touch-icon.png',
@@ -21,7 +26,7 @@ const CORE_ASSETS = [
   '/assets/pwa/screenshot-desktop.png',
   '/assets/pwa/screenshot-phone.png'
 ];
-const APP_FILE_PATH_PREFIXES = ['/app/', '/assets/', '/default_tuning/'];
+const APP_FILE_PATH_PREFIXES = ['/app/', '/assets/', '/default_tuning/', '/AudioStudio/'];
 const STATIC_DESTINATIONS = new Set(['script', 'style', 'image', 'font', 'audio', 'video']);
 const CROSS_ORIGIN_STATIC_HOSTS = new Set([
   'cdn.tailwindcss.com',
@@ -187,9 +192,10 @@ self.addEventListener('fetch', event => {
   const url = new URL(req.url);
   const isSameOrigin = url.origin === self.location.origin;
   const isNavigation = req.mode === 'navigate';
+  const navigationFallback = url.pathname.startsWith('/AudioStudio/') ? '/AudioStudio/index.html' : '/index.html';
 
   if (isNavigation) {
-    event.respondWith(cacheFirst(req, '/index.html'));
+    event.respondWith(cacheFirst(req, navigationFallback));
     return;
   }
 
