@@ -75,7 +75,7 @@ const STUDIO_SETTINGS_FIELD = "audiostudio_settings";
 const STUDIO_SETTINGS_STORAGE_KEY = "audiostudio.settings";
 const APP_VERSIONS_URL = "/AudioStudio/versions.json";
 const APP_BUILD = {
-  version: "v2026.05.14.15",
+  version: "v2026.05.14.16",
 };
 const DEFAULT_SETTINGS = Object.freeze({
   appFontSize: 15,
@@ -1490,6 +1490,7 @@ class ProAudioStudioWeb {
     this.userSettings = normalizeStudioSettings(DEFAULT_SETTINGS);
     this.currentUser = null;
     this.authInitialized = false;
+    this.dragDepth = 0;
     this.swRegistration = null;
     this.swUpdateReady = false;
     this.swUpdateFlowStarted = false;
@@ -1532,6 +1533,7 @@ class ProAudioStudioWeb {
     this.loopButton = document.getElementById("loopButton");
     this.playButton = document.querySelector('[data-action="play-toggle"]');
     this.authStatus = document.getElementById("authStatus");
+    this.appShell = document.getElementById("app");
     this.signInButton = document.querySelector('[data-action="sign-in"]');
     this.signOutButton = document.querySelector('[data-action="sign-out"]');
     this.profileModal = document.getElementById("profileModal");
@@ -1700,7 +1702,57 @@ class ProAudioStudioWeb {
       event.target.value = "";
     });
 
+    document.addEventListener("dragenter", (event) => this.handleAppDragEnter(event));
+    document.addEventListener("dragover", (event) => this.handleAppDragOver(event));
+    document.addEventListener("dragleave", (event) => this.handleAppDragLeave(event));
+    document.addEventListener("drop", (event) => this.handleAppDrop(event));
+
     window.addEventListener("keydown", (event) => this.handleShortcut(event));
+  }
+
+  isAudioFileDrag(event) {
+    const types = Array.from(event.dataTransfer?.types || []);
+    return types.includes("Files");
+  }
+
+  setDragUi(active) {
+    this.appShell?.classList.toggle("drag-active", !!active);
+  }
+
+  handleAppDragEnter(event) {
+    if (!this.isAudioFileDrag(event)) return;
+    event.preventDefault();
+    this.dragDepth += 1;
+    this.setDragUi(true);
+  }
+
+  handleAppDragOver(event) {
+    if (!this.isAudioFileDrag(event)) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    this.setDragUi(true);
+  }
+
+  handleAppDragLeave(event) {
+    if (!this.isAudioFileDrag(event)) return;
+    event.preventDefault();
+    this.dragDepth = Math.max(0, this.dragDepth - 1);
+    if (this.dragDepth === 0) this.setDragUi(false);
+  }
+
+  async handleAppDrop(event) {
+    if (!this.isAudioFileDrag(event)) return;
+    event.preventDefault();
+    this.dragDepth = 0;
+    this.setDragUi(false);
+    const files = Array.from(event.dataTransfer?.files || []);
+    const audioFile = files.find((file) => String(file.type || "").startsWith("audio/"))
+      || files.find((file) => /\.(mp3|wav|ogg|m4a|aac|flac|aif|aiff|wma)$/i.test(file.name || ""));
+    if (!audioFile) {
+      this.setStatus("Drop an audio file to open it.");
+      return;
+    }
+    await this.loadAudio(audioFile);
   }
 
   buildEffectList() {
