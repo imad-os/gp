@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ProAudio Studio Web</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <header class="menu-bar">
+      <div class="menu-group">
+        <button class="menu-button" data-menu="file">File</button>
+        <div class="menu-dropdown" data-dropdown="file">
+          <button data-action="open-audio">Open Audio<span>Ctrl+O</span></button>
+          <button data-action="export-audio">Export Audio<span>Ctrl+E</span></button>
+          <hr>
+          <button data-action="save-profile">Save Profile<span>Ctrl+Shift+S</span></button>
+          <button data-action="apply-profile">Apply Profile<span>Ctrl+Shift+O</span></button>
+        </div>
+      </div>
+      <div class="menu-group">
+        <button class="menu-button" data-menu="edit">Edit</button>
+        <div class="menu-dropdown" data-dropdown="edit">
+          <button data-action="undo">Undo<span>Ctrl+Z</span></button>
+          <button data-action="redo">Redo<span>Ctrl+Y</span></button>
+          <hr>
+          <button data-action="cut">Cut Selection<span>Ctrl+X</span></button>
+          <button data-action="trim">Trim To Selection<span>Ctrl+T</span></button>
+          <button data-action="reset">Reset To Original</button>
+        </div>
+      </div>
+      <div class="menu-group">
+        <button class="menu-button" data-menu="view">View</button>
+        <div class="menu-dropdown" data-dropdown="view">
+          <button data-action="toggle-original">Toggle Original Preview<span>Ctrl+B</span></button>
+        </div>
+      </div>
+      <div class="menu-group">
+        <button class="menu-button" data-menu="help">Help</button>
+        <div class="menu-dropdown" data-dropdown="help">
+          <button data-action="show-shortcuts">Keyboard Shortcuts</button>
+          <button data-action="show-about">About</button>
+        </div>
+      </div>
+      <div class="menu-transport">
+        <button class="round round-mini" data-action="to-start" title="To Start">|&lt;</button>
+        <button class="round round-mini play" data-action="play-toggle" title="Play or Pause">▶</button>
+        <button class="round round-mini" data-action="stop" title="Stop">■</button>
+        <button class="round round-mini accent" data-action="play-selection" title="Play Selection">◫</button>
+        <button class="round round-mini" data-action="toggle-loop" id="loopButton" title="Loop">↻</button>
+        <label class="menu-volume">
+          <span>Vol</span>
+          <input id="volumeSlider" type="range" min="0" max="1" step="0.01" value="0.85">
+        </label>
+        <div id="timeLabel" class="menu-time">0.0s / 0.0s</div>
+        <button class="toggle-preview toggle-preview-mini" data-action="toggle-original" id="previewButton">Preview Edited</button>
+      </div>
+      <div class="auth-strip">
+        <div id="authStatus" class="auth-status">Guest</div>
+        <button class="auth-button" data-action="sign-in">Sign In / Sign Up</button>
+        <button class="auth-button ghost" data-action="sign-out">Sign Out</button>
+      </div>
+      <div class="brand">ProAudio Studio Web</div>
+    </header>
+
+    <section class="wave-card">
+      <div class="wave-header">
+        <div>
+          <div id="waveTitle">Open an audio file to begin</div>
+          <div id="fileMeta" class="file-meta">No file loaded</div>
+        </div>
+        <div id="selectionLabel">Click waveform to seek, drag to select</div>
+      </div>
+      <canvas id="waveCanvas"></canvas>
+    </section>
+
+    <main class="workspace">
+      <aside class="sidebar">
+        <div class="sidebar-title">Effects</div>
+        <div id="effectList" class="effect-list"></div>
+        <div class="sidebar-title changes-title">Applied Changes</div>
+        <div id="changeList" class="change-list"></div>
+      </aside>
+      <section class="panel-area">
+        <div id="panelHost"></div>
+      </section>
+    </main>
+
+    <footer class="status-bar" id="statusBar">Ready</footer>
+  </div>
+
+  <input id="audioInput" type="file" accept="audio/*" hidden>
+
+  <div id="profileModal" class="modal-shell" hidden>
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">Saved Effect Profiles</div>
+          <div class="modal-subtitle">Apply a profile from your cloud-saved list.</div>
+        </div>
+        <button class="modal-close" data-action="close-profile-modal">×</button>
+      </div>
+      <div id="profileList" class="profile-list"></div>
+    </div>
+  </div>
+
+  <div id="authModal" class="modal-shell" hidden>
+    <div class="modal-card auth-card">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">Account Access</div>
+          <div class="modal-subtitle">Sign in or create an account with email and password.</div>
+        </div>
+        <button class="modal-close" data-action="close-auth-modal">×</button>
+      </div>
+      <div class="auth-form">
+        <label class="auth-field">
+          <span>Email</span>
+          <input id="authEmail" type="email" placeholder="you@example.com" autocomplete="email">
+        </label>
+        <label class="auth-field">
+          <span>Password</span>
+          <input id="authPassword" type="password" placeholder="Minimum 6 characters" autocomplete="current-password">
+        </label>
+        <div class="auth-actions">
+          <button class="auth-submit" data-action="email-sign-in">Sign In</button>
+          <button class="auth-submit secondary" data-action="email-sign-up">Create Account</button>
+        </div>
+        <div id="authMessage" class="auth-message"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
