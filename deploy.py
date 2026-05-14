@@ -12,8 +12,10 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent
 MAIN_JS = ROOT / "app" / "main.js"
+AUDIOSTUDIO_APP_JS = ROOT / "AudioStudio" / "app.js"
 SW_JS = ROOT / "sw.js"
 VERSIONS_JSON = ROOT / "versions.json"
+AUDIOSTUDIO_VERSIONS_JSON = ROOT / "AudioStudio" / "versions.json"
 
 
 def run(cmd):
@@ -109,15 +111,18 @@ def bump_version(version):
     return f"v{today_parts[0]:04d}.{today_parts[1]:02d}.{today_parts[2]:02d}.{parts[3]}"
 
 
-def extract_app_version(main_js_text):
-    m = re.search(r"version:\s*'([^']+)'", main_js_text)
+def extract_app_version(app_js_text, label):
+    m = re.search(r"version:\s*(['\"])([^'\"]+)\1", app_js_text)
     if not m:
-        raise RuntimeError("Could not find APP_BUILD.version in app/main.js")
-    return m.group(1)
+        raise RuntimeError(f"Could not find APP_BUILD.version in {label}")
+    return m.group(2)
 
 
-def update_app_version(main_js_text, new_version):
-    return re.sub(r"(version:\s*')[^']+(')", rf"\g<1>{new_version}\2", main_js_text, count=1)
+def update_app_version(app_js_text, new_version, label):
+    updated = re.sub(r"(version:\s*['\"])[^'\"]+(['\"])", rf"\g<1>{new_version}\2", app_js_text, count=1)
+    if updated == app_js_text:
+        raise RuntimeError(f"Could not update APP_BUILD.version in {label}")
+    return updated
 
 
 def update_sw_version_line(sw_js_text, new_version):
@@ -127,10 +132,10 @@ def update_sw_version_line(sw_js_text, new_version):
     return re.sub(r"(const SW_VERSION = ')[^']+(';)", rf"\g<1>{sw_version}\2", sw_js_text, count=1)
 
 
-def update_versions_manifest(new_version, summary, description, changes):
+def update_versions_manifest(manifest_path, new_version, summary, description, changes):
     now = dt.datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
-    if VERSIONS_JSON.exists():
-        data = json.loads(read_text(VERSIONS_JSON))
+    if manifest_path.exists():
+        data = json.loads(read_text(manifest_path))
     else:
         data = {"latestVersion": new_version, "updates": []}
 
@@ -149,7 +154,7 @@ def update_versions_manifest(new_version, summary, description, changes):
 
     data["latestVersion"] = new_version
     data["updates"] = updates
-    write_text(VERSIONS_JSON, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    write_text(manifest_path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 
 
 def main():
@@ -172,16 +177,21 @@ def main():
     firebase_deploy_cmds = resolve_firebase_deploy_commands()
 
     main_js_text = read_text(MAIN_JS)
-    current_version = extract_app_version(main_js_text)
+    audio_app_js_text = read_text(AUDIOSTUDIO_APP_JS)
+    current_version = extract_app_version(main_js_text, "app/main.js")
+    current_audio_version = extract_app_version(audio_app_js_text, "AudioStudio/app.js")
     new_version = args.version.strip() if args.version else bump_version(current_version)
 
-    print(f"Current version: {current_version}")
-    print(f"Next version:    {new_version}")
+    print(f"Current guitar version: {current_version}")
+    print(f"Current audio version:  {current_audio_version}")
+    print(f"Next shared version:    {new_version}")
 
-    write_text(MAIN_JS, update_app_version(main_js_text, new_version))
+    write_text(MAIN_JS, update_app_version(main_js_text, new_version, "app/main.js"))
+    write_text(AUDIOSTUDIO_APP_JS, update_app_version(audio_app_js_text, new_version, "AudioStudio/app.js"))
     sw_text = read_text(SW_JS)
     write_text(SW_JS, update_sw_version_line(sw_text, new_version))
-    update_versions_manifest(new_version, summary, description, changes)
+    update_versions_manifest(VERSIONS_JSON, new_version, summary, description, changes)
+    update_versions_manifest(AUDIOSTUDIO_VERSIONS_JSON, new_version, summary, description, changes)
 
     commit_msg = f"Release {new_version}: {summary}"
     if args.dry_run:

@@ -75,7 +75,7 @@ const STUDIO_SETTINGS_FIELD = "audiostudio_settings";
 const STUDIO_SETTINGS_STORAGE_KEY = "audiostudio.settings";
 const APP_VERSIONS_URL = "/AudioStudio/versions.json";
 const APP_BUILD = {
-  version: "v2026.05.14.1",
+  version: "v2026.05.14.10",
 };
 const DEFAULT_SETTINGS = Object.freeze({
   appFontSize: 15,
@@ -1500,12 +1500,6 @@ class ProAudioStudioWeb {
       button.dataset.effect = effect.key;
       this.effectList.appendChild(button);
     });
-    const settingsButton = document.createElement("button");
-    settingsButton.className = "effect-item settings-entry";
-    settingsButton.textContent = "Settings";
-    settingsButton.dataset.effect = "__settings__";
-    settingsButton.addEventListener("click", () => this.openSettingsPanel());
-    this.effectList.appendChild(settingsButton);
     this.updateEffectButtons();
   }
 
