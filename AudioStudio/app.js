@@ -94,7 +94,7 @@ const STUDIO_SETTINGS_FIELD = "audiostudio_settings";
 const STUDIO_SETTINGS_STORAGE_KEY = "audiostudio.settings";
 const APP_VERSIONS_URL = "/AudioStudio/versions.json";
 const APP_BUILD = {
-  version: "v2026.05.14.30",
+  version: "v2026.05.14.31",
 };
 const AUDIO_FILE_EXTENSIONS = Object.freeze([
   ".mp3",
@@ -438,14 +438,15 @@ function smoothGainTransitions(gainState, targetGain, attackCoeff, releaseCoeff)
     : targetGain + releaseCoeff * (gainState - targetGain);
 }
 
-function linkedCompression(channels, { threshold = -18, ratio = 4, makeup = 0, attackMs = 10, releaseMs = 80 } = {}) {
+function linkedCompression(channels, { threshold = -18, ratio = 4, makeup = 0, attackMs = 10, releaseMs = 80 } = {}, sampleRate = 44100) {
   const [left, right] = duplicateMono(channels);
   const outL = new Float32Array(left.length);
   const outR = new Float32Array(right.length);
   const thresholdLin = dbToGain(threshold);
   const makeupLin = dbToGain(makeup);
-  const attackCoeff = Math.exp(-1 / Math.max(1, 44100 * attackMs / 1000));
-  const releaseCoeff = Math.exp(-1 / Math.max(1, 44100 * releaseMs / 1000));
+  const safeRate = Math.max(8000, Number(sampleRate) || 44100);
+  const attackCoeff = Math.exp(-1 / Math.max(1, safeRate * attackMs / 1000));
+  const releaseCoeff = Math.exp(-1 / Math.max(1, safeRate * releaseMs / 1000));
   let detector = 0;
   let gainState = 1;
   for (let i = 0; i < left.length; i += 1) {
@@ -466,14 +467,15 @@ function linkedCompression(channels, { threshold = -18, ratio = 4, makeup = 0, a
   return [outL, outR];
 }
 
-function gateExpanderEffect(channels, { threshold = -42, ratio = 3, floor = -24, attackMs = 4, releaseMs = 100 } = {}) {
+function gateExpanderEffect(channels, { threshold = -42, ratio = 3, floor = -24, attackMs = 4, releaseMs = 100 } = {}, sampleRate = 44100) {
   const [left, right] = duplicateMono(channels);
   const outL = new Float32Array(left.length);
   const outR = new Float32Array(right.length);
   const thresholdLin = dbToGain(threshold);
   const floorGain = dbToGain(floor);
-  const attackCoeff = Math.exp(-1 / Math.max(1, 44100 * attackMs / 1000));
-  const releaseCoeff = Math.exp(-1 / Math.max(1, 44100 * releaseMs / 1000));
+  const safeRate = Math.max(8000, Number(sampleRate) || 44100);
+  const attackCoeff = Math.exp(-1 / Math.max(1, safeRate * attackMs / 1000));
+  const releaseCoeff = Math.exp(-1 / Math.max(1, safeRate * releaseMs / 1000));
   let detector = 0;
   let gainState = 1;
   for (let i = 0; i < left.length; i += 1) {
@@ -493,13 +495,14 @@ function gateExpanderEffect(channels, { threshold = -42, ratio = 3, floor = -24,
   return [outL, outR];
 }
 
-function limiterEffect(channels, { ceiling = -0.3, drive = 6, releaseMs = 60 } = {}) {
+function limiterEffect(channels, { ceiling = -0.3, drive = 6, releaseMs = 60 } = {}, sampleRate = 44100) {
   const [left, right] = duplicateMono(channels);
   const outL = new Float32Array(left.length);
   const outR = new Float32Array(right.length);
   const ceilingLin = dbToGain(ceiling);
   const preGain = dbToGain(drive);
-  const releaseCoeff = Math.exp(-1 / Math.max(1, 44100 * releaseMs / 1000));
+  const safeRate = Math.max(8000, Number(sampleRate) || 44100);
+  const releaseCoeff = Math.exp(-1 / Math.max(1, safeRate * releaseMs / 1000));
   let gainState = 1;
   for (let i = 0; i < left.length; i += 1) {
     const inL = left[i] * preGain;
@@ -564,8 +567,9 @@ function simpleReverb(channels, sampleRate, params) {
   });
 }
 
-function feedbackDelay(channels, sampleRate, params) {
-  const { timeMs = 300, feedback = 0.4, mix = 0.35 } = params;
+function feedbackDelay(channels, sampleRate, params = {}) {
+  const timeMs = Number.isFinite(params.time_ms) ? params.time_ms : (params.timeMs ?? 300);
+  const { feedback = 0.4, mix = 0.35 } = params;
   const delaySamples = Math.max(1, Math.floor(sampleRate * timeMs / 1000));
   return channels.map((ch) => {
     const out = new Float32Array(ch.length);
@@ -653,13 +657,13 @@ function masteringEffect(channels, sampleRate, params) {
     makeup: 1.5,
     attackMs: 12,
     releaseMs: 110,
-  });
+  }, sampleRate);
   compressed = saturationEffect(compressed, sampleRate, { drive: 1.4, tone: 0.58, mix: 0.25 });
   compressed = limiterEffect(compressed, {
     ceiling: params.ceiling ?? -0.3,
     drive: Math.max(1, ((params.target_lufs ?? -14) + 20) * 0.7),
     releaseMs: 90,
-  });
+  }, sampleRate);
   return compressed;
 }
 
@@ -948,10 +952,10 @@ class AudioEngine {
         channels = eqEffect(channels, sr, spec.params);
         break;
       case "compression":
-        channels = linkedCompression(channels, spec.params);
+        channels = linkedCompression(channels, spec.params, sr);
         break;
       case "gate_expander":
-        channels = gateExpanderEffect(channels, spec.params);
+        channels = gateExpanderEffect(channels, spec.params, sr);
         break;
       case "de_esser":
         channels = deEsserEffect(channels, sr, spec.params);
@@ -975,7 +979,7 @@ class AudioEngine {
         channels = exciterEffect(channels, sr, spec.params);
         break;
       case "limiter":
-        channels = limiterEffect(channels, spec.params);
+        channels = limiterEffect(channels, spec.params, sr);
         break;
       case "mastering":
         channels = masteringEffect(channels, sr, spec.params);
@@ -1233,7 +1237,11 @@ class WaveformView {
       ? ["rgba(255, 209, 102, 0.78)", "rgba(204, 130, 54, 0.58)"]
       : ["rgba(40, 214, 181, 0.82)", "rgba(81, 177, 255, 0.54)"];
     const mids = [height * 0.26, height * 0.74];
-    const amp = height * 0.16;
+    let peak = 0;
+    channels.slice(0, 2).forEach((channel) => {
+      for (let i = 0; i < channel.length; i += step) peak = Math.max(peak, Math.abs(channel[i]));
+    });
+    const amp = height * (peak < 1e-4 ? 0.16 : Math.min(0.22, 0.42 / peak));
 
     channels.slice(0, 2).forEach((channel, ch) => {
       ctx.beginPath();
