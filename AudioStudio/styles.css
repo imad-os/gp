@@ -536,6 +536,11 @@ select {
   gap: 16px;
 }
 
+.settings-modal-card {
+  width: min(900px, calc(100vw - 40px));
+  max-height: min(82vh, 900px);
+}
+
 .settings-grid {
   display: grid;
   gap: 16px;

@@ -1261,7 +1261,6 @@ class ProAudioStudioWeb {
     this.cloud = new StudioCloudStore();
     this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     this.engine = new AudioEngine(this.audioCtx);
-    this.activeView = "effect";
     this.activeEffectKey = EFFECTS[0].key;
     this.effectValues = {};
     this.processing = false;
@@ -1292,7 +1291,7 @@ class ProAudioStudioWeb {
       this.setStatus("Playback finished");
     };
     this.buildEffectList();
-    this.renderCurrentPanel();
+    this.renderActivePanel();
     this.bindUI();
     this.renderAll();
     this.initAuth();
@@ -1321,6 +1320,8 @@ class ProAudioStudioWeb {
     this.profileModal = document.getElementById("profileModal");
     this.profileList = document.getElementById("profileList");
     this.authModal = document.getElementById("authModal");
+    this.settingsModal = document.getElementById("settingsModal");
+    this.settingsModalContent = document.getElementById("settingsModalContent");
     this.authEmail = document.getElementById("authEmail");
     this.authPassword = document.getElementById("authPassword");
     this.authMessage = document.getElementById("authMessage");
@@ -1329,6 +1330,9 @@ class ProAudioStudioWeb {
     });
     this.authModal.addEventListener("click", (event) => {
       if (event.target === this.authModal) this.closeAuthModal();
+    });
+    this.settingsModal?.addEventListener("click", (event) => {
+      if (event.target === this.settingsModal) this.closeSettingsModal();
     });
   }
 
@@ -1489,9 +1493,8 @@ class ProAudioStudioWeb {
       button.className = "effect-item";
       button.textContent = effect.label;
       button.addEventListener("click", () => {
-        this.activeView = "effect";
         this.activeEffectKey = effect.key;
-        this.renderCurrentPanel();
+        this.renderActivePanel();
         this.updateEffectButtons();
       });
       button.dataset.effect = effect.key;
@@ -1523,26 +1526,17 @@ class ProAudioStudioWeb {
 
   updateEffectButtons() {
     this.effectList.querySelectorAll(".effect-item").forEach((button) => {
-      const key = button.dataset.effect;
-      const active = this.activeView === "settings"
-        ? key === "__settings__"
-        : key === this.activeEffectKey;
-      button.classList.toggle("active", active);
+      button.classList.toggle("active", button.dataset.effect === this.activeEffectKey);
     });
   }
 
-  renderCurrentPanel() {
-    if (this.activeView === "settings") {
-      this.renderSettingsPanel();
-      return;
-    }
-    this.renderActivePanel();
+  openSettingsPanel() {
+    this.renderSettingsPanel();
+    if (this.settingsModal) this.settingsModal.hidden = false;
   }
 
-  openSettingsPanel() {
-    this.activeView = "settings";
-    this.renderCurrentPanel();
-    this.updateEffectButtons();
+  closeSettingsModal() {
+    if (this.settingsModal) this.settingsModal.hidden = true;
   }
 
   getPresetManagerEntries() {
@@ -1560,6 +1554,7 @@ class ProAudioStudioWeb {
           <div class="panel-title">Settings</div>
           <div class="panel-subtitle">Font size, updates, and preset management for Audio Studio.</div>
         </div>
+        <button class="modal-close" data-role="close-settings">×</button>
       </div>
       <div class="settings-grid">
         <section class="settings-card">
@@ -1590,7 +1585,7 @@ class ProAudioStudioWeb {
         </section>
       </div>
     `;
-    this.panelHost.replaceChildren(panel);
+    this.settingsModalContent.replaceChildren(panel);
 
     const slider = panel.querySelector("#settings-font-size");
     const label = panel.querySelector("#settings-font-size-label");
@@ -1599,6 +1594,7 @@ class ProAudioStudioWeb {
       label.textContent = `${size} px`;
       this.applyUserSettings({ ...this.userSettings, appFontSize: size });
     });
+    panel.querySelector('[data-role="close-settings"]')?.addEventListener("click", () => this.closeSettingsModal());
     panel.querySelector("#settings-save-btn")?.addEventListener("click", () => this.saveSettings());
     panel.querySelector("#settings-check-update-btn")?.addEventListener("click", () => this.checkForAppUpdate(true));
     panel.querySelector("#settings-update-btn")?.addEventListener("click", () => this.forceAppUpdate());
@@ -1787,7 +1783,7 @@ class ProAudioStudioWeb {
     this.userPresets[effectKey] = list;
     try {
       await this.persistCloudData();
-      this.renderCurrentPanel();
+      this.renderSettingsPanel();
       this.setStatus(`Saved preset ${name}`);
     } catch (error) {
       this.setStatus(`Preset save failed: ${error.message}`);
@@ -1810,7 +1806,7 @@ class ProAudioStudioWeb {
       .concat([{ ...target, name: nextName, updatedAt: Date.now() }]);
     try {
       await this.persistCloudData();
-      this.renderCurrentPanel();
+      this.renderSettingsPanel();
       this.setStatus(`Renamed preset to ${nextName}`);
     } catch (error) {
       this.setStatus(`Rename failed: ${error.message}`);
@@ -1828,7 +1824,7 @@ class ProAudioStudioWeb {
     if (!this.userPresets[effectKey].length) delete this.userPresets[effectKey];
     try {
       await this.persistCloudData();
-      this.renderCurrentPanel();
+      this.renderSettingsPanel();
       this.setStatus(`Deleted preset ${name}`);
     } catch (error) {
       this.setStatus(`Delete failed: ${error.message}`);
@@ -1869,13 +1865,13 @@ class ProAudioStudioWeb {
   async saveSettings() {
     this.persistLocalSettings();
     if (!this.canUseCloudStorage) {
-      this.renderCurrentPanel();
+      this.renderSettingsPanel();
       this.setStatus("Settings saved on this device.");
       return;
     }
     try {
       await this.persistCloudData();
-      this.renderCurrentPanel();
+      this.renderSettingsPanel();
       this.setStatus("Settings saved.");
     } catch (error) {
       this.setStatus(`Settings save failed: ${error.message}`);
@@ -2667,7 +2663,7 @@ class ProAudioStudioWeb {
     this.updateCursor(this.engine.position || 0);
     this.updateEffectButtons();
     this.renderChangeList();
-    if (this.activeView === "settings") {
+    if (this.settingsModal && !this.settingsModal.hidden) {
       this.renderBuildInfo();
       this.updateSettingsUpdateUi();
       this.renderUpdateHistoryUi();
