@@ -75,7 +75,7 @@ const STUDIO_SETTINGS_FIELD = "audiostudio_settings";
 const STUDIO_SETTINGS_STORAGE_KEY = "audiostudio.settings";
 const APP_VERSIONS_URL = "/AudioStudio/versions.json";
 const APP_BUILD = {
-  version: "v2026.05.14.18",
+  version: "v2026.05.14.19",
 };
 const DEFAULT_SETTINGS = Object.freeze({
   appFontSize: 15,
@@ -1483,6 +1483,7 @@ class ProAudioStudioWeb {
     this.processing = false;
     this.previewOriginal = false;
     this.previewEffectEnabled = false;
+    this.profilePreviewActive = false;
     this.previewDebounce = 0;
     this.cursorRAF = 0;
     this.userPresets = {};
@@ -2480,7 +2481,30 @@ class ProAudioStudioWeb {
   }
 
   closeProfileModal() {
+    this.cancelProfilePreview();
     this.profileModal.hidden = true;
+  }
+
+  cancelProfilePreview() {
+    if (!this.profilePreviewActive) return;
+    const wasPlaying = this.engine.isPlaying;
+    const pos = this.engine.position || 0;
+    const end = this.engine.playEnd;
+    this.profilePreviewActive = false;
+    this.engine.stop(false);
+    this.stopCursorUpdates();
+    this.engine.clearPreviewBuffer();
+    this.renderAll();
+    this.updateCursor(pos);
+    if (wasPlaying) {
+      this.engine.play(pos, end);
+      this.startCursorUpdates();
+      this.updatePlayButton(true);
+      this.setStatus("Returned to edited audio");
+    } else {
+      this.updatePlayButton(false);
+      this.setStatus("Profile preview cleared");
+    }
   }
 
   renderProfileList() {
@@ -2527,12 +2551,11 @@ class ProAudioStudioWeb {
           </details>
         `;
         item.querySelector(".profile-preview").addEventListener("click", async () => {
-          this.closeProfileModal();
           await this.previewProfile(profile);
         });
         item.querySelector(".profile-apply").addEventListener("click", async () => {
-          this.closeProfileModal();
           await this.applyCloudProfile(profile);
+          this.closeProfileModal();
         });
         this.profileList.appendChild(item);
       });
@@ -2542,6 +2565,7 @@ class ProAudioStudioWeb {
     if (!this.engine.currentBuffer) return alert("Open a file first.");
     try {
       this.setBusy(true, `Applying profile ${profile.name}…`);
+      this.profilePreviewActive = false;
       await this.engine.applyProfile(profile.effects || []);
       this.renderAll();
       this.setStatus(`Applied profile ${profile.name}`);
@@ -2571,6 +2595,7 @@ class ProAudioStudioWeb {
       this.previewOriginal = false;
       this.engine.previewOriginal = false;
       this.previewEffectEnabled = false;
+      this.profilePreviewActive = true;
       this.engine.previewBuffer = previewBuffer;
       this.renderAll();
       this.engine.play(pos, end);
