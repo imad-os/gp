@@ -218,7 +218,7 @@ import { TOOL_PAGES, TOOL_PAGE_SET, TOOL_SUBTITLES, importToolModule } from './t
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.05.14.32',
+      version: 'v2026.05.14.33',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -1782,6 +1782,7 @@ Drop back to 70 BPM for clean finish.`,
         const badgeItems = item ? [
           `<span class="px-2.5 py-1 rounded-full bg-black/30 border border-gray-800 text-[11px] text-primary uppercase tracking-[0.18em]">${escapeHtml(item.originLabel)}</span>`,
           item.duration > 0 ? `<span class="px-2.5 py-1 rounded-full bg-black/30 border border-gray-800 text-[11px] text-gray-300">${escapeHtml(formatLooperTime(item.duration))}</span>` : '',
+          item.sizeBytes > 0 ? `<span class="px-2.5 py-1 rounded-full bg-black/30 border border-gray-800 text-[11px] text-gray-300">${escapeHtml(formatBytes(item.sizeBytes))}</span>` : '',
           item.album ? `<span class="px-2.5 py-1 rounded-full bg-black/30 border border-gray-800 text-[11px] text-gray-300">${escapeHtml(item.album)}</span>` : ''
         ].filter(Boolean) : [];
         badges.innerHTML = badgeItems.join('');
@@ -1825,7 +1826,7 @@ Drop back to 70 BPM for clean finish.`,
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
               <p class="font-semibold text-sm text-white truncate">${escapeHtml(item.title)}</p>
-              <p class="text-[11px] text-gray-500 mt-1">${escapeHtml(item.artist || 'Unknown artist')} • ${escapeHtml(item.originLabel)}</p>
+              <p class="text-[11px] text-gray-500 mt-1">${escapeHtml(item.artist || 'Unknown artist')} • ${escapeHtml(item.originLabel)}${item.sizeBytes > 0 ? ` • ${escapeHtml(formatBytes(item.sizeBytes))}` : ''}</p>
             </div>
             <div class="flex items-center gap-2 shrink-0">
               <button onclick="playMusicQueueIndex(${idx})" class="w-8 h-8 rounded-full btn-soft btn-press" title="Play">
@@ -1866,6 +1867,7 @@ Drop back to 70 BPM for clean finish.`,
               <div class="flex flex-wrap gap-2 mt-2">
                 <span class="px-2 py-0.5 rounded-full bg-black/40 border border-gray-800 text-[10px] uppercase tracking-[0.16em] text-primary">${escapeHtml(item.originLabel)}</span>
                 ${item.duration > 0 ? `<span class="px-2 py-0.5 rounded-full bg-black/40 border border-gray-800 text-[10px] text-gray-300">${escapeHtml(formatLooperTime(item.duration))}</span>` : ''}
+                ${item.sizeBytes > 0 ? `<span class="px-2 py-0.5 rounded-full bg-black/40 border border-gray-800 text-[10px] text-gray-300">${escapeHtml(formatBytes(item.sizeBytes))}</span>` : ''}
               </div>
             </button>
             <div class="flex items-center gap-2 shrink-0">
