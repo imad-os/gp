@@ -75,7 +75,7 @@ const STUDIO_SETTINGS_FIELD = "audiostudio_settings";
 const STUDIO_SETTINGS_STORAGE_KEY = "audiostudio.settings";
 const APP_VERSIONS_URL = "/AudioStudio/versions.json";
 const APP_BUILD = {
-  version: "v2026.05.14.14",
+  version: "v2026.05.14.15",
 };
 const DEFAULT_SETTINGS = Object.freeze({
   appFontSize: 15,
@@ -731,6 +731,22 @@ class AudioEngine {
     this.changeLog = [];
     this.previewBuffer = null;
     this.stop();
+  }
+
+  newProject() {
+    this.stop();
+    this.originalBuffer = null;
+    this.currentBuffer = null;
+    this.fileName = "";
+    this.undoStack = [];
+    this.redoStack = [];
+    this.effectChain = [];
+    this.changeLog = [];
+    this.previewBuffer = null;
+    this.pauseOffset = 0;
+    this.playEnd = null;
+    this.previewOriginal = false;
+    this.loop = false;
   }
 
   pushUndo() {
@@ -1391,6 +1407,71 @@ const EFFECTS = [
     },
   },
 ];
+
+const BUILTIN_PROFILES = Object.freeze([
+  {
+    source: "builtin",
+    name: "Voice Cleaner",
+    effects: [
+      { effect: "gate_expander", params: { threshold: -44, ratio: 2.6, floor: -18, attackMs: 5, releaseMs: 120 } },
+      { effect: "de_esser", params: { frequency: 6500, bandwidth: 2800, threshold: -25, amount: 0.48, mix: 1 } },
+      { effect: "eq", params: { sub_gain: -4, lm_gain: -2, mid_gain: 2.5, hm_gain: 2, pres_gain: 2.5, air_gain: 1 } },
+      { effect: "compression", params: { threshold: -20, ratio: 3.2, makeup: 3 } },
+      { effect: "normalize", params: { target_db: -1 } },
+    ],
+    updatedAt: 0,
+  },
+  {
+    source: "builtin",
+    name: "Voice Deep",
+    effects: [
+      { effect: "eq", params: { sub_gain: 1.5, lm_gain: 3.5, mid_gain: -1.5, hm_gain: -1, pres_gain: -1.5, air_gain: -1 } },
+      { effect: "compression", params: { threshold: -22, ratio: 2.8, makeup: 2.5 } },
+      { effect: "saturation", params: { drive: 1.9, tone: 0.42, mix: 0.35 } },
+      { effect: "exciter", params: { amount: 0.16, tune: 4200, mix: 0.18 } },
+      { effect: "normalize", params: { target_db: -1.5 } },
+    ],
+    updatedAt: 0,
+  },
+  {
+    source: "builtin",
+    name: "Song Enhancer",
+    effects: [
+      { effect: "eq", params: { sub_gain: 1, lm_gain: -1, mid_gain: 0.5, hm_gain: 1.5, pres_gain: 2, air_gain: 2.5 } },
+      { effect: "compression", params: { threshold: -21, ratio: 2.3, makeup: 2.5 } },
+      { effect: "reverb", params: { room: 0.28, damping: 0.72, wet: 0.16, dry: 0.92, width: 1 } },
+      { effect: "delay", params: { time_ms: 180, feedback: 0.18, mix: 0.12 } },
+      { effect: "exciter", params: { amount: 0.22, tune: 7800, mix: 0.25 } },
+      { effect: "limiter", params: { ceiling: -0.8, drive: 2.5, releaseMs: 90 } },
+    ],
+    updatedAt: 0,
+  },
+  {
+    source: "builtin",
+    name: "Song Enhancer 2",
+    effects: [
+      { effect: "eq", params: { sub_gain: 2, lm_gain: 0.5, mid_gain: -1, hm_gain: 1.8, pres_gain: 2.8, air_gain: 1.6 } },
+      { effect: "chorus", params: { rate: 0.35, depth: 0.006, mix: 0.12 } },
+      { effect: "reverb", params: { room: 0.42, damping: 0.62, wet: 0.2, dry: 0.88, width: 1 } },
+      { effect: "delay", params: { time_ms: 260, feedback: 0.24, mix: 0.14 } },
+      { effect: "mastering", params: { target_lufs: -13, ceiling: -0.7, low_boost: 1.2, high_boost: 1.4, mid_cut: -0.8, multiband_comp: 1 } },
+    ],
+    updatedAt: 0,
+  },
+  {
+    source: "builtin",
+    name: "Guitar Enhancer",
+    effects: [
+      { effect: "gate_expander", params: { threshold: -48, ratio: 1.8, floor: -14, attackMs: 6, releaseMs: 160 } },
+      { effect: "eq", params: { sub_gain: -3, lm_gain: -1, mid_gain: 1.2, hm_gain: 2.8, pres_gain: 2.2, air_gain: 1.2 } },
+      { effect: "compression", params: { threshold: -24, ratio: 2, makeup: 2 } },
+      { effect: "reverb", params: { room: 0.24, damping: 0.78, wet: 0.14, dry: 0.94, width: 0.95 } },
+      { effect: "exciter", params: { amount: 0.18, tune: 6200, mix: 0.2 } },
+      { effect: "normalize", params: { target_db: -1.2 } },
+    ],
+    updatedAt: 0,
+  },
+]);
 
 class ProAudioStudioWeb {
   constructor() {
@@ -2332,7 +2413,7 @@ class ProAudioStudioWeb {
   }
 
   openProfileModal() {
-    if (!this.canUseCloudStorage) {
+    if (!this.canUseCloudStorage && !BUILTIN_PROFILES.length) {
       alert("Guest mode cannot save or load cloud profiles. Please sign in first.");
       return;
     }
@@ -2346,16 +2427,18 @@ class ProAudioStudioWeb {
 
   renderProfileList() {
     this.profileList.innerHTML = "";
-    if (!this.userProfiles.length) {
+    const profiles = [
+      ...BUILTIN_PROFILES,
+      ...[...this.userProfiles].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).map((profile) => ({ ...profile, source: "user" })),
+    ];
+    if (!profiles.length) {
       const empty = document.createElement("div");
       empty.className = "profile-item";
       empty.innerHTML = `<div><div class="profile-name">No saved profiles yet</div><div class="profile-meta">Save your current effect chain from the File menu.</div></div>`;
       this.profileList.appendChild(empty);
       return;
     }
-    [...this.userProfiles]
-      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
-      .forEach((profile) => {
+    profiles.forEach((profile) => {
         const item = document.createElement("div");
         item.className = "profile-item";
         const detailsHtml = Array.isArray(profile.effects) && profile.effects.length
@@ -2373,7 +2456,7 @@ class ProAudioStudioWeb {
           <div class="profile-top">
             <div>
               <div class="profile-name">${escapeHtml(profile.name)}</div>
-              <div class="profile-meta">${profile.effects?.length || 0} effects</div>
+              <div class="profile-meta">${profile.effects?.length || 0} effects • ${profile.source === "builtin" ? "Built-in profile" : "Saved to your account"}</div>
             </div>
             <div class="profile-actions">
               <button class="profile-apply">Apply</button>
@@ -2430,6 +2513,17 @@ class ProAudioStudioWeb {
     switch (action) {
       case "open-audio":
         this.audioInput.click();
+        break;
+      case "new-project":
+        this.engine.newProject();
+        this.previewOriginal = false;
+        this.engine.previewOriginal = false;
+        this.previewEffectEnabled = false;
+        this.wave.clearSelection();
+        this.stopCursorUpdates();
+        this.updatePlayButton(false);
+        this.renderAll();
+        this.setStatus("Started a new empty project");
         break;
       case "export-audio":
         this.exportAudio();
@@ -2520,6 +2614,7 @@ class ProAudioStudioWeb {
         break;
       case "show-shortcuts":
         alert(
+          "Ctrl+N New project\n" +
           "Ctrl+O Open audio\n" +
           "Ctrl+E Export audio\n" +
           "Ctrl+Shift+S Save profile\n" +
@@ -2549,6 +2644,9 @@ class ProAudioStudioWeb {
     } else if (event.ctrlKey && event.shiftKey && key === "o") {
       event.preventDefault();
       this.openProfileModal();
+    } else if (event.ctrlKey && key === "n") {
+      event.preventDefault();
+      this.handleAction("new-project");
     } else if (event.ctrlKey && key === "o") {
       event.preventDefault();
       this.audioInput.click();
