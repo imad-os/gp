@@ -1406,7 +1406,7 @@ class ProAudioStudioWeb {
         }
       }
       this.updateAuthUI();
-      this.renderCurrentPanel();
+      this.renderActivePanel();
       this.renderAll();
     });
     await this.cloud.ensureAnonymous();
@@ -1714,7 +1714,7 @@ class ProAudioStudioWeb {
       }
       if (!preset) return;
       this.effectValues[effect.key] = { ...this.effectValues[effect.key], ...preset };
-      this.renderCurrentPanel();
+      this.renderActivePanel();
       this.queuePreviewRender(true);
     });
 
