@@ -44,6 +44,15 @@
           <button data-action="show-about">About</button>
         </div>
       </div>
+      <div class="menu-group">
+        <button class="menu-button" data-menu="user">User</button>
+        <div class="menu-dropdown user-dropdown" data-dropdown="user">
+          <div id="authStatus" class="user-menu-status">Guest</div>
+          <hr>
+          <button data-action="sign-in">Sign In / Sign Up</button>
+          <button data-action="sign-out">Sign Out</button>
+        </div>
+      </div>
       <div class="menu-transport">
         <button class="round round-mini" data-action="to-start" title="To Start">|&lt;</button>
         <button class="round round-mini play" data-action="play-toggle" title="Play or Pause">▶</button>
@@ -56,11 +65,6 @@
         </label>
         <div id="timeLabel" class="menu-time">0.0s / 0.0s</div>
         <button class="toggle-preview toggle-preview-mini" data-action="toggle-original" id="previewButton">Preview Edited</button>
-      </div>
-      <div class="auth-strip">
-        <div id="authStatus" class="auth-status">Guest</div>
-        <button class="auth-button" data-action="sign-in">Sign In / Sign Up</button>
-        <button class="auth-button ghost" data-action="sign-out">Sign Out</button>
       </div>
       <div class="brand">ProAudio Studio Web</div>
     </header>

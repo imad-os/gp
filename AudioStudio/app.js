@@ -1427,7 +1427,7 @@ class ProAudioStudioWeb {
       this.signOutButton.disabled = true;
     } else {
       this.authStatus.textContent = this.currentUser.displayName || this.currentUser.email || "Signed In";
-      this.signInButton.textContent = "Signed In";
+      this.signInButton.textContent = "Account Connected";
       this.signInButton.disabled = true;
       this.signOutButton.disabled = false;
     }
