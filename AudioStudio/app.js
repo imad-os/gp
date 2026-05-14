@@ -75,7 +75,7 @@ const STUDIO_SETTINGS_FIELD = "audiostudio_settings";
 const STUDIO_SETTINGS_STORAGE_KEY = "audiostudio.settings";
 const APP_VERSIONS_URL = "/AudioStudio/versions.json";
 const APP_BUILD = {
-  version: "v2026.05.14.19",
+  version: "v2026.05.14.20",
 };
 const DEFAULT_SETTINGS = Object.freeze({
   appFontSize: 15,
@@ -1100,11 +1100,12 @@ class WaveformView {
     const colors = this.previewOriginal
       ? ["rgba(255, 209, 102, 0.78)", "rgba(204, 130, 54, 0.58)"]
       : ["rgba(40, 214, 181, 0.82)", "rgba(81, 177, 255, 0.54)"];
+    const mids = [height * 0.26, height * 0.74];
+    const amp = height * 0.16;
 
     channels.slice(0, 2).forEach((channel, ch) => {
       ctx.beginPath();
-      const mid = ch === 0 ? height * 0.32 : height * 0.68;
-      const amp = height * 0.22;
+      const mid = mids[ch] ?? height / 2;
       for (let x = 0; x < width; x += 1) {
         const start = x * step;
         const end = Math.min(channel.length, start + step);
@@ -1120,6 +1121,15 @@ class WaveformView {
       ctx.strokeStyle = colors[ch];
       ctx.stroke();
     });
+
+    if (channels.length >= 2) {
+      ctx.font = "12px Segoe UI";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "rgba(255,255,255,0.72)";
+      ctx.fillText("L", 10, mids[0]);
+      ctx.fillText("R", 10, mids[1]);
+    }
 
     const selection = this.getSelection();
     if (selection) {
