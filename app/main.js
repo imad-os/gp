@@ -218,7 +218,7 @@ import { TOOL_PAGES, TOOL_PAGE_SET, TOOL_SUBTITLES, importToolModule } from './t
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.05.14.31',
+      version: 'v2026.05.14.32',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -1786,6 +1786,30 @@ Drop back to 70 BPM for clean finish.`,
         ].filter(Boolean) : [];
         badges.innerHTML = badgeItems.join('');
       }
+      updateMusicTransportUi();
+    }
+
+    function updateMusicTransportUi() {
+      const audio = getMusicAudioEl();
+      const playButton = document.getElementById('tool-music-play-toggle');
+      if (!playButton) return;
+      const isPlaying = !!(audio && !audio.paused && !audio.ended);
+      playButton.innerHTML = `<i class="fas ${isPlaying ? 'fa-pause' : 'fa-play'}"></i>`;
+      playButton.title = isPlaying ? 'Pause' : 'Play';
+      playButton.setAttribute('aria-label', isPlaying ? 'Pause' : 'Play');
+    }
+
+    async function refreshMusicLibrary() {
+      if (musicActionBusy) return;
+      try {
+        setMusicBusy(true, 'Refreshing music library...');
+        await loadMusicLibrary();
+        setMusicBusy(false, 'Music library refreshed.', false);
+      } catch (e) {
+        console.error('Could not refresh music library', e);
+        setMusicBusy(false, 'Could not refresh music library.', true);
+        showToast('Could not refresh music library.');
+      }
     }
 
     function renderMusicQueue() {
@@ -2028,6 +2052,10 @@ Drop back to 70 BPM for clean finish.`,
 
     window.renderMusicLibrary = function() {
       renderMusicLibrary();
+    };
+
+    window.refreshMusicLibrary = async function() {
+      await refreshMusicLibrary();
     };
 
     window.renderMusicLooperImportList = function() {
@@ -2446,17 +2474,21 @@ Drop back to 70 BPM for clean finish.`,
           window.playNextMusicTrack();
         } else {
           setMusicStatus('Queue finished.', false);
+          updateMusicTransportUi();
         }
       });
       audio.addEventListener('play', () => {
         const item = getMusicItemById(activeMusicTrackId);
         if (item) setMusicStatus(`Playing ${item.title}`, false);
+        updateMusicTransportUi();
       });
       audio.addEventListener('pause', () => {
         if (audio.ended) return;
         const item = getMusicItemById(activeMusicTrackId);
         if (item) setMusicStatus(`Paused ${item.title}`, false);
+        updateMusicTransportUi();
       });
+      audio.addEventListener('loadedmetadata', () => updateMusicTransportUi());
     }
 
     function setTabsPreviewStatus(text = '', isError = false) {

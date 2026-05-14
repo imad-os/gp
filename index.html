@@ -955,13 +955,15 @@
               <h2 class="font-bold text-lg">Music</h2>
               <p class="text-sm text-gray-400">Upload tracks, import from Looper, build playlists, and play with queue, next, and previous controls.</p>
             </div>
-            <span id="tool-music-status" class="text-xs text-gray-500">Library ready</span>
-          </div>
-
-          <div class="flex items-center justify-end mb-4">
-            <button onclick="openMusicAddModal()" class="bg-primary text-black font-bold py-3 px-5 rounded-xl btn-press shadow-[0_0_20px_rgba(156,106,61,0.25)]">
-              <i class="fas fa-plus mr-2"></i>Add / Import
-            </button>
+            <div class="flex items-center gap-2 shrink-0">
+              <span id="tool-music-status" class="text-xs text-gray-500">Library ready</span>
+              <button onclick="refreshMusicLibrary()" class="w-10 h-10 rounded-full btn-soft btn-press" title="Refresh music library" aria-label="Refresh music library">
+                <i class="fas fa-rotate-right"></i>
+              </button>
+              <button onclick="openMusicAddModal()" class="w-10 h-10 rounded-full bg-primary text-black font-bold btn-press shadow-[0_0_20px_rgba(156,106,61,0.25)]" title="Add or import music" aria-label="Add or import music">
+                <i class="fas fa-plus"></i>
+              </button>
+            </div>
           </div>
 
           <div class="grid grid-cols-3 gap-2 mb-4">
@@ -1014,9 +1016,9 @@
                   <div id="tool-music-now-playing-badges" class="flex flex-wrap gap-2 mt-3"></div>
                   <audio id="tool-music-audio" class="w-full mt-4" controls playsinline preload="metadata"></audio>
                   <div class="grid grid-cols-3 gap-2 mt-4">
-                    <button onclick="playPreviousMusicTrack()" class="btn-soft font-bold py-3 rounded-xl btn-press"><i class="fas fa-backward-step mr-2"></i>Prev</button>
-                    <button onclick="toggleMusicPlayback()" class="bg-primary text-black font-bold py-3 rounded-xl btn-press"><i class="fas fa-play mr-2"></i>Play / Pause</button>
-                    <button onclick="playNextMusicTrack()" class="btn-soft font-bold py-3 rounded-xl btn-press">Next<i class="fas fa-forward-step ml-2"></i></button>
+                    <button onclick="playPreviousMusicTrack()" id="tool-music-prev-btn" class="btn-soft font-bold py-3 rounded-xl btn-press" title="Previous track" aria-label="Previous track"><i class="fas fa-backward-step"></i></button>
+                    <button onclick="toggleMusicPlayback()" id="tool-music-play-toggle" class="bg-primary text-black font-bold py-3 rounded-xl btn-press" title="Play or pause" aria-label="Play or pause"><i class="fas fa-play"></i></button>
+                    <button onclick="playNextMusicTrack()" id="tool-music-next-btn" class="btn-soft font-bold py-3 rounded-xl btn-press" title="Next track" aria-label="Next track"><i class="fas fa-forward-step"></i></button>
                   </div>
                 </div>
               </div>
