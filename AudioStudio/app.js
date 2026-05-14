@@ -75,7 +75,7 @@ const STUDIO_SETTINGS_FIELD = "audiostudio_settings";
 const STUDIO_SETTINGS_STORAGE_KEY = "audiostudio.settings";
 const APP_VERSIONS_URL = "/AudioStudio/versions.json";
 const APP_BUILD = {
-  version: "v2026.05.14.16",
+  version: "v2026.05.14.17",
 };
 const DEFAULT_SETTINGS = Object.freeze({
   appFontSize: 15,
@@ -1702,15 +1702,21 @@ class ProAudioStudioWeb {
       event.target.value = "";
     });
 
-    document.addEventListener("dragenter", (event) => this.handleAppDragEnter(event));
-    document.addEventListener("dragover", (event) => this.handleAppDragOver(event));
-    document.addEventListener("dragleave", (event) => this.handleAppDragLeave(event));
-    document.addEventListener("drop", (event) => this.handleAppDrop(event));
+    [window, document, this.appShell].filter(Boolean).forEach((target) => {
+      target.addEventListener("dragenter", (event) => this.handleAppDragEnter(event));
+      target.addEventListener("dragover", (event) => this.handleAppDragOver(event));
+      target.addEventListener("dragleave", (event) => this.handleAppDragLeave(event));
+      target.addEventListener("drop", (event) => this.handleAppDrop(event));
+    });
 
     window.addEventListener("keydown", (event) => this.handleShortcut(event));
   }
 
   isAudioFileDrag(event) {
+    const files = Array.from(event.dataTransfer?.files || []);
+    if (files.length) return true;
+    const items = Array.from(event.dataTransfer?.items || []);
+    if (items.some((item) => item.kind === "file")) return true;
     const types = Array.from(event.dataTransfer?.types || []);
     return types.includes("Files");
   }
@@ -1741,8 +1747,8 @@ class ProAudioStudioWeb {
   }
 
   async handleAppDrop(event) {
-    if (!this.isAudioFileDrag(event)) return;
     event.preventDefault();
+    event.stopPropagation();
     this.dragDepth = 0;
     this.setDragUi(false);
     const files = Array.from(event.dataTransfer?.files || []);
