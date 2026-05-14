@@ -75,8 +75,47 @@ const STUDIO_SETTINGS_FIELD = "audiostudio_settings";
 const STUDIO_SETTINGS_STORAGE_KEY = "audiostudio.settings";
 const APP_VERSIONS_URL = "/AudioStudio/versions.json";
 const APP_BUILD = {
-  version: "v2026.05.14.24",
+  version: "v2026.05.14.25",
 };
+const AUDIO_FILE_EXTENSIONS = Object.freeze([
+  ".mp3",
+  ".mp2",
+  ".mp1",
+  ".mpeg",
+  ".mpga",
+  ".wav",
+  ".wave",
+  ".flac",
+  ".m4a",
+  ".m4b",
+  ".aac",
+  ".ogg",
+  ".oga",
+  ".opus",
+  ".weba",
+  ".wma",
+  ".aif",
+  ".aiff",
+  ".aifc",
+  ".alac",
+  ".amr",
+  ".3ga",
+  ".3gp",
+  ".caf",
+  ".au",
+  ".snd",
+  ".mid",
+  ".midi",
+  ".kar",
+  ".mka",
+  ".ac3",
+  ".ec3",
+]);
+const AUDIO_INPUT_ACCEPT = `${AUDIO_FILE_EXTENSIONS.join(",")},audio/*`;
+const AUDIO_FILE_EXTENSION_PATTERN = new RegExp(
+  `(${AUDIO_FILE_EXTENSIONS.map((extension) => extension.replace(".", "\\.")).join("|")})$`,
+  "i"
+);
 const DEFAULT_SETTINGS = Object.freeze({
   appFontSize: 15,
 });
@@ -1556,6 +1595,9 @@ class ProAudioStudioWeb {
     this.timeLabel = document.getElementById("timeLabel");
     this.volumeSlider = document.getElementById("volumeSlider");
     this.audioInput = document.getElementById("audioInput");
+    if (this.audioInput) {
+      this.audioInput.setAttribute("accept", AUDIO_INPUT_ACCEPT);
+    }
     this.previewButton = document.getElementById("previewButton");
     this.loopButton = document.getElementById("loopButton");
     this.playButton = document.querySelector('[data-action="play-toggle"]');
@@ -1783,7 +1825,7 @@ class ProAudioStudioWeb {
     this.setDragUi(false);
     const files = Array.from(event.dataTransfer?.files || []);
     const audioFile = files.find((file) => String(file.type || "").startsWith("audio/"))
-      || files.find((file) => /\.(mp3|wav|ogg|m4a|aac|flac|aif|aiff|wma)$/i.test(file.name || ""));
+      || files.find((file) => AUDIO_FILE_EXTENSION_PATTERN.test(file.name || ""));
     if (!audioFile) {
       this.setStatus("Drop an audio file to open it.");
       return;
