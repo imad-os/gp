@@ -1,6 +1,19 @@
 {
-  "latestVersion": "v2026.05.14.1",
+  "latestVersion": "v2026.05.14.2",
   "updates": [
+    {
+      "version": "v2026.05.14.2",
+      "releasedAt": "2026-05-14T12:10:00Z",
+      "summary": "Add Audio Studio settings and preset management",
+      "description": "Bring Audio Studio closer to the Guitar Trainer app with its own settings screen and version log.",
+      "changes": [
+        "Add Settings panel with adjustable font size",
+        "Save Audio Studio settings to local storage and signed-in cloud data",
+        "Add user preset rename and delete actions",
+        "Add Audio Studio-specific versions.json update history",
+        "Extend shared service worker support for Audio Studio assets"
+      ]
+    },
     {
       "version": "v2026.05.14.1",
       "releasedAt": "2026-05-14T12:10:00Z",
