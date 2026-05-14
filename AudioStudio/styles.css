@@ -539,6 +539,14 @@ select {
 .settings-modal-card {
   width: min(900px, calc(100vw - 40px));
   max-height: min(82vh, 900px);
+  height: min(82vh, 900px);
+}
+
+#settingsModalContent {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
 }
 
 .settings-grid {
@@ -686,6 +694,8 @@ select {
   inset: 0;
   display: grid;
   place-items: center;
+  padding: 20px;
+  overflow: auto;
   background: rgba(2, 9, 14, 0.7);
   backdrop-filter: blur(10px);
   z-index: 30;
@@ -747,9 +757,7 @@ select {
 .profile-item {
   padding: 12px 14px;
   border-radius: 16px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+  display: grid;
   gap: 12px;
 }
 
@@ -766,6 +774,56 @@ select {
 .profile-apply {
   padding: 9px 12px;
   border-radius: 12px;
+}
+
+.profile-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.profile-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.profile-details {
+  border-top: 1px solid rgba(255,255,255,0.08);
+  padding-top: 10px;
+}
+
+.profile-details summary {
+  cursor: pointer;
+  color: var(--accent-2);
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.profile-details-body {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.profile-effect {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.profile-effect-name {
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.profile-effect-meta {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin-top: 4px;
+  line-height: 1.4;
 }
 
 .auth-form {

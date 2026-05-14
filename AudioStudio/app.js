@@ -75,7 +75,7 @@ const STUDIO_SETTINGS_FIELD = "audiostudio_settings";
 const STUDIO_SETTINGS_STORAGE_KEY = "audiostudio.settings";
 const APP_VERSIONS_URL = "/AudioStudio/versions.json";
 const APP_BUILD = {
-  version: "v2026.05.14.12",
+  version: "v2026.05.14.13",
 };
 const DEFAULT_SETTINGS = Object.freeze({
   appFontSize: 15,
@@ -1539,6 +1539,17 @@ class ProAudioStudioWeb {
       .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   }
 
+  formatProfileEffectSummary(spec = {}) {
+    const effect = EFFECTS.find((item) => item.key === spec.effect);
+    const defaults = Object.fromEntries((effect?.controls || []).map(([key,,, , initialValue]) => [key, initialValue]));
+    const changed = Object.entries(spec.params || {}).filter(([key, value]) => defaults[key] !== value);
+    if (!changed.length) return "Uses saved default settings.";
+    return changed
+      .slice(0, 5)
+      .map(([key, value]) => `${key.replaceAll("_", " ")}: ${formatParamValue(value)}`)
+      .join(" • ");
+  }
+
   renderSettingsPanel() {
     const panel = document.createElement("div");
     panel.className = "panel settings-panel";
@@ -2211,12 +2222,31 @@ class ProAudioStudioWeb {
       .forEach((profile) => {
         const item = document.createElement("div");
         item.className = "profile-item";
+        const detailsHtml = Array.isArray(profile.effects) && profile.effects.length
+          ? profile.effects.map((spec, index) => {
+              const effectLabel = EFFECTS.find((entry) => entry.key === spec.effect)?.label || spec.effect || `Effect ${index + 1}`;
+              return `
+                <div class="profile-effect">
+                  <div class="profile-effect-name">${escapeHtml(`${index + 1}. ${effectLabel}`)}</div>
+                  <div class="profile-effect-meta">${escapeHtml(this.formatProfileEffectSummary(spec))}</div>
+                </div>
+              `;
+            }).join("")
+          : `<div class="profile-effect"><div class="profile-effect-name">No effects stored</div><div class="profile-effect-meta">This profile does not currently contain any savable effects.</div></div>`;
         item.innerHTML = `
-          <div>
-            <div class="profile-name">${profile.name}</div>
-            <div class="profile-meta">${profile.effects?.length || 0} effects</div>
+          <div class="profile-top">
+            <div>
+              <div class="profile-name">${escapeHtml(profile.name)}</div>
+              <div class="profile-meta">${profile.effects?.length || 0} effects</div>
+            </div>
+            <div class="profile-actions">
+              <button class="profile-apply">Apply</button>
+            </div>
           </div>
-          <button class="profile-apply">Apply</button>
+          <details class="profile-details">
+            <summary>Show profile details</summary>
+            <div class="profile-details-body">${detailsHtml}</div>
+          </details>
         `;
         item.querySelector(".profile-apply").addEventListener("click", async () => {
           this.closeProfileModal();
