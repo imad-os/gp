@@ -218,7 +218,7 @@ import { TOOL_PAGES, TOOL_PAGE_SET, TOOL_SUBTITLES, importToolModule } from './t
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.05.14.33',
+      version: 'v2026.05.14.34',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -1633,6 +1633,8 @@ Drop back to 70 BPM for clean finish.`,
       return value || fallback;
     }
 
+    const LARGE_MUSIC_SIZE_BYTES = 20 * 1024 * 1024;
+
     function normalizeMusicOriginLabel(raw = '') {
       const value = String(raw || '').trim().toLowerCase();
       if (value === 'edited') return 'Edited';
@@ -1693,18 +1695,30 @@ Drop back to 70 BPM for clean finish.`,
       return document.getElementById('tool-music-audio');
     }
 
-    function setMusicStatus(text = '', isError = false, { busy = false } = {}) {
-      const el = document.getElementById('tool-music-status');
-      if (!el) return;
-      const label = text || 'Library ready';
-      el.innerHTML = `${busy ? '<i class="fas fa-spinner fa-spin mr-1"></i>' : ''}${escapeHtml(label)}`;
-      el.classList.toggle('text-danger', !!isError);
-      el.classList.toggle('text-gray-500', !isError);
+    function isLargeMusicSize(sizeBytes = 0) {
+      return Number(sizeBytes || 0) >= LARGE_MUSIC_SIZE_BYTES;
     }
 
-    function setMusicBusy(busy, text = '', isError = false) {
+    function getMusicSizeTagClasses(sizeBytes = 0) {
+      return isLargeMusicSize(sizeBytes)
+        ? 'bg-red-900/40 border border-red-500/60 text-red-200'
+        : 'bg-black/40 border border-gray-800 text-gray-300';
+    }
+
+    function setMusicStatus(text = '', isError = false, { busy = false, progress = null } = {}) {
+      const el = document.getElementById('tool-music-status');
+      if (!el) return;
+      const progressLabel = Number.isFinite(progress) ? ` ${Math.max(0, Math.min(100, Math.round(progress)))}%` : '';
+      const label = `${text || 'Library ready'}${busy ? progressLabel : ''}`;
+      el.innerHTML = `${busy ? '<i class="fas fa-spinner fa-spin mr-1 text-white"></i>' : ''}${escapeHtml(label)}`;
+      el.classList.toggle('text-danger', !!isError);
+      el.classList.toggle('text-white', !!busy && !isError);
+      el.classList.toggle('text-gray-500', !busy && !isError);
+    }
+
+    function setMusicBusy(busy, text = '', isError = false, progress = null) {
       musicActionBusy = !!busy;
-      setMusicStatus(text || (busy ? 'Working...' : 'Library ready'), isError, { busy });
+      setMusicStatus(text || (busy ? 'Working...' : 'Library ready'), isError, { busy, progress });
     }
 
     function openMusicAddModal() {
@@ -1782,7 +1796,7 @@ Drop back to 70 BPM for clean finish.`,
         const badgeItems = item ? [
           `<span class="px-2.5 py-1 rounded-full bg-black/30 border border-gray-800 text-[11px] text-primary uppercase tracking-[0.18em]">${escapeHtml(item.originLabel)}</span>`,
           item.duration > 0 ? `<span class="px-2.5 py-1 rounded-full bg-black/30 border border-gray-800 text-[11px] text-gray-300">${escapeHtml(formatLooperTime(item.duration))}</span>` : '',
-          item.sizeBytes > 0 ? `<span class="px-2.5 py-1 rounded-full bg-black/30 border border-gray-800 text-[11px] text-gray-300">${escapeHtml(formatBytes(item.sizeBytes))}</span>` : '',
+          item.sizeBytes > 0 ? `<span class="px-2.5 py-1 rounded-full text-[11px] ${getMusicSizeTagClasses(item.sizeBytes)}">${escapeHtml(formatBytes(item.sizeBytes))}</span>` : '',
           item.album ? `<span class="px-2.5 py-1 rounded-full bg-black/30 border border-gray-800 text-[11px] text-gray-300">${escapeHtml(item.album)}</span>` : ''
         ].filter(Boolean) : [];
         badges.innerHTML = badgeItems.join('');
@@ -1867,7 +1881,7 @@ Drop back to 70 BPM for clean finish.`,
               <div class="flex flex-wrap gap-2 mt-2">
                 <span class="px-2 py-0.5 rounded-full bg-black/40 border border-gray-800 text-[10px] uppercase tracking-[0.16em] text-primary">${escapeHtml(item.originLabel)}</span>
                 ${item.duration > 0 ? `<span class="px-2 py-0.5 rounded-full bg-black/40 border border-gray-800 text-[10px] text-gray-300">${escapeHtml(formatLooperTime(item.duration))}</span>` : ''}
-                ${item.sizeBytes > 0 ? `<span class="px-2 py-0.5 rounded-full bg-black/40 border border-gray-800 text-[10px] text-gray-300">${escapeHtml(formatBytes(item.sizeBytes))}</span>` : ''}
+                ${item.sizeBytes > 0 ? `<span class="px-2 py-0.5 rounded-full text-[10px] ${getMusicSizeTagClasses(item.sizeBytes)}">${escapeHtml(formatBytes(item.sizeBytes))}</span>` : ''}
               </div>
             </button>
             <div class="flex items-center gap-2 shrink-0">
@@ -1964,7 +1978,7 @@ Drop back to 70 BPM for clean finish.`,
       renderMusicPlaylists();
     }
 
-    async function saveMusicItemFromDataUrl(dataUrl, meta = {}) {
+    async function saveMusicItemFromDataUrl(dataUrl, meta = {}, onProgress = null) {
       if (!repository || !user || user.isAnonymous) {
         showToast('Create an account to save music.');
         return '';
@@ -1985,7 +1999,7 @@ Drop back to 70 BPM for clean finish.`,
         updatedAt: now,
         createdAt: Number(meta.createdAt || 0) || now
       });
-      const chunkCount = await repository.saveMusicMediaData(user.uid, itemId, dataUrl);
+      const chunkCount = await repository.saveMusicMediaData(user.uid, itemId, dataUrl, onProgress);
       await repository.updateMusicItem(user.uid, itemId, { mediaStored: true, mediaChunkCount: chunkCount, updatedAt: Date.now() });
       await loadMusicLibrary();
       return itemId;
@@ -2001,9 +2015,11 @@ Drop back to 70 BPM for clean finish.`,
       const audio = getMusicAudioEl();
       if (!audio) return;
       musicLoadingTrackId = itemId;
-      setMusicBusy(true, 'Loading track...');
+      setMusicBusy(true, 'Loading track...', false, 0);
       try {
-        const dataUrl = await repository.loadMusicMediaData(user.uid, itemId);
+        const dataUrl = await repository.loadMusicMediaData(user.uid, itemId, (progress) => {
+          setMusicBusy(true, 'Loading track...', false, progress);
+        });
         if (!dataUrl) {
           setMusicBusy(false, 'Could not load this track.', true);
           showToast('Could not load this track.');
@@ -2091,15 +2107,21 @@ Drop back to 70 BPM for clean finish.`,
         event.target.value = '';
         return;
       }
-      setMusicBusy(true, 'Uploading track...');
+      setMusicBusy(true, 'Uploading track...', false, 0);
       try {
-        const dataUrl = await readFileAsDataUrl(file);
+        const dataUrl = await readFileAsDataUrl(file, (progress) => {
+          const mapped = Math.min(55, Math.round(progress * 0.55));
+          setMusicBusy(true, 'Reading audio file...', false, mapped);
+        });
         const title = sanitizeMusicText(file.name.replace(/\.[^.]+$/, ''), 'Uploaded Track');
         const itemId = await saveMusicItemFromDataUrl(dataUrl, {
           title,
           mimeType: String(file.type || 'audio/*'),
           sizeBytes: Number(file.size || 0) || 0,
           originLabel: 'Uploaded'
+        }, (progress) => {
+          const mapped = 55 + Math.round(progress * 0.45);
+          setMusicBusy(true, 'Saving to music library...', false, Math.min(100, mapped));
         });
         musicSelectedTrackId = itemId;
         fillMusicEditor(getMusicItemById(itemId));
@@ -2404,7 +2426,7 @@ Drop back to 70 BPM for clean finish.`,
         return;
       }
       try {
-        setMusicBusy(true, 'Importing current looper track...');
+        setMusicBusy(true, 'Importing current looper track...', false, 0);
         const itemId = await saveMusicItemFromDataUrl(looperPendingDataUrl, {
           title: getDefaultLooperTitle(),
           mimeType: looperActiveSource?.mimeType || 'audio/*',
@@ -2412,6 +2434,8 @@ Drop back to 70 BPM for clean finish.`,
           duration: Number(looperDuration || getLooperDuration() || 0) || 0,
           originLabel: 'Looper',
           sourceLooperHistoryId: String(activeLooperHistoryId || '')
+        }, (progress) => {
+          setMusicBusy(true, 'Importing current looper track...', false, progress);
         });
         musicSelectedTrackId = itemId;
         fillMusicEditor(getMusicItemById(itemId));
@@ -2434,12 +2458,14 @@ Drop back to 70 BPM for clean finish.`,
       }
       if (musicActionBusy) return;
       try {
-        setMusicBusy(true, 'Importing looper item...');
+        setMusicBusy(true, 'Importing looper item...', false, 0);
         const dataUrl = await repository.loadLooperMediaData(user.uid, item.id);
         if (!dataUrl) {
+          setMusicBusy(false, 'This looper item has no saved media.', true);
           showToast('This looper item has no saved media.');
           return;
         }
+        setMusicBusy(true, 'Importing looper item...', false, 45);
         const nextId = await saveMusicItemFromDataUrl(dataUrl, {
           title: sanitizeMusicText(item.title || '', 'Looper Import'),
           mimeType: item.mediaType === 'video' ? 'video/*' : 'audio/*',
@@ -2447,6 +2473,9 @@ Drop back to 70 BPM for clean finish.`,
           duration: Number(item.duration || 0) || 0,
           originLabel: 'Looper',
           sourceLooperHistoryId: item.id
+        }, (progress) => {
+          const mapped = 45 + Math.round(progress * 0.55);
+          setMusicBusy(true, 'Saving imported looper item...', false, Math.min(100, mapped));
         });
         musicSelectedTrackId = nextId;
         fillMusicEditor(getMusicItemById(nextId));

@@ -94,8 +94,9 @@ const STUDIO_SETTINGS_FIELD = "audiostudio_settings";
 const STUDIO_SETTINGS_STORAGE_KEY = "audiostudio.settings";
 const APP_VERSIONS_URL = "/AudioStudio/versions.json";
 const APP_BUILD = {
-  version: "v2026.05.14.33",
+  version: "v2026.05.14.34",
 };
+const LARGE_MUSIC_SIZE_BYTES = 20 * 1024 * 1024;
 const AUDIO_FILE_EXTENSIONS = Object.freeze([
   ".mp3",
   ".mp2",
@@ -2070,6 +2071,14 @@ class ProAudioStudioWeb {
     try {
       this.setBusy(true, "Saving to music collection...");
       const blob = encodeWav(this.engine.currentBuffer);
+      if (blob.size >= LARGE_MUSIC_SIZE_BYTES) {
+        const sizeMb = (blob.size / (1024 * 1024)).toFixed(1);
+        const confirmed = window.confirm(`This audio size is : ${sizeMb} mb, it will take time to save.`);
+        if (!confirmed) {
+          this.setStatus("Save to music collection cancelled");
+          return;
+        }
+      }
       const dataUrl = await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result || ""));

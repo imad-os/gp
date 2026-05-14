@@ -67,13 +67,20 @@ export function dataUrlToBlob(dataUrl = '') {
   }
 }
 
-export function readFileAsDataUrl(file) {
+export function readFileAsDataUrl(file, onProgress = null) {
   return new Promise((resolve, reject) => {
     if (!file) {
       reject(new Error('Missing file'));
       return;
     }
     const reader = new FileReader();
+    if (typeof onProgress === 'function') {
+      reader.onprogress = (event) => {
+        if (!event.lengthComputable) return;
+        const progress = Math.max(0, Math.min(100, Math.round((event.loaded / Math.max(1, event.total)) * 100)));
+        onProgress(progress);
+      };
+    }
     reader.onload = () => resolve(String(reader.result || ''));
     reader.onerror = () => reject(reader.error || new Error('Read failed'));
     reader.readAsDataURL(file);

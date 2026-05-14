@@ -694,7 +694,7 @@ export class FirestoreRepository {
     await this.idbDelete(this.makeCacheKey('music_media_device', itemId));
   }
 
-  async saveMusicMediaData(userId, itemId, dataUrl) {
+  async saveMusicMediaData(userId, itemId, dataUrl, onProgress = null) {
     const chunksRef = collection(this.db, 'users', userId, 'music', itemId, 'media_chunks');
     const existing = await getDocs(chunksRef);
     for (const entry of existing.docs) {
@@ -703,14 +703,20 @@ export class FirestoreRepository {
     const CHUNK_SIZE = 350000;
     const source = String(dataUrl || '');
     const chunkCount = Math.max(1, Math.ceil(source.length / CHUNK_SIZE));
+    if (typeof onProgress === 'function') onProgress(12);
     for (let i = 0; i < chunkCount; i += 1) {
       const start = i * CHUNK_SIZE;
       const part = source.slice(start, start + CHUNK_SIZE);
       const chunkId = String(i).padStart(5, '0');
       await setDoc(doc(chunksRef, chunkId), { index: i, data: part });
+      if (typeof onProgress === 'function') {
+        const progress = 12 + Math.round(((i + 1) / chunkCount) * 80);
+        onProgress(Math.min(92, progress));
+      }
     }
     await this.idbSet(this.makeCacheKey('music_media', `${userId}:${itemId}`), source);
     await this.idbSet(this.makeCacheKey('music_media_device', itemId), source);
+    if (typeof onProgress === 'function') onProgress(100);
     return chunkCount;
   }
 
