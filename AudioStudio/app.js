@@ -75,7 +75,7 @@ const STUDIO_SETTINGS_FIELD = "audiostudio_settings";
 const STUDIO_SETTINGS_STORAGE_KEY = "audiostudio.settings";
 const APP_VERSIONS_URL = "/AudioStudio/versions.json";
 const APP_BUILD = {
-  version: "v2026.05.14.20",
+  version: "v2026.05.14.21",
 };
 const DEFAULT_SETTINGS = Object.freeze({
   appFontSize: 15,
@@ -1096,7 +1096,9 @@ class WaveformView {
     }
 
     const channels = audioBufferToArrays(this.buffer);
-    const step = Math.max(1, Math.floor(channels[0].length / width));
+    const leftGutter = channels.length >= 2 ? 28 : 0;
+    const contentWidth = Math.max(1, width - leftGutter);
+    const step = Math.max(1, Math.floor(channels[0].length / contentWidth));
     const colors = this.previewOriginal
       ? ["rgba(255, 209, 102, 0.78)", "rgba(204, 130, 54, 0.58)"]
       : ["rgba(40, 214, 181, 0.82)", "rgba(81, 177, 255, 0.54)"];
@@ -1106,7 +1108,7 @@ class WaveformView {
     channels.slice(0, 2).forEach((channel, ch) => {
       ctx.beginPath();
       const mid = mids[ch] ?? height / 2;
-      for (let x = 0; x < width; x += 1) {
+      for (let x = 0; x < contentWidth; x += 1) {
         const start = x * step;
         const end = Math.min(channel.length, start + step);
         let min = 1;
@@ -1115,8 +1117,9 @@ class WaveformView {
           min = Math.min(min, channel[i]);
           max = Math.max(max, channel[i]);
         }
-        ctx.moveTo(x, mid + min * amp);
-        ctx.lineTo(x, mid + max * amp);
+        const drawX = leftGutter + x;
+        ctx.moveTo(drawX, mid + min * amp);
+        ctx.lineTo(drawX, mid + max * amp);
       }
       ctx.strokeStyle = colors[ch];
       ctx.stroke();
@@ -1127,18 +1130,20 @@ class WaveformView {
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
       ctx.fillStyle = "rgba(255,255,255,0.72)";
-      ctx.fillText("L", 10, mids[0]);
-      ctx.fillText("R", 10, mids[1]);
+      ctx.fillText("L", 8, mids[0]);
+      ctx.fillText("R", 8, mids[1]);
     }
 
     const selection = this.getSelection();
     if (selection) {
       const [start, end] = selection;
       ctx.fillStyle = "rgba(255,255,255,0.12)";
-      ctx.fillRect(start / this.duration * width, 0, (end - start) / this.duration * width, height);
+      const selectionStartX = leftGutter + start / this.duration * contentWidth;
+      const selectionWidth = (end - start) / this.duration * contentWidth;
+      ctx.fillRect(selectionStartX, 0, selectionWidth, height);
     }
 
-    const cursorX = this.duration > 0 ? this.cursor / this.duration * width : 0;
+    const cursorX = this.duration > 0 ? leftGutter + this.cursor / this.duration * contentWidth : leftGutter;
     ctx.strokeStyle = "#ffffff";
     ctx.lineWidth = 1.4;
     ctx.beginPath();
