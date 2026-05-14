@@ -374,6 +374,40 @@ select {
   gap: 8px;
 }
 
+.change-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.change-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.change-action,
+.secondary-button {
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.05);
+  color: var(--text);
+  padding: 7px 10px;
+  font-size: 0.78rem;
+}
+
+.change-action.danger {
+  border-color: rgba(255, 120, 120, 0.25);
+  color: #ffb3b3;
+}
+
+.change-action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .effect-item {
   width: 100%;
   border-radius: 14px;
@@ -419,6 +453,13 @@ select {
   padding-bottom: 12px;
   border-bottom: 1px solid rgba(255,255,255,0.08);
   margin-bottom: 14px;
+}
+
+.panel-inline-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
 }
 
 .panel-title {

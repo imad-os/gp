@@ -75,7 +75,7 @@ const STUDIO_SETTINGS_FIELD = "audiostudio_settings";
 const STUDIO_SETTINGS_STORAGE_KEY = "audiostudio.settings";
 const APP_VERSIONS_URL = "/AudioStudio/versions.json";
 const APP_BUILD = {
-  version: "v2026.05.14.26",
+  version: "v2026.05.14.27",
 };
 const AUDIO_FILE_EXTENSIONS = Object.freeze([
   ".mp3",
@@ -1010,6 +1010,23 @@ class AudioEngine {
     this.stop();
   }
 
+  async rebuildEffectChain(effectChain, changeLog, { record = true } = {}) {
+    if (!this.originalBuffer) return;
+    if (record && this.currentBuffer) this.pushUndo();
+    let rebuilt = cloneAudioBuffer(this.audioCtx, this.originalBuffer);
+    for (const spec of effectChain) {
+      rebuilt = await this.processEffectBuffer(rebuilt, spec);
+      await nextFrame();
+    }
+    this.currentBuffer = rebuilt;
+    this.effectChain = cloneEffectChain(effectChain);
+    this.changeLog = cloneEffectChain(changeLog);
+    this.previewBuffer = null;
+    this.pauseOffset = 0;
+    this.playEnd = null;
+    this.stop();
+  }
+
   async applyProfile(profileSpecs) {
     if (!this.currentBuffer || !Array.isArray(profileSpecs) || !profileSpecs.length) return;
     this.pushUndo();
@@ -1565,6 +1582,7 @@ class ProAudioStudioWeb {
     this.latestCatalogVersion = APP_BUILD.version;
     this.latestCatalogEntry = null;
     this.catalogUpdateAvailable = false;
+    this.editingChangeIndex = null;
     this.cacheElements();
     this.initDefaults();
     this.wave = new WaveformView(this.waveCanvas, (seconds) => this.seek(seconds));
@@ -1871,6 +1889,127 @@ class ProAudioStudioWeb {
     });
   }
 
+  clearEffectEditingState() {
+    this.editingChangeIndex = null;
+  }
+
+  canSafelyModifyAppliedEffects() {
+    return Boolean(
+      this.engine.originalBuffer
+      && this.engine.effectChain.length
+      && this.engine.changeLog.length === this.engine.effectChain.length
+      && this.engine.changeLog.every((entry) => entry?.type === "effect")
+    );
+  }
+
+  canModifyAppliedEffectEntry(entry, index) {
+    return Boolean(
+      entry?.type === "effect"
+      && this.canSafelyModifyAppliedEffects()
+      && index >= 0
+      && index < this.engine.effectChain.length
+    );
+  }
+
+  async buildEffectChainPreviewBuffer(spec, replaceIndex = null) {
+    if (!this.engine.originalBuffer) return null;
+    const nextChain = cloneEffectChain(this.engine.effectChain);
+    if (replaceIndex == null) nextChain.push(spec);
+    else nextChain[replaceIndex] = cloneEffectChain([spec])[0];
+    let previewBuffer = cloneAudioBuffer(this.audioCtx, this.engine.originalBuffer);
+    for (const item of nextChain) {
+      previewBuffer = await this.engine.processEffectBuffer(previewBuffer, item);
+      await nextFrame();
+    }
+    return previewBuffer;
+  }
+
+  startAppliedEffectEdit(index) {
+    const entry = this.engine.changeLog[index];
+    if (!this.canModifyAppliedEffectEntry(entry, index)) {
+      this.setStatus("That change cannot be edited after trims, cuts, profiles, or mixed edit history.");
+      return;
+    }
+    const spec = this.engine.effectChain[index];
+    if (!spec) return;
+    this.editingChangeIndex = index;
+    this.activeEffectKey = spec.effect;
+    this.effectValues[spec.effect] = {
+      ...this.effectValues[spec.effect],
+      ...cloneEffectChain([spec.params || {}])[0],
+    };
+    this.previewOriginal = false;
+    this.engine.previewOriginal = false;
+    this.previewEffectEnabled = false;
+    this.engine.clearPreviewBuffer();
+    this.renderActivePanel();
+    this.renderAll();
+    this.setStatus(`Editing ${entry.label}`);
+  }
+
+  async removeAppliedEffect(index) {
+    const entry = this.engine.changeLog[index];
+    if (!this.canModifyAppliedEffectEntry(entry, index)) {
+      this.setStatus("That change cannot be removed safely after trims, cuts, profiles, or mixed edit history.");
+      return;
+    }
+    const nextChain = cloneEffectChain(this.engine.effectChain).filter((_, itemIndex) => itemIndex !== index);
+    const nextLog = cloneEffectChain(this.engine.changeLog).filter((_, itemIndex) => itemIndex !== index);
+    try {
+      this.setBusy(true, `Removing ${entry.label}...`);
+      await this.engine.rebuildEffectChain(nextChain, nextLog);
+      if (this.editingChangeIndex === index) this.clearEffectEditingState();
+      else if (this.editingChangeIndex != null && this.editingChangeIndex > index) this.editingChangeIndex -= 1;
+      this.previewEffectEnabled = false;
+      this.renderActivePanel();
+      this.renderAll();
+      this.setStatus(`${entry.label} removed`);
+    } catch (error) {
+      this.setStatus(`Remove failed: ${error.message}`);
+      alert(`Could not remove that effect.\n\n${error.message}`);
+    } finally {
+      this.setBusy(false);
+    }
+  }
+
+  async saveEditedAppliedEffect() {
+    if (this.editingChangeIndex == null) return;
+    const index = this.editingChangeIndex;
+    const previousEntry = this.engine.changeLog[index];
+    if (!this.canModifyAppliedEffectEntry(previousEntry, index)) {
+      this.clearEffectEditingState();
+      this.renderActivePanel();
+      this.renderAll();
+      this.setStatus("That change is no longer safe to edit.");
+      return;
+    }
+    const spec = this.getActiveEffectSpec();
+    const effectLabel = EFFECTS.find((item) => item.key === spec.effect)?.label || spec.effect;
+    const nextChain = cloneEffectChain(this.engine.effectChain);
+    nextChain[index] = cloneEffectChain([spec])[0];
+    const nextLog = cloneEffectChain(this.engine.changeLog);
+    nextLog[index] = {
+      ...nextLog[index],
+      label: effectLabel,
+      effect: spec.effect,
+      params: cloneEffectChain([spec.params || {}])[0],
+    };
+    try {
+      this.setBusy(true, `Saving ${effectLabel} changes...`);
+      await this.engine.rebuildEffectChain(nextChain, nextLog);
+      this.clearEffectEditingState();
+      this.previewEffectEnabled = false;
+      this.renderActivePanel();
+      this.renderAll();
+      this.setStatus(`${effectLabel} updated`);
+    } catch (error) {
+      this.setStatus(`Edit failed: ${error.message}`);
+      alert(`Could not update that effect.\n\n${error.message}`);
+    } finally {
+      this.setBusy(false);
+    }
+  }
+
   openSettingsPanel() {
     this.renderSettingsPanel();
     if (this.settingsModal) this.settingsModal.hidden = false;
@@ -1960,13 +2099,15 @@ class ProAudioStudioWeb {
   renderActivePanel() {
     const effect = EFFECTS.find((item) => item.key === this.activeEffectKey);
     const values = this.effectValues[effect.key];
+    const isEditingAppliedEffect = this.editingChangeIndex != null;
+    const editEntry = isEditingAppliedEffect ? this.engine.changeLog[this.editingChangeIndex] : null;
     const panel = document.createElement("div");
     panel.className = "panel";
     panel.innerHTML = `
       <div class="panel-header">
         <div>
           <div class="panel-title">${effect.title}</div>
-          <div class="panel-subtitle">${effect.subtitle}</div>
+          <div class="panel-subtitle">${isEditingAppliedEffect ? `Editing applied change: ${escapeHtml(editEntry?.label || effect.label)}` : effect.subtitle}</div>
         </div>
       </div>
       <div class="${effect.key === "eq" ? "eq-grid" : "control-grid"}"></div>
@@ -1981,7 +2122,10 @@ class ProAudioStudioWeb {
         </label>
       </div>
       <div class="apply-row">
-        <button class="apply-button">Apply Effect</button>
+        <div class="panel-inline-actions">
+          <button class="apply-button">${isEditingAppliedEffect ? "Save Effect Changes" : "Apply Effect"}</button>
+          ${isEditingAppliedEffect ? `<button class="secondary-button" data-role="cancel-effect-edit">Cancel Edit</button>` : ""}
+        </div>
         <div class="panel-note">${effect.note}</div>
       </div>
     `;
@@ -2071,6 +2215,14 @@ class ProAudioStudioWeb {
     });
 
     panel.querySelector(".save-preset-button").addEventListener("click", () => this.saveCurrentPreset());
+    panel.querySelector('[data-role="cancel-effect-edit"]')?.addEventListener("click", () => {
+      this.clearEffectEditingState();
+      this.previewEffectEnabled = false;
+      this.engine.clearPreviewBuffer();
+      this.renderActivePanel();
+      this.renderAll();
+      this.setStatus("Effect edit cancelled");
+    });
 
     const previewToggle = panel.querySelector('.preview-toggle input');
     previewToggle.addEventListener("change", () => {
@@ -2095,6 +2247,7 @@ class ProAudioStudioWeb {
       this.setBusy(true, "Loading audio…");
       await this.audioCtx.resume();
       await this.engine.loadFile(file);
+      this.clearEffectEditingState();
       this.previewOriginal = false;
       this.engine.previewOriginal = false;
       this.previewEffectEnabled = false;
@@ -2684,6 +2837,10 @@ class ProAudioStudioWeb {
   async applyActiveEffect() {
     if (!this.engine.currentBuffer) return alert("Open a file first.");
     if (this.previewOriginal) return alert("Switch back to edited preview before applying effects.");
+    if (this.editingChangeIndex != null) {
+      await this.saveEditedAppliedEffect();
+      return;
+    }
     const effect = EFFECTS.find((item) => item.key === this.activeEffectKey);
     const spec = this.getActiveEffectSpec();
     try {
@@ -2707,6 +2864,7 @@ class ProAudioStudioWeb {
         break;
       case "new-project":
         this.engine.newProject();
+        this.clearEffectEditingState();
         this.previewOriginal = false;
         this.engine.previewOriginal = false;
         this.previewEffectEnabled = false;
@@ -2745,12 +2903,14 @@ class ProAudioStudioWeb {
         break;
       case "undo":
         if (this.engine.undo()) {
+          this.clearEffectEditingState();
           this.renderAll();
           this.setStatus("Undo");
         }
         break;
       case "redo":
         if (this.engine.redo()) {
+          this.clearEffectEditingState();
           this.renderAll();
           this.setStatus("Redo");
         }
@@ -2763,6 +2923,7 @@ class ProAudioStudioWeb {
         break;
       case "reset":
         this.engine.resetToOriginal();
+        this.clearEffectEditingState();
         this.wave.clearSelection();
         this.renderAll();
         this.setStatus("Reset to original");
@@ -3006,6 +3167,7 @@ class ProAudioStudioWeb {
   trimSelection() {
     const selection = this.wave.getSelection();
     if (!selection) return alert("Drag on the waveform to select a region first.");
+    this.clearEffectEditingState();
     this.engine.trim(selection[0], selection[1]);
     this.wave.clearSelection();
     this.renderAll();
@@ -3015,6 +3177,7 @@ class ProAudioStudioWeb {
   cutSelection() {
     const selection = this.wave.getSelection();
     if (!selection) return alert("Drag on the waveform to select a region first.");
+    this.clearEffectEditingState();
     this.engine.cut(selection[0], selection[1]);
     this.wave.clearSelection();
     this.renderAll();
@@ -3064,7 +3227,11 @@ class ProAudioStudioWeb {
     const end = this.engine.playEnd;
     const spec = this.getActiveEffectSpec();
     try {
-      this.engine.previewBuffer = await this.engine.processEffectBuffer(this.engine.currentBuffer, spec);
+      if (this.editingChangeIndex != null && this.canModifyAppliedEffectEntry(this.engine.changeLog[this.editingChangeIndex], this.editingChangeIndex)) {
+        this.engine.previewBuffer = await this.buildEffectChainPreviewBuffer(spec, this.editingChangeIndex);
+      } else {
+        this.engine.previewBuffer = await this.engine.processEffectBuffer(this.engine.currentBuffer, spec);
+      }
       if (wasPlaying) {
         this.engine.play(pos, end);
         this.startCursorUpdates();
@@ -3100,6 +3267,7 @@ class ProAudioStudioWeb {
     this.engine.changeLog.forEach((entry, index) => {
       const item = document.createElement("div");
       item.className = "change-item";
+      const canModify = this.canModifyAppliedEffectEntry(entry, index);
       let summary = entry.meta || "";
       if (!summary && entry.params) {
         const entries = Object.entries(entry.params).filter(([, value]) => {
@@ -3112,9 +3280,19 @@ class ProAudioStudioWeb {
         }).join(" · ");
       }
       item.innerHTML = `
-        <div class="change-name">${index + 1}. ${entry.label}</div>
-        <div class="change-meta">${summary || "Applied with default settings."}</div>
+        <div class="change-head">
+          <div>
+            <div class="change-name">${index + 1}. ${entry.label}</div>
+            <div class="change-meta">${summary || "Applied with default settings."}</div>
+          </div>
+          <div class="change-actions">
+            <button class="change-action" data-role="edit" ${canModify ? "" : "disabled"}>Edit</button>
+            <button class="change-action danger" data-role="trash" ${canModify ? "" : "disabled"}>Trash</button>
+          </div>
+        </div>
       `;
+      item.querySelector('[data-role="edit"]')?.addEventListener("click", () => this.startAppliedEffectEdit(index));
+      item.querySelector('[data-role="trash"]')?.addEventListener("click", () => this.removeAppliedEffect(index));
       this.changeList.appendChild(item);
     });
   }
