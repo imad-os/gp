@@ -75,7 +75,7 @@ const STUDIO_SETTINGS_FIELD = "audiostudio_settings";
 const STUDIO_SETTINGS_STORAGE_KEY = "audiostudio.settings";
 const APP_VERSIONS_URL = "/AudioStudio/versions.json";
 const APP_BUILD = {
-  version: "v2026.05.14.11",
+  version: "v2026.05.14.12",
 };
 const DEFAULT_SETTINGS = Object.freeze({
   appFontSize: 15,
