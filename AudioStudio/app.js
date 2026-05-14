@@ -75,7 +75,7 @@ const STUDIO_SETTINGS_FIELD = "audiostudio_settings";
 const STUDIO_SETTINGS_STORAGE_KEY = "audiostudio.settings";
 const APP_VERSIONS_URL = "/AudioStudio/versions.json";
 const APP_BUILD = {
-  version: "v2026.05.14.13",
+  version: "v2026.05.14.14",
 };
 const DEFAULT_SETTINGS = Object.freeze({
   appFontSize: 15,
@@ -329,33 +329,98 @@ function peakNormalize(channels, targetDb = -3) {
   });
 }
 
-function linkedCompression(channels, { threshold = -18, ratio = 4, makeup = 0 }) {
+function smoothGainTransitions(gainState, targetGain, attackCoeff, releaseCoeff) {
+  return targetGain < gainState
+    ? targetGain + attackCoeff * (gainState - targetGain)
+    : targetGain + releaseCoeff * (gainState - targetGain);
+}
+
+function linkedCompression(channels, { threshold = -18, ratio = 4, makeup = 0, attackMs = 10, releaseMs = 80 } = {}) {
   const [left, right] = duplicateMono(channels);
   const outL = new Float32Array(left.length);
   const outR = new Float32Array(right.length);
   const thresholdLin = dbToGain(threshold);
-  const blockSize = 256;
   const makeupLin = dbToGain(makeup);
-  for (let i = 0; i < left.length; i += blockSize) {
-    const end = Math.min(left.length, i + blockSize);
-    let rms = 0;
-    for (let j = i; j < end; j += 1) {
-      const mono = (Math.abs(left[j]) + Math.abs(right[j])) * 0.5;
-      rms += mono * mono;
+  const attackCoeff = Math.exp(-1 / Math.max(1, 44100 * attackMs / 1000));
+  const releaseCoeff = Math.exp(-1 / Math.max(1, 44100 * releaseMs / 1000));
+  let detector = 0;
+  let gainState = 1;
+  for (let i = 0; i < left.length; i += 1) {
+    const mono = (Math.abs(left[i]) + Math.abs(right[i])) * 0.5;
+    detector = mono > detector
+      ? mono + attackCoeff * (detector - mono)
+      : mono + releaseCoeff * (detector - mono);
+    let targetGain = 1;
+    if (detector > thresholdLin) {
+      const compressed = thresholdLin + (detector - thresholdLin) / Math.max(1, ratio);
+      targetGain = compressed / Math.max(detector, 1e-9);
     }
-    rms = Math.sqrt(rms / Math.max(1, end - i));
-    let gain = 1;
-    if (rms > thresholdLin) {
-      const compressed = thresholdLin + (rms - thresholdLin) / ratio;
-      gain = compressed / Math.max(rms, 1e-9);
-    }
-    gain *= makeupLin;
-    for (let j = i; j < end; j += 1) {
-      outL[j] = clamp(left[j] * gain, -1, 1);
-      outR[j] = clamp(right[j] * gain, -1, 1);
-    }
+    gainState = smoothGainTransitions(gainState, targetGain, attackCoeff, releaseCoeff);
+    const gain = gainState * makeupLin;
+    outL[i] = clamp(left[i] * gain, -1, 1);
+    outR[i] = clamp(right[i] * gain, -1, 1);
   }
   return [outL, outR];
+}
+
+function gateExpanderEffect(channels, { threshold = -42, ratio = 3, floor = -24, attackMs = 4, releaseMs = 100 } = {}) {
+  const [left, right] = duplicateMono(channels);
+  const outL = new Float32Array(left.length);
+  const outR = new Float32Array(right.length);
+  const thresholdLin = dbToGain(threshold);
+  const floorGain = dbToGain(floor);
+  const attackCoeff = Math.exp(-1 / Math.max(1, 44100 * attackMs / 1000));
+  const releaseCoeff = Math.exp(-1 / Math.max(1, 44100 * releaseMs / 1000));
+  let detector = 0;
+  let gainState = 1;
+  for (let i = 0; i < left.length; i += 1) {
+    const mono = (Math.abs(left[i]) + Math.abs(right[i])) * 0.5;
+    detector = mono > detector
+      ? mono + attackCoeff * (detector - mono)
+      : mono + releaseCoeff * (detector - mono);
+    let targetGain = 1;
+    if (detector < thresholdLin) {
+      const deficit = 1 - detector / Math.max(thresholdLin, 1e-9);
+      targetGain = Math.max(floorGain, 1 - deficit * (1 - 1 / Math.max(1, ratio)));
+    }
+    gainState = smoothGainTransitions(gainState, targetGain, attackCoeff, releaseCoeff);
+    outL[i] = clamp(left[i] * gainState, -1, 1);
+    outR[i] = clamp(right[i] * gainState, -1, 1);
+  }
+  return [outL, outR];
+}
+
+function limiterEffect(channels, { ceiling = -0.3, drive = 6, releaseMs = 60 } = {}) {
+  const [left, right] = duplicateMono(channels);
+  const outL = new Float32Array(left.length);
+  const outR = new Float32Array(right.length);
+  const ceilingLin = dbToGain(ceiling);
+  const preGain = dbToGain(drive);
+  const releaseCoeff = Math.exp(-1 / Math.max(1, 44100 * releaseMs / 1000));
+  let gainState = 1;
+  for (let i = 0; i < left.length; i += 1) {
+    const inL = left[i] * preGain;
+    const inR = right[i] * preGain;
+    const peak = Math.max(Math.abs(inL), Math.abs(inR), 1e-9);
+    const targetGain = peak > ceilingLin ? ceilingLin / peak : 1;
+    gainState = targetGain < gainState ? targetGain : targetGain + releaseCoeff * (gainState - targetGain);
+    outL[i] = clamp(inL * gainState, -ceilingLin, ceilingLin);
+    outR[i] = clamp(inR * gainState, -ceilingLin, ceilingLin);
+  }
+  return [outL, outR];
+}
+
+function exciterEffect(channels, sampleRate, { amount = 0.45, tune = 6500, mix = 0.5 } = {}) {
+  const highpass = rbjHighpass(sampleRate, clamp(tune, 2500, Math.min(12000, sampleRate * 0.45)), 0.8);
+  return channels.map((input) => {
+    const band = applyFilter(input, highpass);
+    const out = new Float32Array(input.length);
+    for (let i = 0; i < input.length; i += 1) {
+      const harmonics = Math.tanh(band[i] * (1 + amount * 6)) * amount;
+      out[i] = clamp(input[i] * (1 - mix) + (input[i] + harmonics) * mix, -1, 1);
+    }
+    return out;
+  });
 }
 
 function simpleNoiseReduce(channels, { strength = 0.75 }) {
@@ -483,10 +548,16 @@ function masteringEffect(channels, sampleRate, params) {
     threshold: -16,
     ratio: params.multiband_comp ? 3.2 : 2.2,
     makeup: 1.5,
+    attackMs: 12,
+    releaseMs: 110,
   });
   compressed = saturationEffect(compressed, sampleRate, { drive: 1.4, tone: 0.58, mix: 0.25 });
-  const targetPeakDb = params.ceiling ?? -0.3;
-  return peakNormalize(compressed, targetPeakDb);
+  compressed = limiterEffect(compressed, {
+    ceiling: params.ceiling ?? -0.3,
+    drive: Math.max(1, ((params.target_lufs ?? -14) + 20) * 0.7),
+    releaseMs: 90,
+  });
+  return compressed;
 }
 
 function pitchTimeEffect(channels, params) {
@@ -760,6 +831,9 @@ class AudioEngine {
       case "compression":
         channels = linkedCompression(channels, spec.params);
         break;
+      case "gate_expander":
+        channels = gateExpanderEffect(channels, spec.params);
+        break;
       case "de_esser":
         channels = deEsserEffect(channels, sr, spec.params);
         break;
@@ -777,6 +851,12 @@ class AudioEngine {
         break;
       case "saturation":
         channels = saturationEffect(channels, sr, spec.params);
+        break;
+      case "exciter":
+        channels = exciterEffect(channels, sr, spec.params);
+        break;
+      case "limiter":
+        channels = limiterEffect(channels, spec.params);
         break;
       case "mastering":
         channels = masteringEffect(channels, sr, spec.params);
@@ -1090,6 +1170,26 @@ const EFFECTS = [
     },
   },
   {
+    key: "gate_expander",
+    label: "Gate / Expander",
+    title: "Noise Gate / Downward Expander",
+    subtitle: "Reduce room noise and low-level bleed between phrases.",
+    note: "Use gentle settings first so quiet tails still feel natural.",
+    controls: [
+      ["threshold", "Threshold", -70, -6, -42, 1, (v) => `${Math.round(v)} dB`],
+      ["ratio", "Range / Ratio", 1, 8, 3, 0.1, (v) => `${v.toFixed(1)}:1`],
+      ["floor", "Floor", -48, -6, -24, 1, (v) => `${Math.round(v)} dB`],
+      ["attackMs", "Attack", 1, 40, 4, 1, (v) => `${Math.round(v)} ms`],
+      ["releaseMs", "Release", 20, 400, 100, 1, (v) => `${Math.round(v)} ms`],
+    ],
+    presets: {
+      Gentle: { threshold: -46, ratio: 2, floor: -18, attackMs: 6, releaseMs: 140 },
+      Voice: { threshold: -40, ratio: 3, floor: -24, attackMs: 4, releaseMs: 110 },
+      Drums: { threshold: -32, ratio: 4.5, floor: -30, attackMs: 2, releaseMs: 70 },
+      Tight: { threshold: -36, ratio: 6, floor: -36, attackMs: 3, releaseMs: 60 },
+    },
+  },
+  {
     key: "de_esser",
     label: "De-Esser",
     title: "Custom DSP De-Esser",
@@ -1194,6 +1294,42 @@ const EFFECTS = [
       Warmth: { drive: 1.8, tone: 0.55, mix: 0.35 },
       Tube: { drive: 2.8, tone: 0.62, mix: 0.55 },
       LoFi: { drive: 4.2, tone: 0.7, mix: 0.75 },
+    },
+  },
+  {
+    key: "exciter",
+    label: "Exciter",
+    title: "Harmonic Exciter",
+    subtitle: "Add sheen and intelligibility to the top end.",
+    note: "Best after EQ and before the final limiter or mastering stage.",
+    controls: [
+      ["amount", "Amount", 0, 1, 0.45, 0.01, (v) => `${Math.round(v * 100)}%`],
+      ["tune", "Focus Frequency", 2500, 12000, 6500, 10, (v) => `${Math.round(v)} Hz`],
+      ["mix", "Mix", 0, 1, 0.5, 0.01, (v) => `${Math.round(v * 100)}%`],
+    ],
+    presets: {
+      Air: { amount: 0.3, tune: 8000, mix: 0.35 },
+      "Vocal Shine": { amount: 0.45, tune: 6200, mix: 0.5 },
+      Presence: { amount: 0.55, tune: 4800, mix: 0.42 },
+      Sparkle: { amount: 0.65, tune: 9000, mix: 0.55 },
+    },
+  },
+  {
+    key: "limiter",
+    label: "Limiter",
+    title: "Brickwall Limiter",
+    subtitle: "Catch peaks and raise loudness without overs.",
+    note: "Use as the final stage when you want stricter peak control than normalize.",
+    controls: [
+      ["ceiling", "Ceiling", -3, 0, -0.3, 0.1, (v) => `${v.toFixed(1)} dB`],
+      ["drive", "Input Drive", 0, 18, 6, 0.1, (v) => `${v.toFixed(1)} dB`],
+      ["releaseMs", "Release", 10, 300, 60, 1, (v) => `${Math.round(v)} ms`],
+    ],
+    presets: {
+      Safe: { ceiling: -1, drive: 2, releaseMs: 90 },
+      Loud: { ceiling: -0.5, drive: 6, releaseMs: 60 },
+      Modern: { ceiling: -0.3, drive: 8, releaseMs: 45 },
+      "Pump Guard": { ceiling: -1.2, drive: 4, releaseMs: 120 },
     },
   },
   {
