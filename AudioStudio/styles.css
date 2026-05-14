@@ -348,10 +348,6 @@ select {
   border-color: rgba(40, 214, 181, 0.5);
 }
 
-.effect-item.settings-entry {
-  margin-top: 14px;
-}
-
 .panel-area {
   min-width: 0;
   min-height: 0;
