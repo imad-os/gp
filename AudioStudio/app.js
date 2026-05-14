@@ -75,7 +75,7 @@ const STUDIO_SETTINGS_FIELD = "audiostudio_settings";
 const STUDIO_SETTINGS_STORAGE_KEY = "audiostudio.settings";
 const APP_VERSIONS_URL = "/AudioStudio/versions.json";
 const APP_BUILD = {
-  version: "v2026.05.14.23",
+  version: "v2026.05.14.24",
 };
 const DEFAULT_SETTINGS = Object.freeze({
   appFontSize: 15,
@@ -1546,6 +1546,7 @@ class ProAudioStudioWeb {
   cacheElements() {
     this.fileMeta = document.getElementById("fileMeta");
     this.statusBar = document.getElementById("statusBar");
+    this.buildVersion = document.getElementById("buildVersion");
     this.waveCanvas = document.getElementById("waveCanvas");
     this.waveTitle = document.getElementById("waveTitle");
     this.selectionLabel = document.getElementById("selectionLabel");
@@ -1579,6 +1580,9 @@ class ProAudioStudioWeb {
     this.settingsModal?.addEventListener("click", (event) => {
       if (event.target === this.settingsModal) this.closeSettingsModal();
     });
+    if (this.buildVersion) {
+      this.buildVersion.textContent = APP_BUILD.version;
+    }
   }
 
   initDefaults() {

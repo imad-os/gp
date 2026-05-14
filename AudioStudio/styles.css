@@ -90,6 +90,25 @@ select {
   overflow: visible;
 }
 
+.status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 34px;
+}
+
+.status-bar-message {
+  min-width: 0;
+}
+
+.status-bar-version {
+  color: var(--muted);
+  white-space: nowrap;
+  text-align: right;
+  flex: 0 0 auto;
+}
+
 .menu-group {
   position: relative;
 }
