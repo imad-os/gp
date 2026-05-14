@@ -75,7 +75,7 @@ const STUDIO_SETTINGS_FIELD = "audiostudio_settings";
 const STUDIO_SETTINGS_STORAGE_KEY = "audiostudio.settings";
 const APP_VERSIONS_URL = "/AudioStudio/versions.json";
 const APP_BUILD = {
-  version: "v2026.05.14.17",
+  version: "v2026.05.14.18",
 };
 const DEFAULT_SETTINGS = Object.freeze({
   appFontSize: 15,
@@ -1709,7 +1709,7 @@ class ProAudioStudioWeb {
       target.addEventListener("drop", (event) => this.handleAppDrop(event));
     });
 
-    window.addEventListener("keydown", (event) => this.handleShortcut(event));
+    window.addEventListener("keydown", (event) => this.handleShortcut(event), true);
   }
 
   isAudioFileDrag(event) {
@@ -2517,6 +2517,7 @@ class ProAudioStudioWeb {
               <div class="profile-meta">${profile.effects?.length || 0} effects • ${profile.source === "builtin" ? "Built-in profile" : "Saved to your account"}</div>
             </div>
             <div class="profile-actions">
+              <button class="profile-preview">Preview</button>
               <button class="profile-apply">Apply</button>
             </div>
           </div>
@@ -2525,6 +2526,10 @@ class ProAudioStudioWeb {
             <div class="profile-details-body">${detailsHtml}</div>
           </details>
         `;
+        item.querySelector(".profile-preview").addEventListener("click", async () => {
+          this.closeProfileModal();
+          await this.previewProfile(profile);
+        });
         item.querySelector(".profile-apply").addEventListener("click", async () => {
           this.closeProfileModal();
           await this.applyCloudProfile(profile);
@@ -2543,6 +2548,38 @@ class ProAudioStudioWeb {
     } catch (error) {
       this.setStatus(`Profile failed: ${error.message}`);
       alert(`Could not apply that profile.\n\n${error.message}`);
+    } finally {
+      this.setBusy(false);
+    }
+  }
+
+  async previewProfile(profile) {
+    if (!this.engine.currentBuffer) return alert("Open a file first.");
+    if (!Array.isArray(profile?.effects) || !profile.effects.length) {
+      return alert("This profile has no effects to preview.");
+    }
+    const pos = this.engine.position || 0;
+    const end = this.engine.playEnd;
+    try {
+      this.setBusy(true, `Previewing profile ${profile.name}…`);
+      await this.audioCtx.resume();
+      let previewBuffer = this.engine.currentBuffer;
+      for (const spec of profile.effects) {
+        previewBuffer = await this.engine.processEffectBuffer(previewBuffer, spec);
+        await nextFrame();
+      }
+      this.previewOriginal = false;
+      this.engine.previewOriginal = false;
+      this.previewEffectEnabled = false;
+      this.engine.previewBuffer = previewBuffer;
+      this.renderAll();
+      this.engine.play(pos, end);
+      this.startCursorUpdates();
+      this.updatePlayButton(true);
+      this.setStatus(`Previewing profile ${profile.name}`);
+    } catch (error) {
+      this.setStatus(`Profile preview failed: ${error.message}`);
+      alert(`Could not preview that profile.\n\n${error.message}`);
     } finally {
       this.setBusy(false);
     }
@@ -2656,17 +2693,33 @@ class ProAudioStudioWeb {
         this.loopButton.classList.toggle("active", this.engine.loop);
         this.setStatus(this.engine.loop ? "Loop enabled" : "Loop disabled");
         break;
-      case "toggle-original":
+      case "toggle-original": {
+        const wasPlaying = this.engine.isPlaying;
+        const resumePos = this.engine.position || 0;
+        const resumeEnd = this.engine.playEnd;
+        this.engine.stop(false);
+        this.stopCursorUpdates();
         this.previewOriginal = !this.previewOriginal;
         this.engine.previewOriginal = this.previewOriginal;
         if (this.previewOriginal) this.engine.clearPreviewBuffer();
-        this.engine.stop();
-        this.stopCursorUpdates();
-        this.updatePlayButton(false);
-        this.updateCursor(0);
+        const activeDuration = this.engine.activeBuffer?.duration || 0;
+        const clampedPos = clamp(resumePos, 0, activeDuration);
+        const clampedEnd = resumeEnd == null ? null : clamp(resumeEnd, clampedPos, activeDuration);
+        this.engine.pauseOffset = clampedPos;
+        this.engine.playEnd = clampedEnd;
         this.renderAll();
+        this.updateCursor(clampedPos);
+        if (wasPlaying) {
+          this.audioCtx.resume();
+          this.engine.play(clampedPos, clampedEnd);
+          this.startCursorUpdates();
+          this.updatePlayButton(true);
+        } else {
+          this.updatePlayButton(false);
+        }
         this.setStatus(this.previewOriginal ? "Previewing original" : "Previewing edited");
         break;
+      }
       case "open-settings":
         this.openSettingsPanel();
         break;
@@ -2694,7 +2747,7 @@ class ProAudioStudioWeb {
   }
 
   handleShortcut(event) {
-    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+    if (this.isTextEntryTarget(event.target)) return;
     const key = event.key.toLowerCase();
     if (event.ctrlKey && event.shiftKey && key === "s") {
       event.preventDefault();
@@ -2733,6 +2786,17 @@ class ProAudioStudioWeb {
       event.preventDefault();
       this.togglePlayback();
     }
+  }
+
+  isTextEntryTarget(target) {
+    if (!(target instanceof HTMLElement)) return false;
+    if (target instanceof HTMLTextAreaElement) return true;
+    if (target.isContentEditable) return true;
+    if (target instanceof HTMLInputElement) {
+      const type = String(target.type || "").toLowerCase();
+      return !["button", "checkbox", "color", "file", "radio", "range", "reset", "submit"].includes(type);
+    }
+    return false;
   }
 
   getAuthFormValues() {

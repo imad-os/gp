@@ -192,6 +192,7 @@ select {
 .preview-toggle,
 .save-preset-button,
 .profile-item,
+.profile-preview,
 .profile-apply {
   border: 1px solid var(--border);
   color: var(--text);
@@ -789,6 +790,7 @@ select {
   margin-top: 4px;
 }
 
+.profile-preview,
 .profile-apply {
   padding: 9px 12px;
   border-radius: 12px;
