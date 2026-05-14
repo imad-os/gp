@@ -75,7 +75,7 @@ const STUDIO_SETTINGS_FIELD = "audiostudio_settings";
 const STUDIO_SETTINGS_STORAGE_KEY = "audiostudio.settings";
 const APP_VERSIONS_URL = "/AudioStudio/versions.json";
 const APP_BUILD = {
-  version: "v2026.05.14.21",
+  version: "v2026.05.14.22",
 };
 const DEFAULT_SETTINGS = Object.freeze({
   appFontSize: 15,
@@ -1005,8 +1005,7 @@ class WaveformView {
   attachEvents() {
     this.canvas.addEventListener("pointerdown", (event) => {
       if (!this.buffer) return;
-      const x = this.localX(event);
-      const seconds = x / this.canvas.clientWidth * this.duration;
+      const seconds = this.secondsFromEvent(event);
       this.drag = { start: seconds, current: seconds };
       this.onSeek(seconds);
       this.draw();
@@ -1014,8 +1013,7 @@ class WaveformView {
     });
     this.canvas.addEventListener("pointermove", (event) => {
       if (!this.drag) return;
-      const x = this.localX(event);
-      const seconds = clamp(x / this.canvas.clientWidth * this.duration, 0, this.duration);
+      const seconds = this.secondsFromEvent(event);
       this.drag.current = seconds;
       this.selection = [this.drag.start, seconds];
       this.draw();
@@ -1032,6 +1030,18 @@ class WaveformView {
   localX(event) {
     const rect = this.canvas.getBoundingClientRect();
     return clamp(event.clientX - rect.left, 0, rect.width);
+  }
+
+  getLeftGutter() {
+    return this.buffer && this.buffer.numberOfChannels >= 2 ? 28 : 0;
+  }
+
+  secondsFromEvent(event) {
+    const width = Math.max(1, this.canvas.clientWidth);
+    const leftGutter = this.getLeftGutter();
+    const contentWidth = Math.max(1, width - leftGutter);
+    const x = clamp(this.localX(event) - leftGutter, 0, contentWidth);
+    return clamp(x / contentWidth * this.duration, 0, this.duration);
   }
 
   setBuffer(buffer, { previewOriginal = false } = {}) {
@@ -1096,7 +1106,7 @@ class WaveformView {
     }
 
     const channels = audioBufferToArrays(this.buffer);
-    const leftGutter = channels.length >= 2 ? 28 : 0;
+    const leftGutter = this.getLeftGutter();
     const contentWidth = Math.max(1, width - leftGutter);
     const step = Math.max(1, Math.floor(channels[0].length / contentWidth));
     const colors = this.previewOriginal
