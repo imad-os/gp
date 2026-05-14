@@ -153,6 +153,7 @@ import { TOOL_PAGES, TOOL_PAGE_SET, TOOL_SUBTITLES, importToolModule } from './t
     let musicLoadingTrackId = '';
     let musicSelectedPlaylistId = '';
     let musicToolView = 'library';
+    let musicActionBusy = false;
     let tabsPreviewTimerIds = [];
     let tabsPreviewSessionId = 0;
     let tabsPreviewHistory = [];
@@ -217,7 +218,7 @@ import { TOOL_PAGES, TOOL_PAGE_SET, TOOL_SUBTITLES, importToolModule } from './t
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.05.14.29',
+      version: 'v2026.05.14.30',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -1692,12 +1693,27 @@ Drop back to 70 BPM for clean finish.`,
       return document.getElementById('tool-music-audio');
     }
 
-    function setMusicStatus(text = '', isError = false) {
+    function setMusicStatus(text = '', isError = false, { busy = false } = {}) {
       const el = document.getElementById('tool-music-status');
       if (!el) return;
-      el.innerText = text || 'Library ready';
+      const label = text || 'Library ready';
+      el.innerHTML = `${busy ? '<i class="fas fa-spinner fa-spin mr-1"></i>' : ''}${escapeHtml(label)}`;
       el.classList.toggle('text-danger', !!isError);
       el.classList.toggle('text-gray-500', !isError);
+    }
+
+    function setMusicBusy(busy, text = '', isError = false) {
+      musicActionBusy = !!busy;
+      setMusicStatus(text || (busy ? 'Working...' : 'Library ready'), isError, { busy });
+    }
+
+    function openMusicAddModal() {
+      document.getElementById('tool-music-add-modal')?.classList.remove('hidden');
+      renderMusicLooperImportList();
+    }
+
+    function closeMusicAddModal() {
+      document.getElementById('tool-music-add-modal')?.classList.add('hidden');
     }
 
     function getMusicDisplaySubtitle(item = null) {
@@ -1955,13 +1971,15 @@ Drop back to 70 BPM for clean finish.`,
         showToast('Sign in to load music from your library.');
         return;
       }
+      if (musicActionBusy) return;
       const audio = getMusicAudioEl();
       if (!audio) return;
       musicLoadingTrackId = itemId;
-      setMusicStatus('Loading track...');
+      setMusicBusy(true, 'Loading track...');
       try {
         const dataUrl = await repository.loadMusicMediaData(user.uid, itemId);
         if (!dataUrl) {
+          setMusicBusy(false, 'Could not load this track.', true);
           showToast('Could not load this track.');
           return;
         }
@@ -1979,11 +1997,11 @@ Drop back to 70 BPM for clean finish.`,
         if (autoplay) {
           try { await audio.play(); } catch {}
         }
-        setMusicStatus(`Loaded ${item.title}`, false);
+        setMusicBusy(false, `Loaded ${item.title}`, false);
       } catch (e) {
         console.error('Could not load music track', e);
         showToast('Could not load this track.');
-        setMusicStatus('Could not load track.', true);
+        setMusicBusy(false, 'Could not load track.', true);
       } finally {
         musicLoadingTrackId = '';
       }
@@ -1998,6 +2016,14 @@ Drop back to 70 BPM for clean finish.`,
 
     window.showMusicToolView = function(view = 'library') {
       showMusicToolView(view);
+    };
+
+    window.openMusicAddModal = function() {
+      openMusicAddModal();
+    };
+
+    window.closeMusicAddModal = function() {
+      closeMusicAddModal();
     };
 
     window.renderMusicLibrary = function() {
@@ -2024,6 +2050,7 @@ Drop back to 70 BPM for clean finish.`,
     window.handleMusicUploadSelected = async function(event) {
       const file = event?.target?.files?.[0];
       if (!file) return;
+      if (musicActionBusy) return;
       if (!user || user.isAnonymous) {
         showToast('Create an account to save music.');
         event.target.value = '';
@@ -2034,7 +2061,7 @@ Drop back to 70 BPM for clean finish.`,
         event.target.value = '';
         return;
       }
-      setMusicStatus('Uploading track...');
+      setMusicBusy(true, 'Uploading track...');
       try {
         const dataUrl = await readFileAsDataUrl(file);
         const title = sanitizeMusicText(file.name.replace(/\.[^.]+$/, ''), 'Uploaded Track');
@@ -2048,11 +2075,12 @@ Drop back to 70 BPM for clean finish.`,
         fillMusicEditor(getMusicItemById(itemId));
         renderMusicLibrary();
         renderMusicPlaylists();
-        setMusicStatus('Track uploaded.', false);
+        closeMusicAddModal();
+        setMusicBusy(false, 'Track uploaded.', false);
         showToast('Track saved to your music library.', true);
       } catch (e) {
         console.error('Music upload failed', e);
-        setMusicStatus('Could not upload track.', true);
+        setMusicBusy(false, 'Could not upload track.', true);
         showToast('Could not upload this track.');
       } finally {
         event.target.value = '';
@@ -2065,7 +2093,9 @@ Drop back to 70 BPM for clean finish.`,
         showToast('Select a saved track first.');
         return;
       }
+      if (musicActionBusy) return;
       try {
+        setMusicBusy(true, 'Saving track details...');
         await repository.updateMusicItem(user.uid, item.id, {
           title: sanitizeMusicText(document.getElementById('tool-music-title')?.value || '', item.title),
           artist: sanitizeMusicText(document.getElementById('tool-music-artist')?.value || ''),
@@ -2078,9 +2108,11 @@ Drop back to 70 BPM for clean finish.`,
         fillMusicEditor(getMusicItemById(item.id));
         renderMusicLibrary();
         renderMusicPlaylists();
+        setMusicBusy(false, 'Track details updated.', false);
         showToast('Track details updated.', true);
       } catch (e) {
         console.error('Could not update music metadata', e);
+        setMusicBusy(false, 'Could not update this track.', true);
         showToast('Could not update this track.');
       }
     };
@@ -2091,8 +2123,10 @@ Drop back to 70 BPM for clean finish.`,
         showToast('Select a saved track first.');
         return;
       }
+      if (musicActionBusy) return;
       if (!confirm(`Delete "${item.title}" from your music library?`)) return;
       try {
+        setMusicBusy(true, 'Deleting track...');
         await repository.deleteMusicMediaData(user.uid, item.id);
         await repository.deleteMusicItem(user.uid, item.id);
         for (const playlist of musicPlaylists) {
@@ -2120,9 +2154,11 @@ Drop back to 70 BPM for clean finish.`,
         clearMusicSelection();
         renderMusicPlayer();
         renderMusicPlaylists();
+        setMusicBusy(false, 'Track deleted.', false);
         showToast('Track deleted.', true);
       } catch (e) {
         console.error('Could not delete music track', e);
+        setMusicBusy(false, 'Could not delete this track.', true);
         showToast('Could not delete this track.');
       }
     };
@@ -2239,11 +2275,13 @@ Drop back to 70 BPM for clean finish.`,
         showToast('Enter a playlist name.');
         return;
       }
+      if (musicActionBusy) return;
       if (!repository || !user || user.isAnonymous) {
         showToast('Create an account to save playlists.');
         return;
       }
       try {
+        setMusicBusy(true, 'Creating playlist...');
         await repository.saveMusicPlaylist(user.uid, null, {
           name,
           itemIds: [],
@@ -2253,9 +2291,11 @@ Drop back to 70 BPM for clean finish.`,
         if (input) input.value = '';
         musicPlaylists = (await repository.loadMusicPlaylists(user.uid)).map(normalizeMusicPlaylist);
         renderMusicPlaylists();
+        setMusicBusy(false, 'Playlist created.', false);
         showToast('Playlist created.', true);
       } catch (e) {
         console.error('Could not create playlist', e);
+        setMusicBusy(false, 'Could not create playlist.', true);
         showToast('Could not create playlist.');
       }
     };
@@ -2267,8 +2307,10 @@ Drop back to 70 BPM for clean finish.`,
         showToast('Select a track first.');
         return;
       }
+      if (musicActionBusy) return;
       if (!playlist || !repository || !user || user.isAnonymous) return;
       try {
+        setMusicBusy(true, `Adding track to ${playlist.name}...`);
         await repository.saveMusicPlaylist(user.uid, playlist.id, {
           ...playlist,
           itemIds: Array.from(new Set([...playlist.itemIds, track.id])),
@@ -2277,9 +2319,11 @@ Drop back to 70 BPM for clean finish.`,
         musicPlaylists = (await repository.loadMusicPlaylists(user.uid)).map(normalizeMusicPlaylist);
         musicSelectedPlaylistId = playlist.id;
         renderMusicPlaylists();
+        setMusicBusy(false, `Added to ${playlist.name}.`, false);
         showToast(`Added "${track.title}" to ${playlist.name}.`, true);
       } catch (e) {
         console.error('Could not update playlist', e);
+        setMusicBusy(false, 'Could not update playlist.', true);
         showToast('Could not update playlist.');
       }
     };
@@ -2287,15 +2331,19 @@ Drop back to 70 BPM for clean finish.`,
     window.deleteMusicPlaylist = async function(playlistId) {
       const playlist = musicPlaylists.find(item => item.id === String(playlistId || '').trim());
       if (!playlist || !repository || !user || user.isAnonymous) return;
+      if (musicActionBusy) return;
       if (!confirm(`Delete playlist "${playlist.name}"?`)) return;
       try {
+        setMusicBusy(true, 'Deleting playlist...');
         await repository.deleteMusicPlaylist(user.uid, playlist.id);
         musicPlaylists = (await repository.loadMusicPlaylists(user.uid)).map(normalizeMusicPlaylist);
         if (musicSelectedPlaylistId === playlist.id) musicSelectedPlaylistId = '';
         renderMusicPlaylists();
+        setMusicBusy(false, 'Playlist deleted.', false);
         showToast('Playlist deleted.', true);
       } catch (e) {
         console.error('Could not delete playlist', e);
+        setMusicBusy(false, 'Could not delete playlist.', true);
         showToast('Could not delete playlist.');
       }
     };
@@ -2303,6 +2351,7 @@ Drop back to 70 BPM for clean finish.`,
     window.playMusicPlaylist = async function(playlistId) {
       const playlist = musicPlaylists.find(item => item.id === String(playlistId || '').trim());
       if (!playlist) return;
+      if (musicActionBusy) return;
       const validIds = playlist.itemIds.filter(id => getMusicItemById(id));
       if (!validIds.length) {
         showToast('This playlist has no playable tracks.');
@@ -2319,11 +2368,13 @@ Drop back to 70 BPM for clean finish.`,
         showToast('Create an account to save music.');
         return;
       }
+      if (musicActionBusy) return;
       if (!looperPendingDataUrl) {
         showToast('Load a local looper audio/video file first.');
         return;
       }
       try {
+        setMusicBusy(true, 'Importing current looper track...');
         const itemId = await saveMusicItemFromDataUrl(looperPendingDataUrl, {
           title: getDefaultLooperTitle(),
           mimeType: looperActiveSource?.mimeType || 'audio/*',
@@ -2335,9 +2386,12 @@ Drop back to 70 BPM for clean finish.`,
         musicSelectedTrackId = itemId;
         fillMusicEditor(getMusicItemById(itemId));
         renderMusicLibrary();
+        closeMusicAddModal();
+        setMusicBusy(false, 'Current looper track imported.', false);
         showToast('Current looper track imported.', true);
       } catch (e) {
         console.error('Could not import active looper track', e);
+        setMusicBusy(false, 'Could not import current looper track.', true);
         showToast('Could not import current looper track.');
       }
     };
@@ -2348,7 +2402,9 @@ Drop back to 70 BPM for clean finish.`,
         showToast('Sign in to import looper tracks.');
         return;
       }
+      if (musicActionBusy) return;
       try {
+        setMusicBusy(true, 'Importing looper item...');
         const dataUrl = await repository.loadLooperMediaData(user.uid, item.id);
         if (!dataUrl) {
           showToast('This looper item has no saved media.');
@@ -2365,9 +2421,12 @@ Drop back to 70 BPM for clean finish.`,
         musicSelectedTrackId = nextId;
         fillMusicEditor(getMusicItemById(nextId));
         renderMusicLibrary();
+        closeMusicAddModal();
+        setMusicBusy(false, 'Looper item imported.', false);
         showToast('Looper item imported to music library.', true);
       } catch (e) {
         console.error('Could not import looper history item', e);
+        setMusicBusy(false, 'Could not import that looper item.', true);
         showToast('Could not import that looper item.');
       }
     };

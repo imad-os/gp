@@ -94,7 +94,7 @@ const STUDIO_SETTINGS_FIELD = "audiostudio_settings";
 const STUDIO_SETTINGS_STORAGE_KEY = "audiostudio.settings";
 const APP_VERSIONS_URL = "/AudioStudio/versions.json";
 const APP_BUILD = {
-  version: "v2026.05.14.29",
+  version: "v2026.05.14.30",
 };
 const AUDIO_FILE_EXTENSIONS = Object.freeze([
   ".mp3",
@@ -1669,6 +1669,8 @@ class ProAudioStudioWeb {
   cacheElements() {
     this.fileMeta = document.getElementById("fileMeta");
     this.statusBar = document.getElementById("statusBar");
+    this.statusText = document.getElementById("statusText");
+    this.statusSpinner = document.getElementById("statusSpinner");
     this.buildVersion = document.getElementById("buildVersion");
     this.waveCanvas = document.getElementById("waveCanvas");
     this.waveTitle = document.getElementById("waveTitle");
@@ -2470,10 +2472,15 @@ class ProAudioStudioWeb {
 
   async exportAudio() {
     if (!this.engine.currentBuffer) return alert("Open a file first.");
-    const name = this.engine.fileName.replace(/\.[^.]+$/, "") || "export";
-    const blob = encodeWav(this.engine.currentBuffer);
-    downloadBlob(blob, `${name}-edited.wav`);
-    this.setStatus("Exported WAV download");
+    try {
+      this.setBusy(true, "Exporting audio...");
+      const name = this.engine.fileName.replace(/\.[^.]+$/, "") || "export";
+      const blob = encodeWav(this.engine.currentBuffer);
+      downloadBlob(blob, `${name}-edited.wav`);
+      this.setStatus("Exported WAV download");
+    } finally {
+      this.setBusy(false);
+    }
   }
 
   async saveCurrentPreset() {
@@ -2493,12 +2500,15 @@ class ProAudioStudioWeb {
     });
     this.userPresets[effectKey] = list;
     try {
+      this.setBusy(true, "Saving preset...");
       await this.persistCloudData();
       this.renderSettingsPanel();
       this.setStatus(`Saved preset ${name}`);
     } catch (error) {
       this.setStatus(`Preset save failed: ${error.message}`);
       alert(`Could not save preset.\n\n${error.message}`);
+    } finally {
+      this.setBusy(false);
     }
   }
 
@@ -2516,12 +2526,15 @@ class ProAudioStudioWeb {
       .filter((entry) => entry.name !== oldName && entry.name !== nextName)
       .concat([{ ...target, name: nextName, updatedAt: Date.now() }]);
     try {
+      this.setBusy(true, "Renaming preset...");
       await this.persistCloudData();
       this.renderSettingsPanel();
       this.setStatus(`Renamed preset to ${nextName}`);
     } catch (error) {
       this.setStatus(`Rename failed: ${error.message}`);
       alert(`Could not rename preset.\n\n${error.message}`);
+    } finally {
+      this.setBusy(false);
     }
   }
 
@@ -2534,12 +2547,15 @@ class ProAudioStudioWeb {
     this.userPresets[effectKey] = this.getUserPresetEntries(effectKey).filter((entry) => entry.name !== name);
     if (!this.userPresets[effectKey].length) delete this.userPresets[effectKey];
     try {
+      this.setBusy(true, "Deleting preset...");
       await this.persistCloudData();
       this.renderSettingsPanel();
       this.setStatus(`Deleted preset ${name}`);
     } catch (error) {
       this.setStatus(`Delete failed: ${error.message}`);
       alert(`Could not delete preset.\n\n${error.message}`);
+    } finally {
+      this.setBusy(false);
     }
   }
 
@@ -2581,12 +2597,15 @@ class ProAudioStudioWeb {
       return;
     }
     try {
+      this.setBusy(true, "Saving settings...");
       await this.persistCloudData();
       this.renderSettingsPanel();
       this.setStatus("Settings saved.");
     } catch (error) {
       this.setStatus(`Settings save failed: ${error.message}`);
       alert(`Could not save settings.\n\n${error.message}`);
+    } finally {
+      this.setBusy(false);
     }
   }
 
@@ -2893,11 +2912,14 @@ class ProAudioStudioWeb {
       updatedAt: Date.now(),
     });
     try {
+      this.setBusy(true, "Saving profile...");
       await this.persistCloudData();
       this.setStatus(`Saved profile ${name}`);
     } catch (error) {
       this.setStatus(`Profile save failed: ${error.message}`);
       alert(`Could not save profile.\n\n${error.message}`);
+    } finally {
+      this.setBusy(false);
     }
   }
 
@@ -3405,12 +3427,14 @@ class ProAudioStudioWeb {
       if (el.id === "audioInput") return;
       el.disabled = busy;
     });
-    if (busy) this.setStatus(status);
+    if (busy) this.setStatus(status, { busy: true });
     else this.renderAll();
   }
 
-  setStatus(text) {
-    this.statusBar.textContent = text;
+  setStatus(text, { busy = false } = {}) {
+    if (this.statusText) this.statusText.textContent = text;
+    else if (this.statusBar) this.statusBar.textContent = text;
+    if (this.statusSpinner) this.statusSpinner.hidden = !busy;
   }
 
   queuePreviewRender(force = false) {
