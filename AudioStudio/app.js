@@ -230,6 +230,32 @@ function rbjShelf(sampleRate, freq, gainDb, type) {
   return { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: a1 / a0, a2: a2 / a0 };
 }
 
+function rbjLowpass(sampleRate, freq, q = 0.707) {
+  const w0 = 2 * Math.PI * freq / sampleRate;
+  const cos = Math.cos(w0);
+  const alpha = Math.sin(w0) / (2 * q);
+  const b0 = (1 - cos) / 2;
+  const b1 = 1 - cos;
+  const b2 = (1 - cos) / 2;
+  const a0 = 1 + alpha;
+  const a1 = -2 * cos;
+  const a2 = 1 - alpha;
+  return { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: a1 / a0, a2: a2 / a0 };
+}
+
+function rbjHighpass(sampleRate, freq, q = 0.707) {
+  const w0 = 2 * Math.PI * freq / sampleRate;
+  const cos = Math.cos(w0);
+  const alpha = Math.sin(w0) / (2 * q);
+  const b0 = (1 + cos) / 2;
+  const b1 = -(1 + cos);
+  const b2 = (1 + cos) / 2;
+  const a0 = 1 + alpha;
+  const a1 = -2 * cos;
+  const a2 = 1 - alpha;
+  return { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: a1 / a0, a2: a2 / a0 };
+}
+
 function peakNormalize(channels, targetDb = -3) {
   let peak = 0;
   channels.forEach((ch) => {
@@ -444,6 +470,37 @@ function eqEffect(channels, sampleRate, params) {
   });
 }
 
+function deEsserEffect(channels, sampleRate, params) {
+  const frequency = clamp(params.frequency ?? 6500, 3000, Math.min(10000, sampleRate * 0.45));
+  const bandwidth = clamp(params.bandwidth ?? 3200, 1200, 9000);
+  const thresholdLin = dbToGain(params.threshold ?? -24);
+  const amount = clamp(params.amount ?? 0.55, 0, 1);
+  const mix = clamp(params.mix ?? 1, 0, 1);
+  const lowCut = clamp(frequency - bandwidth * 0.5, 2200, Math.max(2200, sampleRate * 0.4));
+  const highCut = clamp(frequency + bandwidth * 0.5, lowCut + 600, Math.min(sampleRate * 0.48, 12000));
+  const hp = rbjHighpass(sampleRate, lowCut, 0.85);
+  const lp = rbjLowpass(sampleRate, highCut, 0.85);
+  return channels.map((input) => {
+    const bandPassed = applyFilter(applyFilter(input, hp), lp);
+    const out = new Float32Array(input.length);
+    const attack = Math.exp(-1 / Math.max(1, sampleRate * 0.0025));
+    const release = Math.exp(-1 / Math.max(1, sampleRate * 0.05));
+    let env = 0;
+    for (let i = 0; i < input.length; i += 1) {
+      const detector = Math.abs(bandPassed[i]);
+      env = detector > env
+        ? detector + attack * (env - detector)
+        : detector + release * (env - detector);
+      const over = Math.max(0, env - thresholdLin);
+      const depth = clamp(over / Math.max(1e-6, 1 - thresholdLin), 0, 1);
+      const reduction = amount * depth;
+      const processed = input[i] - bandPassed[i] * reduction;
+      out[i] = clamp(input[i] * (1 - mix) + processed * mix, -1, 1);
+    }
+    return out;
+  });
+}
+
 function encodeWav(audioBuffer) {
   const channels = audioBuffer.numberOfChannels;
   const sampleRate = audioBuffer.sampleRate;
@@ -643,6 +700,9 @@ class AudioEngine {
         break;
       case "compression":
         channels = linkedCompression(channels, spec.params);
+        break;
+      case "de_esser":
+        channels = deEsserEffect(channels, sr, spec.params);
         break;
       case "noise_reduction":
         channels = simpleNoiseReduce(channels, spec.params);
@@ -943,6 +1003,13 @@ const EFFECTS = [
       "Vocal Boost": { sub_gain: -2, lm_gain: -3, mid_gain: 4, hm_gain: 5, pres_gain: 3, air_gain: 2 },
       "Bass Heavy": { sub_gain: 8, lm_gain: 4, mid_gain: -2, hm_gain: -2, pres_gain: 0, air_gain: 0 },
       "Bright Air": { sub_gain: -2, lm_gain: 0, mid_gain: 0, hm_gain: 2, pres_gain: 5, air_gain: 7 },
+      "Acoustic Sparkle": { sub_gain: -1, lm_gain: -2, mid_gain: 1.5, hm_gain: 3, pres_gain: 4.5, air_gain: 5.5 },
+      "Podcast Clarity": { sub_gain: -3, lm_gain: -1.5, mid_gain: 3.5, hm_gain: 2.5, pres_gain: 1.5, air_gain: 0.5 },
+      "Warm Mix Bus": { sub_gain: 1.5, lm_gain: 1, mid_gain: -1, hm_gain: -0.5, pres_gain: 1, air_gain: 1.5 },
+      "Smile Curve": { sub_gain: 4, lm_gain: -1.5, mid_gain: -2, hm_gain: 2, pres_gain: 3.5, air_gain: 3 },
+      "LoFi Radio": { sub_gain: -8, lm_gain: 2, mid_gain: 3, hm_gain: -4, pres_gain: -6, air_gain: -10 },
+      "Drum Snap": { sub_gain: 2, lm_gain: -2, mid_gain: -1, hm_gain: 4.5, pres_gain: 3, air_gain: 1 },
+      "Bass Tame": { sub_gain: -5, lm_gain: -3, mid_gain: 0.5, hm_gain: 1.5, pres_gain: 2, air_gain: 1 },
     },
   },
   {
@@ -961,6 +1028,28 @@ const EFFECTS = [
       Vocal: { threshold: -18, ratio: 4, makeup: 4 },
       Drums: { threshold: -12, ratio: 6, makeup: 6 },
       Glue: { threshold: -20, ratio: 2.5, makeup: 3 },
+    },
+  },
+  {
+    key: "de_esser",
+    label: "De-Esser",
+    title: "Custom DSP De-Esser",
+    subtitle: "Catch harsh S, T, and SH consonants without dulling the whole mix.",
+    note: "This de-esser listens to a focused sibilance band, then dynamically subtracts that band only when it spikes.",
+    controls: [
+      ["frequency", "Center Frequency", 3000, 10000, 6500, 10, (v) => `${Math.round(v)} Hz`],
+      ["bandwidth", "Bandwidth", 1200, 9000, 3200, 10, (v) => `${Math.round(v)} Hz`],
+      ["threshold", "Threshold", -40, -6, -24, 1, (v) => `${Math.round(v)} dB`],
+      ["amount", "Reduction Amount", 0, 1, 0.55, 0.01, (v) => `${Math.round(v * 100)}%`],
+      ["mix", "Mix", 0, 1, 1, 0.01, (v) => `${Math.round(v * 100)}%`],
+    ],
+    presets: {
+      Gentle: { frequency: 6200, bandwidth: 2800, threshold: -26, amount: 0.35, mix: 1 },
+      "Lead Vocal": { frequency: 6600, bandwidth: 3000, threshold: -24, amount: 0.55, mix: 1 },
+      "Bright Female Vox": { frequency: 7600, bandwidth: 2600, threshold: -25, amount: 0.6, mix: 1 },
+      "Dark Male Vox": { frequency: 5400, bandwidth: 3200, threshold: -22, amount: 0.5, mix: 1 },
+      "Harsh Overheads": { frequency: 7000, bandwidth: 4200, threshold: -20, amount: 0.7, mix: 0.9 },
+      Parallel: { frequency: 6500, bandwidth: 3400, threshold: -24, amount: 0.8, mix: 0.65 },
     },
   },
   {
@@ -1066,6 +1155,12 @@ const EFFECTS = [
       Streaming: { target_lufs: -14, ceiling: -1, low_boost: 1.5, high_boost: 1, mid_cut: -1, multiband_comp: 1 },
       Podcast: { target_lufs: -16, ceiling: -1, low_boost: 0.5, high_boost: 0.5, mid_cut: -0.5, multiband_comp: 1 },
       Club: { target_lufs: -8, ceiling: -0.1, low_boost: 2.5, high_boost: 2, mid_cut: -2, multiband_comp: 1 },
+      "Acoustic Polish": { target_lufs: -15, ceiling: -1, low_boost: 0.8, high_boost: 1.8, mid_cut: -0.6, multiband_comp: 1 },
+      "Warm Glue": { target_lufs: -13, ceiling: -0.8, low_boost: 1.8, high_boost: 0.3, mid_cut: -1.2, multiband_comp: 1 },
+      "Vocal Forward": { target_lufs: -12, ceiling: -0.6, low_boost: 0.4, high_boost: 1.6, mid_cut: -0.2, multiband_comp: 1 },
+      "EDM Loud": { target_lufs: -7, ceiling: -0.1, low_boost: 2.8, high_boost: 2.4, mid_cut: -1.8, multiband_comp: 1 },
+      "LoFi Soft": { target_lufs: -15, ceiling: -1.5, low_boost: 1.2, high_boost: -1.2, mid_cut: -0.8, multiband_comp: 0 },
+      "Broadcast Tight": { target_lufs: -11, ceiling: -0.5, low_boost: 0.9, high_boost: 1.2, mid_cut: -0.9, multiband_comp: 1 },
     },
   },
   {
