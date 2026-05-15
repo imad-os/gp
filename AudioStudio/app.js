@@ -94,7 +94,7 @@ const STUDIO_SETTINGS_FIELD = "audiostudio_settings";
 const STUDIO_SETTINGS_STORAGE_KEY = "audiostudio.settings";
 const APP_VERSIONS_URL = "/AudioStudio/versions.json";
 const APP_BUILD = {
-  version: "v2026.05.15.3",
+  version: "v2026.05.15.4",
 };
 const LARGE_MUSIC_SIZE_BYTES = 20 * 1024 * 1024;
 const AUDIO_FILE_EXTENSIONS = Object.freeze([
@@ -851,20 +851,31 @@ function pickBestGuitarPosition(midi, previous = null) {
   })[0];
 }
 
-function buildTabTextFromNotes(notes, chunkSize = 16) {
+function buildTabTextFromNotes(notes, chunkSize = 12) {
   if (!notes.length) return "";
+  const durations = notes.map((note) => Math.max(0.03, note.end - note.start));
+  const baseUnit = Math.max(0.03, Math.min(...durations));
   const chunks = [];
   for (let offset = 0; offset < notes.length; offset += chunkSize) chunks.push(notes.slice(offset, offset + chunkSize));
   return chunks.map((chunk) => {
     const rows = Object.fromEntries(GUITAR_TAB_STRINGS.map((string) => [string.name, `${string.name}|`]));
+    const chunkStart = chunk[0].start;
+    let cursor = chunkStart;
     chunk.forEach((note) => {
+      const gapUnits = Math.max(0, Math.round((note.start - cursor) / baseUnit));
+      if (gapUnits > 0) {
+        GUITAR_TAB_STRINGS.forEach((string) => {
+          rows[string.name] += "-".repeat(gapUnits);
+        });
+      }
       const token = String(note.fret);
-      const width = Math.max(3, token.length + 2);
+      const sustainUnits = Math.max(token.length + 1, Math.round((note.end - note.start) / baseUnit) + 1);
       GUITAR_TAB_STRINGS.forEach((string, stringIndex) => {
         rows[string.name] += stringIndex === note.stringIndex
-          ? token.padEnd(width, "-")
-          : "-".repeat(width);
+          ? token + "-".repeat(Math.max(1, sustainUnits - token.length))
+          : "-".repeat(sustainUnits);
       });
+      cursor = Math.max(cursor, note.end);
     });
     GUITAR_TAB_STRINGS.forEach((string) => { rows[string.name] += "|"; });
     return GUITAR_TAB_STRINGS.map((string) => rows[string.name]).join("\n");
@@ -2285,7 +2296,7 @@ class ProAudioStudioWeb {
       this.getNotesNoteList.innerHTML = "";
       return;
     }
-    this.getNotesSummary.textContent = `Detected ${result.notes.length} playable note${result.notes.length === 1 ? "" : "s"} from ${fmtTime(result.selectionStart)} to ${fmtTime(result.selectionEnd)}. Detail level ${result.detail} used ${result.analysisWindowMs} ms windows.`;
+    this.getNotesSummary.textContent = `Detected ${result.notes.length} playable note${result.notes.length === 1 ? "" : "s"} from ${fmtTime(result.selectionStart)} to ${fmtTime(result.selectionEnd)}. Detail level ${result.detail} used ${result.analysisWindowMs} ms windows. More dashes in the tab mean longer held notes.`;
     this.getNotesTabs.value = result.tabText;
     this.getNotesNoteList.innerHTML = result.notes.map((note, index) => `
       <div class="get-notes-note-item">
