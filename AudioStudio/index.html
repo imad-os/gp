@@ -41,6 +41,12 @@
         </div>
       </div>
       <div class="menu-group">
+        <button class="menu-button" data-menu="tools">Tools</button>
+        <div class="menu-dropdown" data-dropdown="tools">
+          <button data-action="open-get-notes-tool">Get Notes</button>
+        </div>
+      </div>
+      <div class="menu-group">
         <button class="menu-button" data-menu="help">Help</button>
         <div class="menu-dropdown" data-dropdown="help">
           <button data-action="show-shortcuts">Keyboard Shortcuts</button>
@@ -163,6 +169,38 @@
         <button class="modal-close" data-action="close-music-library-modal">Ã—</button>
       </div>
       <div id="musicLibraryList" class="profile-list"></div>
+    </div>
+  </div>
+
+  <div id="getNotesModal" class="modal-shell" hidden>
+    <div class="modal-card get-notes-card">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">Get Notes</div>
+          <div class="modal-subtitle">Select part of the audio, analyze the solo, and turn it into playable guitar tabs.</div>
+        </div>
+        <button class="modal-close" data-action="close-get-notes-tool">×</button>
+      </div>
+      <div class="get-notes-body">
+        <div class="get-notes-controls">
+          <div class="get-notes-selection" id="getNotesSelectionInfo">Select a region in the waveform first.</div>
+          <label class="get-notes-detail-card">
+            <span>Detail Level</span>
+            <span id="getNotesDetailValue">5 / 10</span>
+            <input id="getNotesDetail" type="range" min="1" max="10" step="1" value="5">
+            <small>1 = bigger chunks, 10 = very detailed note slicing.</small>
+          </label>
+          <div class="panel-inline-actions">
+            <button class="apply-button" data-action="analyze-get-notes">Analyze Selection</button>
+            <button class="secondary-button" data-action="play-selection">Preview Selection</button>
+          </div>
+        </div>
+        <div class="get-notes-results">
+          <div class="get-notes-summary" id="getNotesSummary">No analysis yet.</div>
+          <textarea id="getNotesTabs" class="get-notes-tabs-output" spellcheck="false" readonly></textarea>
+          <div id="getNotesNoteList" class="get-notes-note-list"></div>
+        </div>
+      </div>
     </div>
   </div>
 

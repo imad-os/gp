@@ -94,7 +94,7 @@ const STUDIO_SETTINGS_FIELD = "audiostudio_settings";
 const STUDIO_SETTINGS_STORAGE_KEY = "audiostudio.settings";
 const APP_VERSIONS_URL = "/AudioStudio/versions.json";
 const APP_BUILD = {
-  version: "v2026.05.15.2",
+  version: "v2026.05.15.3",
 };
 const LARGE_MUSIC_SIZE_BYTES = 20 * 1024 * 1024;
 const AUDIO_FILE_EXTENSIONS = Object.freeze([
@@ -785,6 +785,129 @@ function downloadBlob(blob, filename) {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+const GUITAR_TAB_STRINGS = Object.freeze([
+  { name: "e", midi: 64 },
+  { name: "B", midi: 59 },
+  { name: "G", midi: 55 },
+  { name: "D", midi: 50 },
+  { name: "A", midi: 45 },
+  { name: "E", midi: 40 },
+]);
+
+function hzToMidi(freq) {
+  return 69 + 12 * Math.log2(Math.max(freq, 1e-9) / 440);
+}
+
+function midiToNoteName(midi) {
+  const safeMidi = Math.round(Number(midi) || 60);
+  const names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+  const note = names[((safeMidi % 12) + 12) % 12];
+  const octave = Math.floor(safeMidi / 12) - 1;
+  return `${note}${octave}`;
+}
+
+function extractBufferRange(buffer, startSeconds, endSeconds) {
+  const sr = buffer.sampleRate;
+  const start = clamp(Math.floor(startSeconds * sr), 0, buffer.length);
+  const end = clamp(Math.ceil(endSeconds * sr), start + 1, buffer.length);
+  const arrays = audioBufferToArrays(buffer).map((channel) => channel.slice(start, end));
+  return { channels: arrays, sampleRate: sr, startSample: start, endSample: end };
+}
+
+function median(values) {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) * 0.5;
+}
+
+function smoothMidiSeries(values, radius = 1) {
+  return values.map((value, index) => {
+    if (!value) return 0;
+    const nearby = [];
+    for (let offset = -radius; offset <= radius; offset += 1) {
+      const candidate = values[index + offset];
+      if (candidate) nearby.push(candidate);
+    }
+    return nearby.length ? median(nearby) : value;
+  });
+}
+
+function pickBestGuitarPosition(midi, previous = null) {
+  const candidates = GUITAR_TAB_STRINGS
+    .map((string, index) => ({ stringIndex: index, fret: midi - string.midi }))
+    .filter((entry) => entry.fret >= 0 && entry.fret <= 20);
+  const pool = candidates.length
+    ? candidates
+    : GUITAR_TAB_STRINGS.map((string, index) => ({ stringIndex: index, fret: clamp(midi - string.midi, 0, 20) }));
+  return pool.sort((a, b) => {
+    const continuityA = previous ? (Math.abs(a.stringIndex - previous.stringIndex) * 0.9 + Math.abs(a.fret - previous.fret) * 0.2) : 0;
+    const continuityB = previous ? (Math.abs(b.stringIndex - previous.stringIndex) * 0.9 + Math.abs(b.fret - previous.fret) * 0.2) : 0;
+    const scoreA = continuityA + Math.abs(a.fret - 5) * 0.08 + a.stringIndex * 0.03;
+    const scoreB = continuityB + Math.abs(b.fret - 5) * 0.08 + b.stringIndex * 0.03;
+    return scoreA - scoreB;
+  })[0];
+}
+
+function buildTabTextFromNotes(notes, chunkSize = 16) {
+  if (!notes.length) return "";
+  const chunks = [];
+  for (let offset = 0; offset < notes.length; offset += chunkSize) chunks.push(notes.slice(offset, offset + chunkSize));
+  return chunks.map((chunk) => {
+    const rows = Object.fromEntries(GUITAR_TAB_STRINGS.map((string) => [string.name, `${string.name}|`]));
+    chunk.forEach((note) => {
+      const token = String(note.fret);
+      const width = Math.max(3, token.length + 2);
+      GUITAR_TAB_STRINGS.forEach((string, stringIndex) => {
+        rows[string.name] += stringIndex === note.stringIndex
+          ? token.padEnd(width, "-")
+          : "-".repeat(width);
+      });
+    });
+    GUITAR_TAB_STRINGS.forEach((string) => { rows[string.name] += "|"; });
+    return GUITAR_TAB_STRINGS.map((string) => rows[string.name]).join("\n");
+  }).join("\n\n");
+}
+
+function estimatePitchHz(samples, sampleRate, { minHz = 82, maxHz = 1200 } = {}) {
+  const size = samples.length;
+  if (!size) return 0;
+  let mean = 0;
+  for (let i = 0; i < size; i += 1) mean += samples[i];
+  mean /= size;
+  const centered = new Float32Array(size);
+  let rms = 0;
+  for (let i = 0; i < size; i += 1) {
+    centered[i] = samples[i] - mean;
+    rms += centered[i] * centered[i];
+  }
+  rms = Math.sqrt(rms / size);
+  if (rms < 0.008) return 0;
+  const minLag = Math.max(2, Math.floor(sampleRate / maxHz));
+  const maxLag = Math.min(size - 4, Math.floor(sampleRate / minHz));
+  let bestLag = 0;
+  let bestScore = 0;
+  for (let lag = minLag; lag <= maxLag; lag += 1) {
+    let corr = 0;
+    let energyA = 0;
+    let energyB = 0;
+    for (let i = 0; i < size - lag; i += 1) {
+      const a = centered[i];
+      const b = centered[i + lag];
+      corr += a * b;
+      energyA += a * a;
+      energyB += b * b;
+    }
+    const score = corr / (Math.sqrt(energyA * energyB) + 1e-9);
+    if (score > bestScore) {
+      bestScore = score;
+      bestLag = lag;
+    }
+  }
+  if (!bestLag || bestScore < 0.55) return 0;
+  return sampleRate / bestLag;
 }
 
 class AudioEngine {
@@ -1658,6 +1781,7 @@ class ProAudioStudioWeb {
     this.editingChangeIndex = null;
     this.musicLibraryItems = [];
     this.pendingMusicLibraryId = new URLSearchParams(window.location.search).get("musicId") || "";
+    this.getNotesResult = null;
     this.cacheElements();
     this.initDefaults();
     this.wave = new WaveformView(this.waveCanvas, (seconds) => this.seek(seconds));
@@ -1710,6 +1834,13 @@ class ProAudioStudioWeb {
     this.authMessage = document.getElementById("authMessage");
     this.musicLibraryModal = document.getElementById("musicLibraryModal");
     this.musicLibraryList = document.getElementById("musicLibraryList");
+    this.getNotesModal = document.getElementById("getNotesModal");
+    this.getNotesSelectionInfo = document.getElementById("getNotesSelectionInfo");
+    this.getNotesDetail = document.getElementById("getNotesDetail");
+    this.getNotesDetailValue = document.getElementById("getNotesDetailValue");
+    this.getNotesSummary = document.getElementById("getNotesSummary");
+    this.getNotesTabs = document.getElementById("getNotesTabs");
+    this.getNotesNoteList = document.getElementById("getNotesNoteList");
     this.profileModal.addEventListener("click", (event) => {
       if (event.target === this.profileModal) this.closeProfileModal();
     });
@@ -1721,6 +1852,9 @@ class ProAudioStudioWeb {
     });
     this.musicLibraryModal?.addEventListener("click", (event) => {
       if (event.target === this.musicLibraryModal) this.closeMusicLibraryModal();
+    });
+    this.getNotesModal?.addEventListener("click", (event) => {
+      if (event.target === this.getNotesModal) this.closeGetNotesTool();
     });
     if (this.buildVersion) {
       this.buildVersion.textContent = APP_BUILD.version;
@@ -1883,6 +2017,8 @@ class ProAudioStudioWeb {
       await this.loadAudio(file);
       event.target.value = "";
     });
+
+    this.getNotesDetail?.addEventListener("input", () => this.updateGetNotesDetailLabel());
 
     [window, document, this.appShell].filter(Boolean).forEach((target) => {
       target.addEventListener("dragenter", (event) => this.handleAppDragEnter(event));
@@ -2111,6 +2247,154 @@ class ProAudioStudioWeb {
 
   clearEffectEditingState() {
     this.editingChangeIndex = null;
+  }
+
+  updateGetNotesSelectionInfo() {
+    if (!this.getNotesSelectionInfo) return;
+    const selection = this.wave.getSelection();
+    if (!this.engine.activeBuffer || !selection) {
+      this.getNotesSelectionInfo.textContent = "Select a region in the waveform first.";
+      return;
+    }
+    this.getNotesSelectionInfo.textContent = `Selected region: ${fmtTime(selection[0])} - ${fmtTime(selection[1])}`;
+  }
+
+  updateGetNotesDetailLabel() {
+    if (!this.getNotesDetailValue || !this.getNotesDetail) return;
+    this.getNotesDetailValue.textContent = `${this.getNotesDetail.value} / 10`;
+  }
+
+  openGetNotesTool() {
+    if (!this.engine.activeBuffer) return alert("Open a file first.");
+    if (!this.wave.getSelection()) return alert("Select a part in the waveform first.");
+    this.updateGetNotesSelectionInfo();
+    this.updateGetNotesDetailLabel();
+    this.getNotesModal.hidden = false;
+  }
+
+  closeGetNotesTool() {
+    if (this.getNotesModal) this.getNotesModal.hidden = true;
+  }
+
+  renderGetNotesResult(result = null) {
+    this.getNotesResult = result;
+    if (!this.getNotesSummary || !this.getNotesTabs || !this.getNotesNoteList) return;
+    if (!result) {
+      this.getNotesSummary.textContent = "No analysis yet.";
+      this.getNotesTabs.value = "";
+      this.getNotesNoteList.innerHTML = "";
+      return;
+    }
+    this.getNotesSummary.textContent = `Detected ${result.notes.length} playable note${result.notes.length === 1 ? "" : "s"} from ${fmtTime(result.selectionStart)} to ${fmtTime(result.selectionEnd)}. Detail level ${result.detail} used ${result.analysisWindowMs} ms windows.`;
+    this.getNotesTabs.value = result.tabText;
+    this.getNotesNoteList.innerHTML = result.notes.map((note, index) => `
+      <div class="get-notes-note-item">
+        <div><strong>${index + 1}. ${escapeHtml(note.noteName)}</strong> • string ${escapeHtml(GUITAR_TAB_STRINGS[note.stringIndex].name)} • fret ${escapeHtml(String(note.fret))}</div>
+        <div>${escapeHtml(fmtTime(note.start))} - ${escapeHtml(fmtTime(note.end))}</div>
+      </div>
+    `).join("");
+  }
+
+  analyzeSelectedNotes() {
+    const sourceBuffer = this.engine.activeBuffer;
+    const selection = this.wave.getSelection();
+    if (!sourceBuffer) return alert("Open a file first.");
+    if (!selection) return alert("Select a region in the waveform first.");
+    const detail = clamp(Number(this.getNotesDetail?.value || 5), 1, 10);
+    const hopMs = Math.round(220 - ((detail - 1) * 18));
+    const frameMs = Math.round(hopMs * 2.1);
+    const { channels, sampleRate } = extractBufferRange(sourceBuffer, selection[0], selection[1]);
+    const [left, right] = duplicateMono(channels);
+    const mono = new Float32Array(Math.max(left.length, right.length));
+    for (let i = 0; i < mono.length; i += 1) mono[i] = ((left[i] || 0) + (right[i] || 0)) * 0.5;
+    const hopSamples = Math.max(160, Math.floor(sampleRate * hopMs / 1000));
+    const frameSamples = Math.max(512, Math.floor(sampleRate * frameMs / 1000));
+    const frames = [];
+    for (let start = 0; start < mono.length; start += hopSamples) {
+      const frame = new Float32Array(frameSamples);
+      for (let i = 0; i < frameSamples; i += 1) {
+        const src = start + i;
+        if (src >= mono.length) break;
+        frame[i] = mono[src];
+      }
+      const hz = estimatePitchHz(frame, sampleRate, { minHz: 82, maxHz: 1200 });
+      frames.push({
+        start,
+        end: Math.min(mono.length, start + hopSamples),
+        hz,
+        midi: hz > 0 ? hzToMidi(hz) : 0,
+      });
+      if (start + frameSamples >= mono.length) break;
+    }
+    const smoothedMidi = smoothMidiSeries(frames.map((frame) => frame.midi), detail >= 8 ? 0 : 1);
+    const noteFrames = frames.map((frame, index) => ({
+      ...frame,
+      midi: smoothedMidi[index] ? Math.round(smoothedMidi[index]) : 0,
+    })).filter((frame) => frame.midi > 0);
+    if (!noteFrames.length) {
+      this.renderGetNotesResult({
+        notes: [],
+        tabText: "",
+        detail,
+        analysisWindowMs: frameMs,
+        selectionStart: selection[0],
+        selectionEnd: selection[1],
+      });
+      this.getNotesSummary.textContent = "No clear single-note pitches were detected in that region.";
+      return;
+    }
+    const minDurationFrames = detail >= 8 ? 1 : detail >= 5 ? 2 : 3;
+    const merged = [];
+    for (const frame of noteFrames) {
+      const prev = merged[merged.length - 1];
+      if (prev && Math.abs(prev.midi - frame.midi) <= 1) {
+        prev.endFrame = frame.end;
+        prev.samples += 1;
+        prev.midiValues.push(frame.midi);
+      } else {
+        merged.push({ midi: frame.midi, startFrame: frame.start, endFrame: frame.end, samples: 1, midiValues: [frame.midi] });
+      }
+    }
+    const filtered = merged
+      .filter((entry) => entry.samples >= minDurationFrames)
+      .map((entry) => ({ ...entry, midi: Math.round(median(entry.midiValues)) }));
+    const notes = [];
+    let previousPos = null;
+    filtered.forEach((entry) => {
+      const pos = pickBestGuitarPosition(entry.midi, previousPos);
+      previousPos = pos;
+      notes.push({
+        midi: entry.midi,
+        noteName: midiToNoteName(entry.midi),
+        stringIndex: pos.stringIndex,
+        fret: pos.fret,
+        start: selection[0] + entry.startFrame / sampleRate,
+        end: selection[0] + entry.endFrame / sampleRate,
+      });
+    });
+    const tabText = buildTabTextFromNotes(notes, detail >= 8 ? 20 : detail >= 5 ? 16 : 12);
+    this.renderGetNotesResult({
+      notes,
+      tabText,
+      detail,
+      analysisWindowMs: frameMs,
+      selectionStart: selection[0],
+      selectionEnd: selection[1],
+    });
+  }
+
+  async analyzeGetNotesTool() {
+    try {
+      this.setBusy(true, "Analyzing selected notes...");
+      await nextFrame();
+      this.analyzeSelectedNotes();
+      this.setStatus("Finished note analysis");
+    } catch (error) {
+      this.setStatus(`Get Notes failed: ${error.message}`);
+      alert(`Could not analyze this selection.\n\n${error.message}`);
+    } finally {
+      this.setBusy(false);
+    }
   }
 
   cancelEffectEditingSession({ nextEffectKey = "", statusText = "Effect edit cancelled." } = {}) {
@@ -2473,6 +2757,7 @@ class ProAudioStudioWeb {
       await this.audioCtx.resume();
       await this.engine.loadFile(file);
       this.clearEffectEditingState();
+      this.renderGetNotesResult(null);
       this.previewOriginal = false;
       this.engine.previewOriginal = false;
       this.previewEffectEnabled = false;
@@ -3231,6 +3516,15 @@ class ProAudioStudioWeb {
         this.setStatus(this.previewOriginal ? "Previewing original" : "Previewing edited");
         break;
       }
+      case "open-get-notes-tool":
+        this.openGetNotesTool();
+        break;
+      case "close-get-notes-tool":
+        this.closeGetNotesTool();
+        break;
+      case "analyze-get-notes":
+        this.analyzeGetNotesTool();
+        break;
       case "open-settings":
         this.openSettingsPanel();
         break;
@@ -3571,6 +3865,7 @@ class ProAudioStudioWeb {
     this.loopButton.classList.toggle("active", this.engine.loop);
     this.wave.setBuffer(active, { previewOriginal: this.previewOriginal });
     this.updateCursor(this.engine.position || 0);
+    this.updateGetNotesSelectionInfo();
     this.updateEffectButtons();
     this.renderChangeList();
     if (this.settingsModal && !this.settingsModal.hidden) {
