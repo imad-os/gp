@@ -94,7 +94,7 @@ const STUDIO_SETTINGS_FIELD = "audiostudio_settings";
 const STUDIO_SETTINGS_STORAGE_KEY = "audiostudio.settings";
 const APP_VERSIONS_URL = "/AudioStudio/versions.json";
 const APP_BUILD = {
-  version: "v2026.05.15.5",
+  version: "v2026.05.15.6",
 };
 const LARGE_MUSIC_SIZE_BYTES = 20 * 1024 * 1024;
 const AUDIO_FILE_EXTENSIONS = Object.freeze([
@@ -896,8 +896,8 @@ function mapNotesToPlayableStrings(notes, maxStrings = 6) {
     const candidate = assignNotesToStringSubset(notes, subset);
     if (!candidate) return;
     if (!best
-      || candidate.stringsUsed < best.stringsUsed
-      || (candidate.stringsUsed === best.stringsUsed && candidate.totalScore < best.totalScore)) {
+      || candidate.totalScore < best.totalScore
+      || (Math.abs(candidate.totalScore - best.totalScore) < 0.0001 && candidate.stringsUsed < best.stringsUsed)) {
       best = candidate;
     }
   });
