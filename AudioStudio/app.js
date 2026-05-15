@@ -94,7 +94,7 @@ const STUDIO_SETTINGS_FIELD = "audiostudio_settings";
 const STUDIO_SETTINGS_STORAGE_KEY = "audiostudio.settings";
 const APP_VERSIONS_URL = "/AudioStudio/versions.json";
 const APP_BUILD = {
-  version: "v2026.05.15.4",
+  version: "v2026.05.15.5",
 };
 const LARGE_MUSIC_SIZE_BYTES = 20 * 1024 * 1024;
 const AUDIO_FILE_EXTENSIONS = Object.freeze([
@@ -835,13 +835,19 @@ function smoothMidiSeries(values, radius = 1) {
   });
 }
 
-function pickBestGuitarPosition(midi, previous = null) {
+function pickBestGuitarPosition(midi, previous = null, allowedStringIndexes = null) {
+  const allowed = Array.isArray(allowedStringIndexes) && allowedStringIndexes.length
+    ? new Set(allowedStringIndexes)
+    : null;
   const candidates = GUITAR_TAB_STRINGS
     .map((string, index) => ({ stringIndex: index, fret: midi - string.midi }))
+    .filter((entry) => !allowed || allowed.has(entry.stringIndex))
     .filter((entry) => entry.fret >= 0 && entry.fret <= 20);
   const pool = candidates.length
     ? candidates
-    : GUITAR_TAB_STRINGS.map((string, index) => ({ stringIndex: index, fret: clamp(midi - string.midi, 0, 20) }));
+    : GUITAR_TAB_STRINGS
+      .map((string, index) => ({ stringIndex: index, fret: clamp(midi - string.midi, 0, 20) }))
+      .filter((entry) => !allowed || allowed.has(entry.stringIndex));
   return pool.sort((a, b) => {
     const continuityA = previous ? (Math.abs(a.stringIndex - previous.stringIndex) * 0.9 + Math.abs(a.fret - previous.fret) * 0.2) : 0;
     const continuityB = previous ? (Math.abs(b.stringIndex - previous.stringIndex) * 0.9 + Math.abs(b.fret - previous.fret) * 0.2) : 0;
@@ -849,6 +855,53 @@ function pickBestGuitarPosition(midi, previous = null) {
     const scoreB = continuityB + Math.abs(b.fret - 5) * 0.08 + b.stringIndex * 0.03;
     return scoreA - scoreB;
   })[0];
+}
+
+function buildAllowedStringSubsets(maxStrings = 6) {
+  const capped = clamp(Math.round(Number(maxStrings) || 6), 1, GUITAR_TAB_STRINGS.length);
+  const subsets = [];
+  const total = 1 << GUITAR_TAB_STRINGS.length;
+  for (let mask = 1; mask < total; mask += 1) {
+    const indexes = [];
+    for (let bit = 0; bit < GUITAR_TAB_STRINGS.length; bit += 1) {
+      if (mask & (1 << bit)) indexes.push(bit);
+    }
+    if (indexes.length <= capped) subsets.push(indexes);
+  }
+  return subsets.sort((a, b) => a.length - b.length);
+}
+
+function assignNotesToStringSubset(notes, allowedStringIndexes) {
+  const assigned = [];
+  let previous = null;
+  let totalScore = 0;
+  for (const note of notes) {
+    const pos = pickBestGuitarPosition(note.midi, previous, allowedStringIndexes);
+    if (!pos) return null;
+    if (previous) {
+      totalScore += Math.abs(pos.stringIndex - previous.stringIndex) * 0.9;
+      totalScore += Math.abs(pos.fret - previous.fret) * 0.2;
+    }
+    totalScore += Math.abs(pos.fret - 5) * 0.08 + pos.stringIndex * 0.03;
+    previous = pos;
+    assigned.push({ ...note, stringIndex: pos.stringIndex, fret: pos.fret });
+  }
+  return { notes: assigned, totalScore, stringsUsed: new Set(assigned.map((note) => note.stringIndex)).size };
+}
+
+function mapNotesToPlayableStrings(notes, maxStrings = 6) {
+  const subsets = buildAllowedStringSubsets(maxStrings);
+  let best = null;
+  subsets.forEach((subset) => {
+    const candidate = assignNotesToStringSubset(notes, subset);
+    if (!candidate) return;
+    if (!best
+      || candidate.stringsUsed < best.stringsUsed
+      || (candidate.stringsUsed === best.stringsUsed && candidate.totalScore < best.totalScore)) {
+      best = candidate;
+    }
+  });
+  return best;
 }
 
 function buildTabTextFromNotes(notes, chunkSize = 12) {
@@ -1849,6 +1902,8 @@ class ProAudioStudioWeb {
     this.getNotesSelectionInfo = document.getElementById("getNotesSelectionInfo");
     this.getNotesDetail = document.getElementById("getNotesDetail");
     this.getNotesDetailValue = document.getElementById("getNotesDetailValue");
+    this.getNotesStrings = document.getElementById("getNotesStrings");
+    this.getNotesStringsValue = document.getElementById("getNotesStringsValue");
     this.getNotesSummary = document.getElementById("getNotesSummary");
     this.getNotesTabs = document.getElementById("getNotesTabs");
     this.getNotesNoteList = document.getElementById("getNotesNoteList");
@@ -2030,6 +2085,7 @@ class ProAudioStudioWeb {
     });
 
     this.getNotesDetail?.addEventListener("input", () => this.updateGetNotesDetailLabel());
+    this.getNotesStrings?.addEventListener("input", () => this.updateGetNotesStringsLabel());
 
     [window, document, this.appShell].filter(Boolean).forEach((target) => {
       target.addEventListener("dragenter", (event) => this.handleAppDragEnter(event));
@@ -2275,11 +2331,17 @@ class ProAudioStudioWeb {
     this.getNotesDetailValue.textContent = `${this.getNotesDetail.value} / 10`;
   }
 
+  updateGetNotesStringsLabel() {
+    if (!this.getNotesStringsValue || !this.getNotesStrings) return;
+    this.getNotesStringsValue.textContent = `${this.getNotesStrings.value} / 6`;
+  }
+
   openGetNotesTool() {
     if (!this.engine.activeBuffer) return alert("Open a file first.");
     if (!this.wave.getSelection()) return alert("Select a part in the waveform first.");
     this.updateGetNotesSelectionInfo();
     this.updateGetNotesDetailLabel();
+    this.updateGetNotesStringsLabel();
     this.getNotesModal.hidden = false;
   }
 
@@ -2296,7 +2358,7 @@ class ProAudioStudioWeb {
       this.getNotesNoteList.innerHTML = "";
       return;
     }
-    this.getNotesSummary.textContent = `Detected ${result.notes.length} playable note${result.notes.length === 1 ? "" : "s"} from ${fmtTime(result.selectionStart)} to ${fmtTime(result.selectionEnd)}. Detail level ${result.detail} used ${result.analysisWindowMs} ms windows. More dashes in the tab mean longer held notes.`;
+    this.getNotesSummary.textContent = `Detected ${result.notes.length} playable note${result.notes.length === 1 ? "" : "s"} from ${fmtTime(result.selectionStart)} to ${fmtTime(result.selectionEnd)}. Detail level ${result.detail} used ${result.analysisWindowMs} ms windows. Max strings: ${result.maxStrings}. Actually used: ${result.stringsUsed}. More dashes in the tab mean longer held notes.`;
     this.getNotesTabs.value = result.tabText;
     this.getNotesNoteList.innerHTML = result.notes.map((note, index) => `
       <div class="get-notes-note-item">
@@ -2312,6 +2374,7 @@ class ProAudioStudioWeb {
     if (!sourceBuffer) return alert("Open a file first.");
     if (!selection) return alert("Select a region in the waveform first.");
     const detail = clamp(Number(this.getNotesDetail?.value || 5), 1, 10);
+    const maxStrings = clamp(Number(this.getNotesStrings?.value || 6), 1, 6);
     const hopMs = Math.round(220 - ((detail - 1) * 18));
     const frameMs = Math.round(hopMs * 2.1);
     const { channels, sampleRate } = extractBufferRange(sourceBuffer, selection[0], selection[1]);
@@ -2347,6 +2410,8 @@ class ProAudioStudioWeb {
         notes: [],
         tabText: "",
         detail,
+        maxStrings,
+        stringsUsed: 0,
         analysisWindowMs: frameMs,
         selectionStart: selection[0],
         selectionEnd: selection[1],
@@ -2369,25 +2434,21 @@ class ProAudioStudioWeb {
     const filtered = merged
       .filter((entry) => entry.samples >= minDurationFrames)
       .map((entry) => ({ ...entry, midi: Math.round(median(entry.midiValues)) }));
-    const notes = [];
-    let previousPos = null;
-    filtered.forEach((entry) => {
-      const pos = pickBestGuitarPosition(entry.midi, previousPos);
-      previousPos = pos;
-      notes.push({
+    const rawNotes = filtered.map((entry) => ({
         midi: entry.midi,
         noteName: midiToNoteName(entry.midi),
-        stringIndex: pos.stringIndex,
-        fret: pos.fret,
         start: selection[0] + entry.startFrame / sampleRate,
         end: selection[0] + entry.endFrame / sampleRate,
-      });
-    });
+      }));
+    const mapping = mapNotesToPlayableStrings(rawNotes, maxStrings);
+    const notes = mapping?.notes || [];
     const tabText = buildTabTextFromNotes(notes, detail >= 8 ? 20 : detail >= 5 ? 16 : 12);
     this.renderGetNotesResult({
       notes,
       tabText,
       detail,
+      maxStrings,
+      stringsUsed: mapping?.stringsUsed || 0,
       analysisWindowMs: frameMs,
       selectionStart: selection[0],
       selectionEnd: selection[1],

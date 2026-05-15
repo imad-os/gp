@@ -190,6 +190,12 @@
             <input id="getNotesDetail" type="range" min="1" max="10" step="1" value="5">
             <small>1 = bigger chunks, 10 = very detailed note slicing.</small>
           </label>
+          <label class="get-notes-detail-card">
+            <span>Max Strings To Use</span>
+            <span id="getNotesStringsValue">6 / 6</span>
+            <input id="getNotesStrings" type="range" min="1" max="6" step="1" value="6">
+            <small>Sets the maximum number of strings the tab generator may use. It can use fewer if that gives a cleaner result.</small>
+          </label>
           <div class="panel-inline-actions">
             <button class="apply-button" data-action="analyze-get-notes">Analyze Selection</button>
             <button class="secondary-button" data-action="play-selection">Preview Selection</button>
