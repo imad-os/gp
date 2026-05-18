@@ -1,7 +1,7 @@
 import { collection, getDocs, doc, setDoc, getDoc, addDoc, deleteDoc, query, where, limit, orderBy, startAfter, documentId } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
 export class FirestoreRepository {
-  constructor(db) {
+  constructor(db, options = {}) {
     this.db = db;
     this.cachePrefix = 'guitartrainer.repo.cache.v1';
     this.readTimeoutMs = 6500;
@@ -9,6 +9,7 @@ export class FirestoreRepository {
     this.idbStore = 'kv';
     this.idbPromise = null;
     this.connectivityReporter = null;
+    this.binaryStore = options.binaryStore || globalThis.AppSupabaseStorage || null;
   }
 
   setConnectivityReporter(fn) {
@@ -55,6 +56,32 @@ export class FirestoreRepository {
     try {
       localStorage.setItem(cacheKey, JSON.stringify(value));
     } catch {}
+  }
+
+  canUseBinaryStore() {
+    return !!(this.binaryStore?.isConfigured?.() && this.binaryStore?.uploadDataUrl && this.binaryStore?.downloadDataUrl);
+  }
+
+  buildBinaryPointer(meta = {}) {
+    if (String(meta?.storageProvider || '').trim().toLowerCase() !== 'supabase') return null;
+    const bucketName = String(meta?.storageBucket || meta?.bucketName || '').trim();
+    const path = String(meta?.storagePath || meta?.path || '').trim();
+    if (!bucketName || !path) return null;
+    return {
+      bucketName,
+      path,
+      publicUrl: String(meta?.storagePublicUrl || meta?.publicUrl || '').trim()
+    };
+  }
+
+  async loadBinaryMeta(collectionName, userId, itemId) {
+    if (!collectionName || !userId || !itemId) return null;
+    try {
+      const snap = await getDoc(doc(this.db, 'users', userId, collectionName, itemId));
+      return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+    } catch {
+      return null;
+    }
   }
 
   async readWithCache(cacheKey, fetcher, { timeoutMs = this.readTimeoutMs } = {}) {
@@ -695,6 +722,31 @@ export class FirestoreRepository {
   }
 
   async saveMusicMediaData(userId, itemId, dataUrl, onProgress = null) {
+    if (this.canUseBinaryStore()) {
+      const uploaded = await this.binaryStore.uploadDataUrl({
+        userId,
+        itemId,
+        kind: 'music',
+        dataUrl,
+        objectName: 'payload',
+        onProgress,
+      });
+      await setDoc(doc(this.db, 'users', userId, 'music', itemId), {
+        mediaStored: true,
+        mediaChunkCount: 1,
+        storageProvider: 'supabase',
+        storageBucket: uploaded.bucketName,
+        storagePath: uploaded.path,
+        storagePublicUrl: uploaded.publicUrl,
+        storageContentType: uploaded.contentType,
+        storageObjectName: uploaded.objectName,
+        sizeBytes: Number(uploaded.sizeBytes || 0) || 0,
+        updatedAt: Date.now(),
+      }, { merge: true });
+      await this.idbSet(this.makeCacheKey('music_media', `${userId}:${itemId}`), String(dataUrl || ''));
+      await this.idbSet(this.makeCacheKey('music_media_device', itemId), String(dataUrl || ''));
+      return 1;
+    }
     const chunksRef = collection(this.db, 'users', userId, 'music', itemId, 'media_chunks');
     const existing = await getDocs(chunksRef);
     for (const entry of existing.docs) {
@@ -724,6 +776,11 @@ export class FirestoreRepository {
     const cacheKey = this.makeCacheKey('music_media', `${userId}:${itemId}`);
     try {
       const value = await this.readWithIdbCache(cacheKey, async () => {
+        const itemMeta = await this.loadBinaryMeta('music', userId, itemId);
+        const pointer = this.buildBinaryPointer(itemMeta);
+        if (pointer && this.canUseBinaryStore()) {
+          return await this.binaryStore.downloadDataUrl(pointer, onProgress);
+        }
         const chunksRef = collection(this.db, 'users', userId, 'music', itemId, 'media_chunks');
         const snap = await getDocs(chunksRef);
         if (snap.empty) return '';
@@ -758,6 +815,11 @@ export class FirestoreRepository {
 
   async deleteMusicMediaData(userId, itemId) {
     if (!userId || !itemId) return;
+    const itemMeta = await this.loadBinaryMeta('music', userId, itemId);
+    const pointer = this.buildBinaryPointer(itemMeta);
+    if (pointer && this.canUseBinaryStore()) {
+      await this.binaryStore.deleteObject(pointer);
+    }
     const chunksRef = collection(this.db, 'users', userId, 'music', itemId, 'media_chunks');
     const snap = await getDocs(chunksRef);
     for (const entry of snap.docs) {
@@ -970,6 +1032,27 @@ export class FirestoreRepository {
   }
 
   async saveGuitarProFileData(userId, itemId, dataUrl) {
+    if (this.canUseBinaryStore()) {
+      const uploaded = await this.binaryStore.uploadDataUrl({
+        userId,
+        itemId,
+        kind: 'guitarpro',
+        dataUrl,
+        objectName: 'payload',
+      });
+      await setDoc(doc(this.db, 'users', userId, 'guitarpro_files', itemId), {
+        storageProvider: 'supabase',
+        storageBucket: uploaded.bucketName,
+        storagePath: uploaded.path,
+        storagePublicUrl: uploaded.publicUrl,
+        storageContentType: uploaded.contentType,
+        storageObjectName: uploaded.objectName,
+        fileChunkCount: 1,
+        updatedAt: Date.now(),
+      }, { merge: true });
+      await this.idbSet(this.makeCacheKey('guitarpro_file_data', `${userId}:${itemId}`), String(dataUrl || ''));
+      return 1;
+    }
     const chunksRef = collection(this.db, 'users', userId, 'guitarpro_files', itemId, 'file_chunks');
     const existing = await getDocs(chunksRef);
     for (const entry of existing.docs) {
@@ -991,6 +1074,11 @@ export class FirestoreRepository {
   async loadGuitarProFileData(userId, itemId, onProgress = null) {
     const cacheKey = this.makeCacheKey('guitarpro_file_data', `${userId}:${itemId}`);
     return await this.readWithIdbCache(cacheKey, async () => {
+      const itemMeta = await this.loadBinaryMeta('guitarpro_files', userId, itemId);
+      const pointer = this.buildBinaryPointer(itemMeta);
+      if (pointer && this.canUseBinaryStore()) {
+        return await this.binaryStore.downloadDataUrl(pointer, onProgress);
+      }
       const chunksRef = collection(this.db, 'users', userId, 'guitarpro_files', itemId, 'file_chunks');
       const snap = await getDocs(chunksRef);
       if (snap.empty) return '';
@@ -1010,6 +1098,11 @@ export class FirestoreRepository {
   }
 
   async deleteGuitarProFile(userId, itemId) {
+    const itemMeta = await this.loadBinaryMeta('guitarpro_files', userId, itemId);
+    const pointer = this.buildBinaryPointer(itemMeta);
+    if (pointer && this.canUseBinaryStore()) {
+      await this.binaryStore.deleteObject(pointer);
+    }
     const chunksRef = collection(this.db, 'users', userId, 'guitarpro_files', itemId, 'file_chunks');
     const snap = await getDocs(chunksRef);
     for (const entry of snap.docs) {
@@ -1021,6 +1114,7 @@ export class FirestoreRepository {
     if (Array.isArray(current)) {
       this.setCacheJson(cacheKey, current.filter(item => item?.id !== itemId));
     }
+    await this.idbDelete(this.makeCacheKey('guitarpro_file_data', `${userId}:${itemId}`));
   }
 
   async saveGuitarTone(toneData, editingToneId = null) {

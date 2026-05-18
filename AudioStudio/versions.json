@@ -1,6 +1,28 @@
 {
-  "latestVersion": "v2026.05.15.8",
+  "latestVersion": "v2026.05.18.2",
   "updates": [
+    {
+      "version": "v2026.05.18.2",
+      "releasedAt": "2026-05-18T18:07:48Z",
+      "summary": "Supabase shared storage for music and Guitar Pro",
+      "description": "Move large music and Guitar Pro file content from Firestore chunks into shared Supabase storage while keeping Firestore metadata for discovery across Guitar Trainer and AudioStudio.",
+      "changes": [
+        "Added shared browser Supabase storage library for upload/list/download/delete",
+        "Switched Guitar Trainer music and Guitar Pro file bytes to Supabase with Firestore metadata and legacy fallback",
+        "Updated AudioStudio music load/save flow to use the shared storage path and added delete from Music"
+      ]
+    },
+    {
+      "version": "v2026.05.18.1",
+      "releasedAt": "2026-05-18T18:07:36Z",
+      "summary": "Supabase shared storage for music and Guitar Pro",
+      "description": "Move large music and Guitar Pro file content from Firestore chunks into shared Supabase storage while keeping Firestore metadata for discovery across Guitar Trainer and AudioStudio.",
+      "changes": [
+        "Added shared browser Supabase storage library for upload/list/download/delete",
+        "Switched Guitar Trainer music and Guitar Pro file bytes to Supabase with Firestore metadata and legacy fallback",
+        "Updated AudioStudio music load/save flow to use the shared storage path and added delete from Music"
+      ]
+    },
     {
       "version": "v2026.05.15.8",
       "releasedAt": "2026-05-15T14:04:17Z",
