@@ -94,7 +94,7 @@ const STUDIO_SETTINGS_FIELD = "audiostudio_settings";
 const STUDIO_SETTINGS_STORAGE_KEY = "audiostudio.settings";
 const APP_VERSIONS_URL = "/AudioStudio/versions.json";
 const APP_BUILD = {
-  version: "v2026.05.19.4",
+  version: "v2026.05.19.5",
 };
 const LARGE_MUSIC_SIZE_BYTES = 20 * 1024 * 1024;
 const AUDIO_FILE_EXTENSIONS = Object.freeze([
