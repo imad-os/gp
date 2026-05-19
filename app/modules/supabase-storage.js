@@ -21,11 +21,23 @@
     const runtime = typeof globalScope.__supabaseStorageConfig === "object" && globalScope.__supabaseStorageConfig
       ? globalScope.__supabaseStorageConfig
       : {};
-    return normalizeConfig({
-      ...DEFAULT_CONFIG,
-      ...(saved || {}),
-      ...runtime,
-    });
+    return normalizeConfig(mergeConfigs(DEFAULT_CONFIG, saved || {}, runtime));
+  }
+
+  function mergeConfigs(...configs) {
+    const merged = { ...DEFAULT_CONFIG };
+    for (const source of configs) {
+      const current = source && typeof source === "object" ? source : {};
+      for (const [key, value] of Object.entries(current)) {
+        const nextValue = typeof value === "string" ? value.trim() : value;
+        if (typeof nextValue === "string") {
+          if (nextValue) merged[key] = nextValue;
+        } else if (nextValue != null) {
+          merged[key] = nextValue;
+        }
+      }
+    }
+    return merged;
   }
 
   function normalizeConfig(raw = {}) {

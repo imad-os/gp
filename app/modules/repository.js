@@ -722,54 +722,32 @@ export class FirestoreRepository {
   }
 
   async saveMusicMediaData(userId, itemId, dataUrl, onProgress = null) {
-    if (this.canUseBinaryStore()) {
-      const uploaded = await this.binaryStore.uploadDataUrl({
-        userId,
-        itemId,
-        kind: 'music',
-        dataUrl,
-        objectName: 'payload',
-        onProgress,
-      });
-      await setDoc(doc(this.db, 'users', userId, 'music', itemId), {
-        mediaStored: true,
-        mediaChunkCount: 1,
-        storageProvider: 'supabase',
-        storageBucket: uploaded.bucketName,
-        storagePath: uploaded.path,
-        storagePublicUrl: uploaded.publicUrl,
-        storageContentType: uploaded.contentType,
-        storageObjectName: uploaded.objectName,
-        sizeBytes: Number(uploaded.sizeBytes || 0) || 0,
-        updatedAt: Date.now(),
-      }, { merge: true });
-      await this.idbSet(this.makeCacheKey('music_media', `${userId}:${itemId}`), String(dataUrl || ''));
-      await this.idbSet(this.makeCacheKey('music_media_device', itemId), String(dataUrl || ''));
-      return 1;
+    if (!this.canUseBinaryStore()) {
+      throw new Error('Supabase storage is required for music uploads and is not available.');
     }
-    const chunksRef = collection(this.db, 'users', userId, 'music', itemId, 'media_chunks');
-    const existing = await getDocs(chunksRef);
-    for (const entry of existing.docs) {
-      await deleteDoc(entry.ref);
-    }
-    const CHUNK_SIZE = 350000;
-    const source = String(dataUrl || '');
-    const chunkCount = Math.max(1, Math.ceil(source.length / CHUNK_SIZE));
-    if (typeof onProgress === 'function') onProgress(12);
-    for (let i = 0; i < chunkCount; i += 1) {
-      const start = i * CHUNK_SIZE;
-      const part = source.slice(start, start + CHUNK_SIZE);
-      const chunkId = String(i).padStart(5, '0');
-      await setDoc(doc(chunksRef, chunkId), { index: i, data: part });
-      if (typeof onProgress === 'function') {
-        const progress = 12 + Math.round(((i + 1) / chunkCount) * 80);
-        onProgress(Math.min(92, progress));
-      }
-    }
-    await this.idbSet(this.makeCacheKey('music_media', `${userId}:${itemId}`), source);
-    await this.idbSet(this.makeCacheKey('music_media_device', itemId), source);
-    if (typeof onProgress === 'function') onProgress(100);
-    return chunkCount;
+    const uploaded = await this.binaryStore.uploadDataUrl({
+      userId,
+      itemId,
+      kind: 'music',
+      dataUrl,
+      objectName: 'payload',
+      onProgress,
+    });
+    await setDoc(doc(this.db, 'users', userId, 'music', itemId), {
+      mediaStored: true,
+      mediaChunkCount: 1,
+      storageProvider: 'supabase',
+      storageBucket: uploaded.bucketName,
+      storagePath: uploaded.path,
+      storagePublicUrl: uploaded.publicUrl,
+      storageContentType: uploaded.contentType,
+      storageObjectName: uploaded.objectName,
+      sizeBytes: Number(uploaded.sizeBytes || 0) || 0,
+      updatedAt: Date.now(),
+    }, { merge: true });
+    await this.idbSet(this.makeCacheKey('music_media', `${userId}:${itemId}`), String(dataUrl || ''));
+    await this.idbSet(this.makeCacheKey('music_media_device', itemId), String(dataUrl || ''));
+    return 1;
   }
 
   async loadMusicMediaData(userId, itemId, onProgress = null) {
@@ -1032,43 +1010,28 @@ export class FirestoreRepository {
   }
 
   async saveGuitarProFileData(userId, itemId, dataUrl) {
-    if (this.canUseBinaryStore()) {
-      const uploaded = await this.binaryStore.uploadDataUrl({
-        userId,
-        itemId,
-        kind: 'guitarpro',
-        dataUrl,
-        objectName: 'payload',
-      });
-      await setDoc(doc(this.db, 'users', userId, 'guitarpro_files', itemId), {
-        storageProvider: 'supabase',
-        storageBucket: uploaded.bucketName,
-        storagePath: uploaded.path,
-        storagePublicUrl: uploaded.publicUrl,
-        storageContentType: uploaded.contentType,
-        storageObjectName: uploaded.objectName,
-        fileChunkCount: 1,
-        updatedAt: Date.now(),
-      }, { merge: true });
-      await this.idbSet(this.makeCacheKey('guitarpro_file_data', `${userId}:${itemId}`), String(dataUrl || ''));
-      return 1;
+    if (!this.canUseBinaryStore()) {
+      throw new Error('Supabase storage is required for Guitar Pro uploads and is not available.');
     }
-    const chunksRef = collection(this.db, 'users', userId, 'guitarpro_files', itemId, 'file_chunks');
-    const existing = await getDocs(chunksRef);
-    for (const entry of existing.docs) {
-      await deleteDoc(entry.ref);
-    }
-    const CHUNK_SIZE = 350000;
-    const source = String(dataUrl || '');
-    const chunkCount = Math.max(1, Math.ceil(source.length / CHUNK_SIZE));
-    for (let i = 0; i < chunkCount; i += 1) {
-      const start = i * CHUNK_SIZE;
-      const part = source.slice(start, start + CHUNK_SIZE);
-      const chunkId = String(i).padStart(5, '0');
-      await setDoc(doc(chunksRef, chunkId), { index: i, data: part });
-    }
-    await this.idbSet(this.makeCacheKey('guitarpro_file_data', `${userId}:${itemId}`), source);
-    return chunkCount;
+    const uploaded = await this.binaryStore.uploadDataUrl({
+      userId,
+      itemId,
+      kind: 'guitarpro',
+      dataUrl,
+      objectName: 'payload',
+    });
+    await setDoc(doc(this.db, 'users', userId, 'guitarpro_files', itemId), {
+      storageProvider: 'supabase',
+      storageBucket: uploaded.bucketName,
+      storagePath: uploaded.path,
+      storagePublicUrl: uploaded.publicUrl,
+      storageContentType: uploaded.contentType,
+      storageObjectName: uploaded.objectName,
+      fileChunkCount: 1,
+      updatedAt: Date.now(),
+    }, { merge: true });
+    await this.idbSet(this.makeCacheKey('guitarpro_file_data', `${userId}:${itemId}`), String(dataUrl || ''));
+    return 1;
   }
 
   async loadGuitarProFileData(userId, itemId, onProgress = null) {

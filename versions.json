@@ -1,6 +1,17 @@
 {
-  "latestVersion": "v2026.05.19.3",
+  "latestVersion": "v2026.05.19.4",
   "updates": [
+    {
+      "version": "v2026.05.19.4",
+      "releasedAt": "2026-05-19T08:25:59Z",
+      "summary": "Require Supabase for music file uploads",
+      "description": "Remove Firestore chunk fallback for shared music and Guitar Pro file uploads so new file content is stored only in Supabase, while Firestore keeps metadata and legacy reads remain supported.",
+      "changes": [
+        "Removed Firestore fallback for music media uploads",
+        "Removed Firestore fallback for Guitar Pro file uploads",
+        "Prevented blank saved browser config from overriding baked-in Supabase defaults"
+      ]
+    },
     {
       "version": "v2026.05.19.3",
       "releasedAt": "2026-05-19T08:17:36Z",

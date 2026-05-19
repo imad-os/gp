@@ -94,7 +94,7 @@ const STUDIO_SETTINGS_FIELD = "audiostudio_settings";
 const STUDIO_SETTINGS_STORAGE_KEY = "audiostudio.settings";
 const APP_VERSIONS_URL = "/AudioStudio/versions.json";
 const APP_BUILD = {
-  version: "v2026.05.19.3",
+  version: "v2026.05.19.4",
 };
 const LARGE_MUSIC_SIZE_BYTES = 20 * 1024 * 1024;
 const AUDIO_FILE_EXTENSIONS = Object.freeze([
@@ -277,39 +277,29 @@ class StudioCloudStore {
   }
 
   async saveMusicMediaData(uid, itemId, dataUrl) {
-    if (this.canUseBinaryStore()) {
-      const uploaded = await this.binaryStore.uploadDataUrl({
-        userId: uid,
-        itemId,
-        kind: "music",
-        dataUrl,
-        objectName: "payload",
-      });
-      await this.updateMusicEntry(uid, itemId, {
-        mediaStored: true,
-        mediaChunkCount: 1,
-        storageProvider: "supabase",
-        storageBucket: uploaded.bucketName,
-        storagePath: uploaded.path,
-        storagePublicUrl: uploaded.publicUrl,
-        storageContentType: uploaded.contentType,
-        storageObjectName: uploaded.objectName,
-        sizeBytes: Number(uploaded.sizeBytes || 0) || 0,
-        updatedAt: Date.now(),
-      });
-      return 1;
+    if (!this.canUseBinaryStore()) {
+      throw new Error("Supabase storage is required for music uploads and is not available.");
     }
-    const chunksRef = this.db.collection("users").doc(uid).collection("music").doc(itemId).collection("media_chunks");
-    const existing = await chunksRef.get();
-    for (const entry of existing.docs) await entry.ref.delete();
-    const source = String(dataUrl || "");
-    const CHUNK_SIZE = 350000;
-    const chunkCount = Math.max(1, Math.ceil(source.length / CHUNK_SIZE));
-    for (let i = 0; i < chunkCount; i += 1) {
-      const part = source.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-      await chunksRef.doc(String(i).padStart(5, "0")).set({ index: i, data: part });
-    }
-    return chunkCount;
+    const uploaded = await this.binaryStore.uploadDataUrl({
+      userId: uid,
+      itemId,
+      kind: "music",
+      dataUrl,
+      objectName: "payload",
+    });
+    await this.updateMusicEntry(uid, itemId, {
+      mediaStored: true,
+      mediaChunkCount: 1,
+      storageProvider: "supabase",
+      storageBucket: uploaded.bucketName,
+      storagePath: uploaded.path,
+      storagePublicUrl: uploaded.publicUrl,
+      storageContentType: uploaded.contentType,
+      storageObjectName: uploaded.objectName,
+      sizeBytes: Number(uploaded.sizeBytes || 0) || 0,
+      updatedAt: Date.now(),
+    });
+    return 1;
   }
 
   async loadMusicMediaData(uid, itemId) {
