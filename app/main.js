@@ -218,7 +218,7 @@ import { TOOL_PAGES, TOOL_PAGE_SET, TOOL_SUBTITLES, importToolModule } from './t
     const ALPHATAB_LOCAL_SOUNDFONT = '/assets/vendor/alphatab/package/dist/soundfont/sonivox.sf3';
     const APP_VERSIONS_URL = '/versions.json';
     const APP_BUILD = {
-      version: 'v2026.05.19.5',
+      version: 'v2026.05.19.6',
     };
     const LIBRARY_ADMIN_EMAILS = ['imad@gmail.com'];
     const LIBRARY_ADMIN_UIDS = [];
@@ -4166,9 +4166,7 @@ Drop back to 70 BPM for clean finish.`,
         app = initializeApp(firebaseConfig);
         auth = getAuth(app);
         db = getFirestore(app);
-        repository = new FirestoreRepository(db, {
-          binaryStore: globalThis.AppSupabaseStorage || null
-        });
+        repository = new FirestoreRepository(db);
         repository.setConnectivityReporter(handleDataLayerConnectivity);
         looperHistory = withLooperSource(repository?.loadLooperHistoryFromDeviceCache?.() || [], 'device');
         renderLooperHistory();

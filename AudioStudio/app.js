@@ -94,7 +94,7 @@ const STUDIO_SETTINGS_FIELD = "audiostudio_settings";
 const STUDIO_SETTINGS_STORAGE_KEY = "audiostudio.settings";
 const APP_VERSIONS_URL = "/AudioStudio/versions.json";
 const APP_BUILD = {
-  version: "v2026.05.19.5",
+  version: "v2026.05.19.6",
 };
 const LARGE_MUSIC_SIZE_BYTES = 20 * 1024 * 1024;
 const AUDIO_FILE_EXTENSIONS = Object.freeze([
@@ -186,28 +186,6 @@ class StudioCloudStore {
     }
     this.auth = firebase.auth();
     this.db = firebase.firestore();
-    this.binaryStore = window.AppSupabaseStorage || null;
-  }
-
-  canUseBinaryStore() {
-    return !!(this.binaryStore?.isConfigured?.() && this.binaryStore?.uploadDataUrl && this.binaryStore?.downloadDataUrl);
-  }
-
-  buildBinaryPointer(meta = {}) {
-    if (String(meta?.storageProvider || "").trim().toLowerCase() !== "supabase") return null;
-    const bucketName = String(meta?.storageBucket || meta?.bucketName || "").trim();
-    const path = String(meta?.storagePath || meta?.path || "").trim();
-    if (!bucketName || !path) return null;
-    return {
-      bucketName,
-      path,
-      publicUrl: String(meta?.storagePublicUrl || meta?.publicUrl || "").trim(),
-    };
-  }
-
-  async loadMusicEntry(uid, itemId) {
-    const snap = await this.db.collection("users").doc(uid).collection("music").doc(itemId).get();
-    return snap.exists ? { id: snap.id, ...snap.data() } : null;
   }
 
   async enablePersistence() {
@@ -262,6 +240,16 @@ class StudioCloudStore {
       .sort((a, b) => (Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0)));
   }
 
+  async loadMusicMediaData(uid, itemId) {
+    const snap = await this.db.collection("users").doc(uid).collection("music").doc(itemId).collection("media_chunks").get();
+    if (snap.empty) return "";
+    return snap.docs
+      .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+      .sort((a, b) => (Number(a.index ?? a.id) - Number(b.index ?? b.id)))
+      .map((entry) => String(entry.data || ""))
+      .join("");
+  }
+
   async saveMusicEntry(uid, payload, itemId = "") {
     const userRef = this.db.collection("users").doc(uid).collection("music");
     if (itemId) {
@@ -277,59 +265,17 @@ class StudioCloudStore {
   }
 
   async saveMusicMediaData(uid, itemId, dataUrl) {
-    if (!this.canUseBinaryStore()) {
-      throw new Error("Supabase storage is required for music uploads and is not available.");
-    }
-    const uploaded = await this.binaryStore.uploadDataUrl({
-      userId: uid,
-      itemId,
-      kind: "music",
-      dataUrl,
-      objectName: "payload",
-    });
-    await this.updateMusicEntry(uid, itemId, {
-      mediaStored: true,
-      mediaChunkCount: 1,
-      storageProvider: "supabase",
-      storageBucket: uploaded.bucketName,
-      storagePath: uploaded.path,
-      storagePublicUrl: uploaded.publicUrl,
-      storageContentType: uploaded.contentType,
-      storageObjectName: uploaded.objectName,
-      sizeBytes: Number(uploaded.sizeBytes || 0) || 0,
-      updatedAt: Date.now(),
-    });
-    return 1;
-  }
-
-  async loadMusicMediaData(uid, itemId) {
-    const item = await this.loadMusicEntry(uid, itemId);
-    const pointer = this.buildBinaryPointer(item);
-    if (pointer && this.canUseBinaryStore()) {
-      return await this.binaryStore.downloadDataUrl(pointer);
-    }
-    const snap = await this.db.collection("users").doc(uid).collection("music").doc(itemId).collection("media_chunks").get();
-    if (snap.empty) return "";
-    return snap.docs
-      .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
-      .sort((a, b) => (Number(a.index ?? a.id) - Number(b.index ?? b.id)))
-      .map((entry) => String(entry.data || ""))
-      .join("");
-  }
-
-  async deleteMusicMediaData(uid, itemId) {
-    const item = await this.loadMusicEntry(uid, itemId);
-    const pointer = this.buildBinaryPointer(item);
-    if (pointer && this.canUseBinaryStore()) {
-      await this.binaryStore.deleteObject(pointer);
-    }
     const chunksRef = this.db.collection("users").doc(uid).collection("music").doc(itemId).collection("media_chunks");
     const existing = await chunksRef.get();
     for (const entry of existing.docs) await entry.ref.delete();
-  }
-
-  async deleteMusicEntry(uid, itemId) {
-    await this.db.collection("users").doc(uid).collection("music").doc(itemId).delete();
+    const source = String(dataUrl || "");
+    const CHUNK_SIZE = 350000;
+    const chunkCount = Math.max(1, Math.ceil(source.length / CHUNK_SIZE));
+    for (let i = 0; i < chunkCount; i += 1) {
+      const part = source.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+      await chunksRef.doc(String(i).padStart(5, "0")).set({ index: i, data: part });
+    }
+    return chunkCount;
   }
 }
 
@@ -2273,31 +2219,17 @@ class ProAudioStudioWeb {
         return;
       }
       this.musicLibraryList.innerHTML = this.musicLibraryItems.map((item) => `
-        <div class="profile-item">
-          <div class="profile-top">
-            <button type="button" class="profile-apply" data-role="open-music-item" data-id="${escapeHtml(item.id)}">Open</button>
-            <div class="profile-actions" style="margin-left:auto;">
-              <button type="button" class="profile-apply danger" data-role="delete-music-item" data-id="${escapeHtml(item.id)}">Delete</button>
-            </div>
-          </div>
+        <button class="profile-item" data-role="open-music-item" data-id="${escapeHtml(item.id)}">
           <div>
-              <div class="profile-name">${escapeHtml(item.title || "Untitled Track")}</div>
-              <div class="profile-meta">${escapeHtml(item.artist || "Unknown artist")} • ${escapeHtml(item.originLabel || "Uploaded")}</div>
+            <div class="profile-name">${escapeHtml(item.title || "Untitled Track")}</div>
+            <div class="profile-meta">${escapeHtml(item.artist || "Unknown artist")} • ${escapeHtml(item.originLabel || "Uploaded")}</div>
           </div>
-        </div>
+        </button>
       `).join("");
       this.musicLibraryList.querySelectorAll('[data-role="open-music-item"]').forEach((button) => {
         button.addEventListener("click", async () => {
           const itemId = button.getAttribute("data-id") || "";
           await this.loadMusicLibraryItem(itemId);
-        });
-      });
-      this.musicLibraryList.querySelectorAll('[data-role="delete-music-item"]').forEach((button) => {
-        button.addEventListener("click", async (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          const itemId = button.getAttribute("data-id") || "";
-          await this.deleteMusicLibraryItem(itemId);
         });
       });
     } catch (error) {
@@ -2372,30 +2304,9 @@ class ProAudioStudioWeb {
       const chunkCount = await this.cloud.saveMusicMediaData(this.currentUser.uid, itemId, dataUrl);
       await this.cloud.updateMusicEntry(this.currentUser.uid, itemId, { mediaStored: true, mediaChunkCount: chunkCount, updatedAt: Date.now() });
       this.setStatus("Saved edited track to music collection");
-      await this.renderMusicLibraryModal();
     } catch (error) {
       this.setStatus(`Music save failed: ${error.message}`);
       alert(`Could not save to music collection.\n\n${error.message}`);
-    } finally {
-      this.setBusy(false);
-    }
-  }
-
-  async deleteMusicLibraryItem(itemId) {
-    if (!this.canUseCloudStorage) return;
-    const item = this.musicLibraryItems.find((entry) => entry.id === itemId);
-    if (!item) return;
-    if (!window.confirm(`Delete "${item.title || "this track"}" from Music?`)) return;
-    try {
-      this.setBusy(true, "Deleting music item...");
-      await this.cloud.deleteMusicMediaData(this.currentUser.uid, itemId);
-      await this.cloud.deleteMusicEntry(this.currentUser.uid, itemId);
-      this.musicLibraryItems = this.musicLibraryItems.filter((entry) => entry.id !== itemId);
-      this.setStatus(`Deleted ${item.title || "music item"}`);
-      await this.renderMusicLibraryModal();
-    } catch (error) {
-      this.setStatus(`Music delete failed: ${error.message}`);
-      alert(`Could not delete this music item.\n\n${error.message}`);
     } finally {
       this.setBusy(false);
     }

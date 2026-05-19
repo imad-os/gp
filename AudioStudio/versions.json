@@ -1,23 +1,23 @@
 {
-  "latestVersion": "v2026.05.19.5",
+  "latestVersion": "v2026.05.19.6",
   "updates": [
+    {
+      "version": "v2026.05.19.6",
+      "releasedAt": "2026-05-19T08:32:26Z",
+      "summary": "Revert Supabase integration",
+      "description": "Remove the Supabase storage integration that was added on May 18 and May 19, restoring the previous Firestore-based behavior and removing the Supabase-related release history entries.",
+      "changes": [
+        "Removed shared Supabase storage module and script loading",
+        "Restored pre-Supabase repository and AudioStudio storage flows",
+        "Removed Supabase-related release notes from version history"
+      ]
+    },
     {
       "version": "v2026.05.19.5",
       "releasedAt": "2026-05-19T08:26:49Z",
       "summary": "bug fixes ...",
       "description": "",
       "changes": []
-    },
-    {
-      "version": "v2026.05.19.4",
-      "releasedAt": "2026-05-19T08:25:59Z",
-      "summary": "Require Supabase for music file uploads",
-      "description": "Remove Firestore chunk fallback for shared music and Guitar Pro file uploads so new file content is stored only in Supabase, while Firestore keeps metadata and legacy reads remain supported.",
-      "changes": [
-        "Removed Firestore fallback for music media uploads",
-        "Removed Firestore fallback for Guitar Pro file uploads",
-        "Prevented blank saved browser config from overriding baked-in Supabase defaults"
-      ]
     },
     {
       "version": "v2026.05.19.3",
@@ -32,39 +32,6 @@
       "summary": "bug fixes ...",
       "description": "",
       "changes": []
-    },
-    {
-      "version": "v2026.05.19.1",
-      "releasedAt": "2026-05-19T08:15:27Z",
-      "summary": "Bake in Supabase config defaults",
-      "description": "Set the shared storage module to use the provided Supabase project URL, publishable key, and musicc bucket by default so both apps work without browser-local setup.",
-      "changes": [
-        "Added default Supabase URL and publishable key to shared storage config",
-        "Set musicc as the default bucket",
-        "Improved missing-config error reporting for shared storage"
-      ]
-    },
-    {
-      "version": "v2026.05.18.2",
-      "releasedAt": "2026-05-18T18:07:48Z",
-      "summary": "Supabase shared storage for music and Guitar Pro",
-      "description": "Move large music and Guitar Pro file content from Firestore chunks into shared Supabase storage while keeping Firestore metadata for discovery across Guitar Trainer and AudioStudio.",
-      "changes": [
-        "Added shared browser Supabase storage library for upload/list/download/delete",
-        "Switched Guitar Trainer music and Guitar Pro file bytes to Supabase with Firestore metadata and legacy fallback",
-        "Updated AudioStudio music load/save flow to use the shared storage path and added delete from Music"
-      ]
-    },
-    {
-      "version": "v2026.05.18.1",
-      "releasedAt": "2026-05-18T18:07:36Z",
-      "summary": "Supabase shared storage for music and Guitar Pro",
-      "description": "Move large music and Guitar Pro file content from Firestore chunks into shared Supabase storage while keeping Firestore metadata for discovery across Guitar Trainer and AudioStudio.",
-      "changes": [
-        "Added shared browser Supabase storage library for upload/list/download/delete",
-        "Switched Guitar Trainer music and Guitar Pro file bytes to Supabase with Firestore metadata and legacy fallback",
-        "Updated AudioStudio music load/save flow to use the shared storage path and added delete from Music"
-      ]
     },
     {
       "version": "v2026.05.15.8",
