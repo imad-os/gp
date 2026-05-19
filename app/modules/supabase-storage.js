@@ -1,6 +1,11 @@
 (function initAppSupabaseStorage(globalScope) {
   const STORAGE_KEY = "supabase-demo-config";
-  const FALLBACK_BUCKET = "";
+  const DEFAULT_CONFIG = Object.freeze({
+    supabaseUrl: "https://ocrxadrlzfsavedsbaib.supabase.co",
+    supabaseKey: "sb_publishable_jf74iPPMcBXRhYLkfiB4QA_SNQNgPZV",
+    bucketName: "musicc",
+    folderPath: "",
+  });
   let supabaseClient = null;
 
   function safeJsonParse(raw) {
@@ -17,6 +22,7 @@
       ? globalScope.__supabaseStorageConfig
       : {};
     return normalizeConfig({
+      ...DEFAULT_CONFIG,
       ...(saved || {}),
       ...runtime,
     });
@@ -26,7 +32,7 @@
     return {
       supabaseUrl: String(raw.supabaseUrl || "").trim(),
       supabaseKey: String(raw.supabaseKey || "").trim(),
-      bucketName: String(raw.bucketName || FALLBACK_BUCKET).trim(),
+      bucketName: String(raw.bucketName || DEFAULT_CONFIG.bucketName).trim(),
       folderPath: String(raw.folderPath || "").trim().replace(/^\/+|\/+$/g, ""),
     };
   }
@@ -42,10 +48,19 @@
     return !!(config.supabaseUrl && config.supabaseKey && config.bucketName);
   }
 
+  function getMissingConfigFields(config = loadSavedConfig()) {
+    const missing = [];
+    if (!config.supabaseUrl) missing.push("supabaseUrl");
+    if (!config.supabaseKey) missing.push("supabaseKey");
+    if (!config.bucketName) missing.push("bucketName");
+    return missing;
+  }
+
   function getClient() {
     const config = loadSavedConfig();
     if (!isConfigured(config)) {
-      throw new Error("Supabase storage is not configured. Save supabase-demo-config in localStorage first.");
+      const missing = getMissingConfigFields(config);
+      throw new Error(`Supabase storage is not configured. Missing: ${missing.join(", ")}. Save supabase-demo-config in localStorage or window.__supabaseStorageConfig first.`);
     }
     if (!globalScope.supabase?.createClient) {
       throw new Error("Supabase client library is not loaded.");
@@ -214,9 +229,11 @@
 
   globalScope.AppSupabaseStorage = {
     STORAGE_KEY,
+    DEFAULT_CONFIG,
     loadSavedConfig,
     saveConfig,
     isConfigured,
+    getMissingConfigFields,
     getClient,
     uploadDataUrl,
     downloadDataUrl,
